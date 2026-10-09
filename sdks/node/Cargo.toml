@@ -1,0 +1,23 @@
+[package]
+name = "agen-node"
+description = "Node.js bindings for the Agen engine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/prjvvl/agen"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+agen-sdk-core = { path = "../../engine/crates/agen-sdk-core" }
+napi = { version = "3", default-features = false, features = ["napi6", "async", "tokio_rt"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "2"
+
+[workspace]

@@ -1,0 +1,67 @@
+name: platform
+on:
+  push:
+    branches: [main]
+    paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", ".github/workflows/platform.yml"]
+  pull_request:
+    paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", ".github/workflows/platform.yml"]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+        if: runner.os == 'Linux'
+      - name: generated code is up to date
+        if: runner.os == 'Linux'
+        run: ./scripts/gen.sh && git diff --exit-code
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l platform/cmd platform/internal)"
+      # Manager and CLI tests run real agen-host processes.
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build -p agen-host
+      - run: go vet ./...
+        working-directory: platform
+      - run: go test -race ./...
+        working-directory: platform
+        if: runner.os != 'Windows'
+        env:
+          AGEN_REQUIRE_HOST: "1"
+      - run: go test ./...
+        working-directory: platform
+        if: runner.os == 'Windows'
+        env:
+          AGEN_REQUIRE_HOST: "1"
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agen
+          POSTGRES_PASSWORD: agen
+          POSTGRES_DB: agen
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agen" --health-interval 2s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+      - run: go test -race ./internal/store/
+        working-directory: platform
+        env:
+          AGEN_TEST_POSTGRES_URL: postgres://agen:agen@localhost:5432/agen
+          AGEN_REQUIRE_PG: "1"

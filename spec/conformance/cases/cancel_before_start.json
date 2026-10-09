@@ -1,0 +1,27 @@
+{
+  "name": "cancel_before_start",
+  "description": "A cancel issued before the run starts makes it start cancelled.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "never",
+          "delayMs": 20000
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "go",
+      "cancelBeforeStart": true
+    }
+  ],
+  "expect": [
+    {
+      "status": "cancelled"
+    }
+  ]
+}

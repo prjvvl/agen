@@ -1,0 +1,309 @@
+syntax = "proto3";
+
+package agen.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
+
+message DeploymentRef {
+  string namespace = 1;
+  string name = 2;
+}
+
+// An immutable, content-addressed bundle version.
+message Definition {
+  string name = 1;
+  // "sha256:<hex>" over all bundle files.
+  string digest = 2;
+  // Bundle-relative path -> file bytes.
+  map<string, bytes> files = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+enum DeploymentKind {
+  DEPLOYMENT_KIND_UNSPECIFIED = 0;
+  DEPLOYMENT_KIND_SINGLETON = 1;
+  DEPLOYMENT_KIND_POOL = 2;
+  DEPLOYMENT_KIND_TASK = 3;
+}
+
+message ScalePolicy {
+  int32 min = 1;
+  int32 max = 2;
+  int32 target_queue_per_instance = 3;
+  // Seconds without tasks or A2A traffic before scaling to min.
+  int32 idle_timeout_seconds = 4;
+  // Tasks one instance may run at once.
+  int32 max_concurrency = 5;
+}
+
+message Budget {
+  int64 max_tokens_per_run = 1;
+  double max_usd_per_run = 2;
+  double max_usd_per_day = 3;
+}
+
+message Limits {
+  // Max A2A/task delegation depth below a root run.
+  int32 max_delegation_depth = 1;
+  // Max delegated calls a single run may make.
+  int32 max_fan_out = 2;
+  // Max delegated calls across the whole tree under one root run.
+  int32 max_total_delegations = 3;
+}
+
+message Trigger {
+  // "cron" or "webhook".
+  string type = 1;
+  string name = 2;
+  // Cron expression (cron triggers).
+  string schedule = 3;
+  // Task input to submit when fired (webhooks: prepended to the body).
+  string input = 4;
+  // Cron: after windows were missed (Hub down), fire the latest missed one
+  // once. Missed windows are always recorded as "missed" events.
+  bool catch_up = 5;
+  // Set by the Hub when the trigger first appears on the deployment; cron
+  // windows before it are never considered (a trigger added later does not
+  // back-fill "missed" windows).
+  int64 active_since_ms = 6;
+}
+
+enum TriggerEventState {
+  TRIGGER_EVENT_STATE_UNSPECIFIED = 0;
+  // A task was queued.
+  TRIGGER_EVENT_STATE_FIRED = 1;
+  // The trigger was due but could not fire (for example the Hub was down).
+  TRIGGER_EVENT_STATE_MISSED = 2;
+  TRIGGER_EVENT_STATE_REJECTED = 3;
+}
+
+message TriggerEvent {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  string trigger = 4;
+  TriggerEventState state = 5;
+  string task_id = 6;
+  google.protobuf.Timestamp due_at = 7;
+  google.protobuf.Timestamp recorded_at = 8;
+  string message = 9;
+}
+
+message Placement {
+  // Nest must have all these labels.
+  map<string, string> labels = 1;
+}
+
+message Deployment {
+  string namespace = 1;
+  string name = 2;
+  string definition_digest = 3;
+  DeploymentKind kind = 4;
+  ScalePolicy scale = 5;
+  Budget budget = 6;
+  Placement placement = 7;
+  // Desired instance count, set by operators or the autoscaler.
+  int32 desired = 8;
+  // Ready instance count across all Nests.
+  int32 ready = 9;
+  int64 generation = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  // Unix seconds of the last task or A2A activity.
+  int64 last_activity_unix = 13;
+  Limits limits = 14;
+  repeated Trigger triggers = 15;
+  // Paused: no instances run (autoscaler and wake-ups are ignored) and
+  // queued tasks wait until the deployment is resumed.
+  bool paused = 16;
+  // Model spend of today's (UTC) runs, and whether it reached
+  // budget.max_usd_per_day: then no new work starts (autoscaler holds 0,
+  // no leases, wake-ups refused) until the next UTC day.
+  double spent_usd_today = 17;
+  bool budget_exhausted = 18;
+}
+
+enum InstanceState {
+  INSTANCE_STATE_UNSPECIFIED = 0;
+  INSTANCE_STATE_STARTING = 1;
+  INSTANCE_STATE_READY = 2;
+  INSTANCE_STATE_BUSY = 3;
+  INSTANCE_STATE_DRAINING = 4;
+  INSTANCE_STATE_STOPPED = 5;
+  INSTANCE_STATE_FAILED = 6;
+}
+
+message Instance {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  string nest_id = 4;
+  string definition_digest = 5;
+  InstanceState state = 6;
+  // Direct endpoint inside the Nest (reached via the Gateway).
+  string endpoint = 7;
+  int32 running_tasks = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp last_seen = 10;
+  string message = 11;
+}
+
+enum NestState {
+  NEST_STATE_UNSPECIFIED = 0;
+  NEST_STATE_ACTIVE = 1;
+  NEST_STATE_LOST = 2;
+  NEST_STATE_DRAINING = 3;
+  // Credentials revoked by an admin (agen nests revoke); it cannot reconnect.
+  NEST_STATE_REVOKED = 4;
+}
+
+message Nest {
+  string id = 1;
+  string name = 2;
+  string backend = 3;
+  map<string, string> labels = 4;
+  // Maximum instances this Nest accepts.
+  int32 capacity = 5;
+  int32 used = 6;
+  string gateway_url = 7;
+  NestState state = 8;
+  google.protobuf.Timestamp last_heartbeat = 9;
+}
+
+// Desired placement: run `count` instances of a deployment in a nest.
+message Assignment {
+  string namespace = 1;
+  string deployment = 2;
+  string nest_id = 3;
+  int32 count = 4;
+  string definition_digest = 5;
+  int64 generation = 6;
+  // Deployment kind name ("singleton", "pool", "task") and per-instance
+  // concurrency, so the Manager can start instances without another call.
+  string kind = 7;
+  int32 max_concurrency = 8;
+  // Enforced by the receiving Gateway from the caller's agen.depth.
+  int32 max_delegation_depth = 9;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_QUEUED = 1;
+  TASK_STATE_LEASED = 2;
+  TASK_STATE_RUNNING = 3;
+  TASK_STATE_SUCCEEDED = 4;
+  TASK_STATE_FAILED = 5;
+  TASK_STATE_CANCELLED = 6;
+}
+
+message Task {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  string input = 4;
+  TaskState state = 5;
+  string output = 6;
+  string error = 7;
+  string instance_id = 8;
+  string run_id = 9;
+  // Where the task came from: "api", "cron:<name>", "webhook:<name>", "a2a".
+  string source = 10;
+  int32 attempts = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  google.protobuf.Timestamp lease_expires_at = 14;
+  string trace_id = 15;
+  // Fencing token of the current lease. Extend/Complete with any other value
+  // are rejected, so a partitioned Nest cannot complete a re-leased task.
+  string lease_id = 16;
+  // Delegation lineage.
+  string parent_task_id = 17;
+  string parent_run_id = 18;
+  string root_run_id = 19;
+  int32 depth = 20;
+  // W3C traceparent to continue.
+  string traceparent = 21;
+}
+
+enum ApprovalState {
+  APPROVAL_STATE_UNSPECIFIED = 0;
+  APPROVAL_STATE_PENDING = 1;
+  APPROVAL_STATE_APPROVED = 2;
+  APPROVAL_STATE_DENIED = 3;
+  APPROVAL_STATE_EXPIRED = 4;
+}
+
+message Approval {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  string run_id = 4;
+  string tool = 5;
+  // Tool arguments with secret values redacted before persisting.
+  google.protobuf.Struct arguments = 6;
+  ApprovalState state = 7;
+  // Principal whose request led to this approval; may not decide it.
+  string requested_by = 8;
+  string decided_by = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp expires_at = 11;
+}
+
+message Usage {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  double cost_usd = 3;
+}
+
+message Span {
+  string trace_id = 1;
+  string span_id = 2;
+  string parent_span_id = 3;
+  string name = 4;
+  string run_id = 5;
+  google.protobuf.Timestamp start = 6;
+  google.protobuf.Timestamp end = 7;
+  // OTel-style attributes, e.g. gen_ai.request.model.
+  google.protobuf.Struct attributes = 8;
+  string status = 9;
+}
+
+message LogLine {
+  string instance_id = 1;
+  google.protobuf.Timestamp time = 2;
+  string level = 3;
+  string message = 4;
+}
+
+message ApiToken {
+  string id = 1;
+  string name = 2;
+  // viewer, operator, approver, admin.
+  repeated string scopes = 3;
+  // Empty means all namespaces.
+  repeated string namespaces = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  bool revoked = 7;
+}
+
+message Run {
+  string id = 1;
+  string session_id = 2;
+  string conversation_id = 3;
+  string namespace = 4;
+  string deployment = 5;
+  string status = 6;
+  string input = 7;
+  string output = 8;
+  Usage usage = 9;
+  string trace_id = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp ended_at = 12;
+  string parent_run_id = 13;
+  string root_run_id = 14;
+  string definition_digest = 15;
+}

@@ -1,0 +1,43 @@
+{
+  "name": "task_idempotency",
+  "description": "Running the same task id twice returns the first run's result without running again.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "once"
+        },
+        {
+          "text": "twice"
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "go",
+      "options": {
+        "taskId": "task-1"
+      }
+    },
+    {
+      "input": "go",
+      "options": {
+        "taskId": "task-1"
+      }
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "once"
+    },
+    {
+      "status": "succeeded",
+      "output": "once",
+      "sameRunAsPrevious": true
+    }
+  ]
+}

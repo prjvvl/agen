@@ -1,0 +1,10 @@
+{
+  "name": "invalid_spec",
+  "description": "An invalid agent spec fails with the stable code invalid_spec.",
+  "agent": {
+    "name": "c"
+  },
+  "runs": [],
+  "expect": [],
+  "createError": "invalid_spec"
+}

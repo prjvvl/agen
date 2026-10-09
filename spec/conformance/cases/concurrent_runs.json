@@ -1,0 +1,30 @@
+{
+  "name": "concurrent_runs",
+  "description": "Several runs on one agent proceed concurrently: 8 runs of 300 ms each must finish well under 8 x 300 ms.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "ok",
+          "delayMs": 300
+        }
+      ],
+      "cycle": true
+    }
+  },
+  "runs": [
+    {
+      "input": "go",
+      "concurrent": 8
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "ok",
+      "maxWallMs": 1500
+    }
+  ]
+}

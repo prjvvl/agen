@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agen.dev/schemas/bundle/agent.schema.json",
+  "title": "x-agen/agent.md frontmatter",
+  "type": "object",
+  "required": ["name", "description"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+    "description": { "type": "string", "minLength": 1 },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "maxTurns": { "type": "integer", "minimum": 1, "maximum": 1000 }
+  },
+  "additionalProperties": false
+}

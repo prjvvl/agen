@@ -1,0 +1,46 @@
+{
+  "name": "structured_result",
+  "description": "Non-string tool results are sent to the model as JSON.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "data",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "text": "ok",
+          "expect": "\"n\":42"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "data",
+      "readOnly": true,
+      "behavior": {
+        "return": {
+          "n": 42
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "ok"
+    }
+  ]
+}

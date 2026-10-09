@@ -1,0 +1,46 @@
+{
+  "name": "tool_error",
+  "description": "A tool error is reported to the model as a tool result, not a crash.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "fail",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "text": "handled",
+          "expect": "disk full"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "fail",
+      "behavior": {
+        "error": "disk full"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "handled",
+      "toolCalls": [
+        "fail"
+      ]
+    }
+  ]
+}

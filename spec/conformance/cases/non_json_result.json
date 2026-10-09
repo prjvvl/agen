@@ -1,0 +1,43 @@
+{
+  "name": "non_json_result",
+  "description": "A tool returning a value that is not JSON-serialisable becomes a tool error.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "weird",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "text": "handled",
+          "expect": "error"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "weird",
+      "behavior": {
+        "nonJson": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "handled"
+    }
+  ]
+}

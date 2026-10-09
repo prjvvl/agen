@@ -1,0 +1,35 @@
+[package]
+name = "agen-engine"
+description = "Agen agent engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+jsonschema = "0.58.1"
+serde_yaml_ng = "0.10.0"
+sha2 = "0.11.0"
+hex = "0.4.3"
+walkdir = "2.5.0"
+async-trait = "0.1.92"
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "rt-multi-thread"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "any", "sqlite", "postgres", "migrate"] }
+ulid = "3.0.0"
+tokio-util = "0.7.19"
+futures-util = "0.3.34"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "json", "http2", "system-proxy"] }
+rmcp = { version = "3.4.1", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "which-command"] }
+process-wrap = { version = "10", features = ["tokio1"] }
+http = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+axum = "0.8.9"
+tempfile = "3.27.0"

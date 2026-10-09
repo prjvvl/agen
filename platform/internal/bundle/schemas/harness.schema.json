@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agen.dev/schemas/bundle/harness.schema.json",
+  "title": "x-agen/harness.json",
+  "type": "object",
+  "required": ["provider", "model"],
+  "properties": {
+    "provider": { "enum": ["openrouter", "openai", "fake", "replay"] },
+    "model": { "type": "string", "minLength": 1 },
+    "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+    "maxOutputTokens": { "type": "integer", "minimum": 1 },
+    "baseUrl": { "type": "string" },
+    "apiKeySecret": { "type": "string", "description": "Secret name holding the API key" },
+    "script": { "type": "string", "description": "fake provider: path to script, relative to bundle" },
+    "cassette": { "type": "string", "description": "replay provider: path to cassette, relative to bundle" }
+  },
+  "additionalProperties": false
+}

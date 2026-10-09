@@ -1,0 +1,40 @@
+{
+  "name": "close_during_run",
+  "description": "Closing the agent while a run waits on a host tool makes the run return promptly (cancelled).",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "wait",
+              "arguments": {}
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "wait",
+      "behavior": {
+        "sleepMs": 20000
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go",
+      "closeAfterMs": 300
+    }
+  ],
+  "expect": [
+    {
+      "status": "cancelled",
+      "maxWallMs": 5000
+    }
+  ]
+}

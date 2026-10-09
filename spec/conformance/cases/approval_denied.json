@@ -1,0 +1,53 @@
+{
+  "name": "approval_denied",
+  "description": "Denied approvals never run the tool; the model is told.",
+  "agent": {
+    "name": "c",
+    "permissions": {
+      "default": "ask"
+    },
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "pay",
+              "arguments": {
+                "to": "bob"
+              }
+            }
+          ]
+        },
+        {
+          "text": "stopped",
+          "expect": "not approved"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "pay",
+      "behavior": {
+        "return": "sent"
+      }
+    }
+  ],
+  "approvals": "deny",
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "stopped",
+      "toolCalls": [],
+      "approvalsAsked": [
+        "pay"
+      ]
+    }
+  ]
+}

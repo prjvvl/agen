@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["engine/crates/*"]
+# Built by maturin with its own workspace (it needs a Python toolchain to link).
+exclude = ["sdks/python", "sdks/node"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/prjvvl/agen"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }

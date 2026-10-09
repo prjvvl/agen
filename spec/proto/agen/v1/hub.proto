@@ -1,0 +1,357 @@
+syntax = "proto3";
+
+package agen.v1;
+
+import "agen/v1/resources.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
+
+// Client-facing control plane API. Served by the Hub over Connect (gRPC,
+// Connect, JSON) and exposed 1:1 as MCP tools. CLI and UI use only this.
+service HubService {
+  // Deployments
+  rpc CreateDeployment(CreateDeploymentRequest) returns (CreateDeploymentResponse);
+  rpc UpdateDeployment(UpdateDeploymentRequest) returns (UpdateDeploymentResponse);
+  rpc GetDeployment(GetDeploymentRequest) returns (GetDeploymentResponse);
+  rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  rpc ScaleDeployment(ScaleDeploymentRequest) returns (ScaleDeploymentResponse);
+  rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
+  // Pause (stop all instances and hold at 0) or resume a deployment.
+  rpc PauseDeployment(PauseDeploymentRequest) returns (PauseDeploymentResponse);
+
+  // Fleet view
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  rpc ListNests(ListNestsRequest) returns (ListNestsResponse);
+
+  // Work
+  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+
+  // Addressing
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  rpc RequestWake(RequestWakeRequest) returns (RequestWakeResponse);
+
+  // Approvals
+  rpc ListApprovals(ListApprovalsRequest) returns (ListApprovalsResponse);
+  rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
+
+  // Definitions (bundle versions)
+  rpc ListDefinitions(ListDefinitionsRequest) returns (ListDefinitionsResponse);
+  rpc GetDefinition(GetDefinitionRequest) returns (GetDefinitionResponse);
+
+  // Triggers
+  rpc ListTriggerEvents(ListTriggerEventsRequest) returns (ListTriggerEventsResponse);
+  // Create (or rotate) the secret a webhook trigger's callers must present.
+  rpc CreateWebhookSecret(CreateWebhookSecretRequest) returns (CreateWebhookSecretResponse);
+  // Platform secrets (bundle secrets with source "platform"), per namespace.
+  // Values go in and never come back out through this API.
+  rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
+
+  // Observability
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+
+  // Access
+  rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
+  rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse);
+  rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse);
+  rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse);
+  // Revokes a Nest's credentials (bearer token and client certificate) and
+  // reschedules its instances elsewhere.
+  rpc RevokeNest(RevokeNestRequest) returns (RevokeNestResponse);
+}
+
+message CreateDeploymentRequest {
+  string namespace = 1;
+  // Defaults to the bundle name.
+  string name = 2;
+  // The bundle files. The Hub validates and stores them as a Definition.
+  map<string, bytes> bundle_files = 3;
+  // Overrides for values from x-agen/config.json; unset means use the bundle.
+  DeploymentKind kind = 6;
+  ScalePolicy scale = 4;
+  Placement placement = 5;
+  Budget budget = 7;
+  Limits limits = 8;
+  repeated Trigger triggers = 9;
+}
+message CreateDeploymentResponse {
+  Deployment deployment = 1;
+}
+
+message UpdateDeploymentRequest {
+  DeploymentRef ref = 1;
+  // New bundle version; empty keeps the current one.
+  map<string, bytes> bundle_files = 2;
+  ScalePolicy scale = 3;
+  Budget budget = 4;
+  Limits limits = 5;
+  // Replaces the trigger set when non-empty.
+  repeated Trigger triggers = 6;
+  Placement placement = 7;
+}
+message UpdateDeploymentResponse {
+  Deployment deployment = 1;
+}
+
+message GetDeploymentRequest {
+  DeploymentRef ref = 1;
+}
+message GetDeploymentResponse {
+  Deployment deployment = 1;
+  repeated Instance instances = 2;
+}
+
+message ListDeploymentsRequest {
+  // Empty means all namespaces the caller may see.
+  string namespace = 1;
+}
+message ListDeploymentsResponse {
+  repeated Deployment deployments = 1;
+}
+
+message ScaleDeploymentRequest {
+  DeploymentRef ref = 1;
+  int32 desired = 2;
+}
+message ScaleDeploymentResponse {
+  Deployment deployment = 1;
+}
+
+message DeleteDeploymentRequest {
+  DeploymentRef ref = 1;
+}
+message DeleteDeploymentResponse {}
+
+message PauseDeploymentRequest {
+  DeploymentRef ref = 1;
+  // false resumes.
+  bool paused = 2;
+}
+message PauseDeploymentResponse {
+  Deployment deployment = 1;
+}
+
+message ListInstancesRequest {
+  string namespace = 1;
+  string deployment = 2;
+  string nest_id = 3;
+}
+message ListInstancesResponse {
+  repeated Instance instances = 1;
+}
+
+message ListNestsRequest {}
+message ListNestsResponse {
+  repeated Nest nests = 1;
+}
+
+message SubmitTaskRequest {
+  DeploymentRef ref = 1;
+  string input = 2;
+  // Optional client key; resubmitting the same key returns the same task.
+  string idempotency_key = 3;
+}
+message SubmitTaskResponse {
+  Task task = 1;
+}
+
+message GetTaskRequest {
+  string id = 1;
+  // Wait up to this many seconds for the task to finish.
+  int32 wait_seconds = 2;
+}
+message GetTaskResponse {
+  Task task = 1;
+}
+
+message ListTasksRequest {
+  string namespace = 1;
+  string deployment = 2;
+  TaskState state = 3;
+  int32 limit = 4;
+}
+message ListTasksResponse {
+  repeated Task tasks = 1;
+}
+
+message CancelTaskRequest {
+  string id = 1;
+}
+message CancelTaskResponse {
+  Task task = 1;
+}
+
+message ResolveRequest {
+  DeploymentRef ref = 1;
+  // NestService only: the deployment of the instance that will call (its
+  // Manager asks on its behalf); the call token names it as the caller.
+  DeploymentRef caller = 2;
+}
+message ResolveResponse {
+  // A2A base URLs (Gateway routes) that can serve this deployment.
+  repeated string endpoints = 1;
+  int32 ready = 2;
+  // A short-lived, Hub-signed call token for this deployment, sent to its
+  // Gateways as a bearer token. Issued to operators (HubService) and to
+  // agents of the caller deployment (NestService); empty otherwise.
+  string token = 3;
+  google.protobuf.Timestamp token_expires_at = 4;
+}
+
+message RequestWakeRequest {
+  DeploymentRef ref = 1;
+}
+message RequestWakeResponse {
+  Deployment deployment = 1;
+}
+
+message ListApprovalsRequest {
+  string namespace = 1;
+  ApprovalState state = 2;
+}
+message ListApprovalsResponse {
+  repeated Approval approvals = 1;
+}
+
+message DecideApprovalRequest {
+  string id = 1;
+  bool approve = 2;
+}
+message DecideApprovalResponse {
+  Approval approval = 1;
+}
+
+message ListRunsRequest {
+  string namespace = 1;
+  string deployment = 2;
+  int32 limit = 3;
+}
+message ListRunsResponse {
+  repeated Run runs = 1;
+}
+
+message GetTraceRequest {
+  string trace_id = 1;
+}
+message GetTraceResponse {
+  repeated Span spans = 1;
+  repeated Run runs = 2;
+}
+
+message ListDefinitionsRequest {
+  string name = 1;
+}
+message ListDefinitionsResponse {
+  // Files omitted; use GetDefinition.
+  repeated Definition definitions = 1;
+}
+
+message GetDefinitionRequest {
+  string digest = 1;
+}
+message GetDefinitionResponse {
+  Definition definition = 1;
+}
+
+message SetSecretRequest {
+  string namespace = 1;
+  string name = 2;
+  string value = 3;
+  // The deployments (in this namespace) allowed to read it; at least one.
+  repeated string deployments = 4;
+}
+message SetSecretResponse {}
+
+message ListSecretsRequest {
+  string namespace = 1;
+}
+message SecretInfo {
+  string namespace = 1;
+  string name = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  repeated string deployments = 4;
+}
+message ListSecretsResponse {
+  repeated SecretInfo secrets = 1;
+}
+
+message DeleteSecretRequest {
+  string namespace = 1;
+  string name = 2;
+}
+message DeleteSecretResponse {}
+
+message CreateWebhookSecretRequest {
+  DeploymentRef ref = 1;
+  string trigger = 2;
+}
+message CreateWebhookSecretResponse {
+  // Shown once; send as "Authorization: Bearer <secret>".
+  string secret = 1;
+  // Path on the Hub to POST to: /hooks/<ns>/<deployment>/<trigger>.
+  string path = 2;
+}
+
+message ListTriggerEventsRequest {
+  DeploymentRef ref = 1;
+  TriggerEventState state = 2;
+  int32 limit = 3;
+}
+message ListTriggerEventsResponse {
+  repeated TriggerEvent events = 1;
+}
+
+message GetLogsRequest {
+  DeploymentRef ref = 1;
+  string instance_id = 2;
+  int32 limit = 3;
+  // Only lines after this time.
+  google.protobuf.Timestamp since = 4;
+}
+message GetLogsResponse {
+  repeated LogLine lines = 1;
+}
+
+message CreateApiTokenRequest {
+  string name = 1;
+  repeated string scopes = 2;
+  repeated string namespaces = 3;
+  int32 ttl_seconds = 4;
+}
+message CreateApiTokenResponse {
+  ApiToken token = 1;
+  // Shown once; only a hash is stored.
+  string secret = 2;
+}
+
+message ListApiTokensRequest {}
+message ListApiTokensResponse {
+  repeated ApiToken tokens = 1;
+}
+
+message RevokeApiTokenRequest {
+  string id = 1;
+}
+message RevokeApiTokenResponse {}
+
+message RevokeNestRequest {
+  string id = 1;
+}
+message RevokeNestResponse {}
+
+message CreateJoinTokenRequest {
+  int32 ttl_seconds = 1;
+}
+message CreateJoinTokenResponse {
+  string token = 1;
+  // "sha256:<hex>" of the Hub CA certificate, for a joining Nest to pin
+  // (empty when the Hub serves plain HTTP).
+  string ca_hash = 2;
+}

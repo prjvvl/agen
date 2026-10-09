@@ -1,0 +1,40 @@
+{
+  "name": "cancel_mid_tool",
+  "description": "Cancelling a run while a host tool runs cancels the run and tells the tool.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "wait",
+              "arguments": {}
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "wait",
+      "behavior": {
+        "sleepMs": 20000
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go",
+      "cancelAfterMs": 300
+    }
+  ],
+  "expect": [
+    {
+      "status": "cancelled",
+      "toolCancelled": true
+    }
+  ]
+}

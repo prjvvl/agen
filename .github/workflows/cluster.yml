@@ -1,0 +1,32 @@
+name: cluster
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths: ["platform/**", "engine/**", "deploy/**", "web/**", ".github/workflows/cluster.yml"]
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+      - run: docker build -f deploy/docker/Dockerfile -t agen:dev .
+      - run: go test -count=1 -v -timeout 30m -run TestDistributedCluster ./e2e/
+        working-directory: platform
+        env:
+          AGEN_CLUSTER_E2E: "1"
+  kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+      - run: go install sigs.k8s.io/kind@v0.29.0
+      - run: docker build -f deploy/docker/Dockerfile -t agen:dev .
+      - run: go test -count=1 -v -timeout 30m -run TestKubernetesBackend ./e2e/
+        working-directory: platform
+        env:
+          AGEN_KIND_E2E: "1"

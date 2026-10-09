@@ -1,0 +1,98 @@
+# A distributed Agen fleet on one Docker host: Postgres, two Hubs (one leader,
+# one standby) behind a TLS-passthrough load balancer, and three Nests.
+#
+#   docker build -f deploy/docker/Dockerfile -t agen:dev .
+#   AGEN_ADMIN_TOKEN=... docker compose -f deploy/compose/cluster.yml up -d postgres hub1 hub2 hub
+#   # join tokens: agen join-token --hub https://127.0.0.1:7443 --token $AGEN_ADMIN_TOKEN --ca-hash <CA from hub logs>
+#   JOIN_TOKEN_1=... JOIN_TOKEN_2=... JOIN_TOKEN_3=... AGEN_CA_HASH=... docker compose -f deploy/compose/cluster.yml up -d nest1 nest2 nest3
+#
+# platform/e2e/cluster_test.go drives this end to end.
+name: agen-cluster
+
+# Credentials go in the environment, never on command lines (visible in
+# `ps` and `docker inspect` Args). The Postgres password is a dev default.
+x-hub: &hub
+  image: ${AGEN_IMAGE:-agen:dev}
+  environment:
+    AGEN_ADMIN_TOKEN: ${AGEN_ADMIN_TOKEN:?set AGEN_ADMIN_TOKEN}
+    AGEN_STORE: ${AGEN_HUB_STORE:-postgres://agen:agen@postgres:5432/agen}
+    # Seals the Hub's CA and call-token keys in the Store (same on all Hubs).
+    AGEN_HUB_KEK: ${AGEN_HUB_KEK:-}
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: "no"
+
+x-nest-env: &nest-env
+  AGEN_CA_HASH: ${AGEN_CA_HASH:-}
+  # Hosts only need the run-data tables: give Nests a least-privilege role
+  # (agen store host-role), not the admin DSN the Hubs use.
+  AGEN_STORE: ${AGEN_NEST_STORE:-postgres://agen:agen@postgres:5432/agen}
+
+x-nest: &nest
+  image: ${AGEN_IMAGE:-agen:dev}
+  depends_on: [hub]
+  restart: "no"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: agen
+      POSTGRES_PASSWORD: agen
+      POSTGRES_DB: agen
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agen"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  hub1:
+    <<: *hub
+    command: ["hub", "serve", "--tls", "--listen", "0.0.0.0:7070", "--tls-host", "hub", "--tls-host", "hub1"]
+  hub2:
+    <<: *hub
+    command: ["hub", "serve", "--tls", "--listen", "0.0.0.0:7070", "--tls-host", "hub", "--tls-host", "hub2"]
+
+  # TLS passthrough to both Hubs: clients and Nests keep one address when a
+  # Hub dies.
+  hub:
+    image: nginx:1.27-alpine
+    depends_on: [hub1, hub2]
+    ports: ["127.0.0.1:${AGEN_HUB_PORT:-7443}:7443"]
+    volumes:
+      - ./hub-lb.conf:/etc/nginx/nginx.conf:ro
+
+  nest1:
+    <<: *nest
+    environment:
+      <<: *nest-env
+      AGEN_JOIN_TOKEN: ${JOIN_TOKEN_1:-}
+    command: ["nest", "run", "--hub", "https://hub:7443", "--name", "nest1", "--label", "node=nest1",
+              "--capacity", "4", "--gateway-listen", "0.0.0.0:7071", "--gateway-url", "http://nest1:7071",
+              "--data-dir", "/var/lib/agen/nest"]
+    volumes: [nest1:/var/lib/agen, shared:/shared]
+  nest2:
+    <<: *nest
+    environment:
+      <<: *nest-env
+      AGEN_JOIN_TOKEN: ${JOIN_TOKEN_2:-}
+    command: ["nest", "run", "--hub", "https://hub:7443", "--name", "nest2", "--label", "node=nest2",
+              "--capacity", "4", "--gateway-listen", "0.0.0.0:7071", "--gateway-url", "http://nest2:7071",
+              "--data-dir", "/var/lib/agen/nest"]
+    volumes: [nest2:/var/lib/agen, shared:/shared]
+  nest3:
+    <<: *nest
+    environment:
+      <<: *nest-env
+      AGEN_JOIN_TOKEN: ${JOIN_TOKEN_3:-}
+    command: ["nest", "run", "--hub", "https://hub:7443", "--name", "nest3", "--label", "node=nest3", "--host-memory-limit", "2GiB",
+              "--capacity", "4", "--gateway-listen", "0.0.0.0:7071", "--gateway-url", "http://nest3:7071",
+              "--data-dir", "/var/lib/agen/nest"]
+    volumes: [nest3:/var/lib/agen, shared:/shared]
+
+volumes:
+  shared: # for e2e side-effect checks across nests
+  nest1:
+  nest2:
+  nest3:

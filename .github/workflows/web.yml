@@ -1,0 +1,30 @@
+name: web
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
+  pull_request:
+    paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build -p agen-host
+      - run: npm ci
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: npx playwright test
+        working-directory: web
+        env:
+          PW_CHANNEL: chromium

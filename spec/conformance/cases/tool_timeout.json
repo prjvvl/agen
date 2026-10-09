@@ -1,0 +1,45 @@
+{
+  "name": "tool_timeout",
+  "description": "A host tool that exceeds its timeout is abandoned; the model is told the outcome is unknown.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "slow",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "text": "gave up",
+          "expect": "did not answer within"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "slow",
+      "timeoutSeconds": 1,
+      "behavior": {
+        "sleepMs": 5000
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "gave up",
+      "maxWallMs": 4000
+    }
+  ]
+}

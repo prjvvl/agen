@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package agen.v1;
+
+import "agen/v1/hub.proto";
+import "agen/v1/resources.proto";
+
+option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
+
+// Manager -> agen-host control API. Implemented by the Rust host in the
+// Connect JSON protocol (POST /agen.v1.HostService/<Method>), verified by a
+// contract test against the Go client.
+service HostService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  // Run one task to completion.
+  rpc RunTask(RunTaskRequest) returns (RunTaskResponse);
+  rpc CancelTask(HostCancelTaskRequest) returns (HostCancelTaskResponse);
+  // Stop accepting work; finish running tasks.
+  rpc Drain(DrainRequest) returns (DrainResponse);
+}
+
+// agen-host -> its Manager (localhost only). Everything a running agent needs
+// from the platform goes through here, so hosts never talk to the Hub.
+service ManagerService {
+  // Raise an "ask" approval and wait for the decision.
+  rpc RequestApproval(RequestApprovalRequest) returns (RequestApprovalResponse);
+  // Resolve a secret with source "platform".
+  rpc ResolveSecret(ResolveSecretRequest) returns (ResolveSecretResponse);
+  // Resolve a deployment to A2A endpoints (sync delegation).
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+}
+
+message RequestApprovalRequest {
+  string instance_id = 1;
+  string run_id = 2;
+  string tool = 3;
+  // Already redacted by the engine.
+  string arguments_json = 4;
+  int32 ttl_seconds = 5;
+}
+message RequestApprovalResponse {
+  Approval approval = 1;
+}
+
+message ResolveSecretRequest {
+  string instance_id = 1;
+  string name = 2;
+}
+message ResolveSecretResponse {
+  string value = 1;
+}
+
+message HealthRequest {}
+message HealthResponse {
+  string instance_id = 1;
+  bool ready = 2;
+  int32 running_tasks = 3;
+  bool draining = 4;
+}
+
+message RunTaskRequest {
+  Task task = 1;
+  // W3C traceparent to continue.
+  string traceparent = 2;
+}
+message RunTaskResponse {
+  bool success = 1;
+  string output = 2;
+  string error = 3;
+  Run run = 4;
+}
+
+message HostCancelTaskRequest {
+  string task_id = 1;
+}
+message HostCancelTaskResponse {
+  bool cancelled = 1;
+}
+
+message DrainRequest {}
+message DrainResponse {}

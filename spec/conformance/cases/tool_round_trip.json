@@ -1,0 +1,49 @@
+{
+  "name": "tool_round_trip",
+  "description": "A host-language tool is called with the model's arguments and its result reaches the model.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hi"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "expect": "\"text\":\"hi\""
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "echo",
+      "readOnly": true,
+      "behavior": {
+        "echoArgs": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "done",
+      "toolCalls": [
+        "echo"
+      ]
+    }
+  ]
+}

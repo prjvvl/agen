@@ -1,0 +1,145 @@
+# An Agen Nest with the Kubernetes backend, in its own namespace
+# `agen-nests`: the Manager and Gateway run in the nest pod; every agent
+# instance runs as its own pod (agen-host), owned by the nest pod. The Nest
+# may create pods here, so nothing else's secrets live in this namespace.
+# Needs, in namespace agen-nests:
+#   agen-store     (url)             run-data Store for instances
+#   agen-join      (token, ca-hash)  from `agen join-token` (first start)
+#   agen-host-env  (optional)        each key becomes an environment
+#                                    variable of every instance, e.g.
+#                                    OPENROUTER_API_KEY
+# The nest keeps its enrolment on its volume, so restarts reuse it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agen-nests
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agen-nest
+  namespace: agen-nests
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agen-nest
+  namespace: agen-nests
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create, get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agen-nest
+  namespace: agen-nests
+subjects: [{kind: ServiceAccount, name: agen-nest, namespace: agen-nests}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agen-nest}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agen-nest
+  namespace: agen-nests
+spec:
+  clusterIP: None
+  selector: {app: agen-nest}
+  ports: [{name: gateway, port: 7071}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agen-nest
+  namespace: agen-nests
+spec:
+  serviceName: agen-nest
+  replicas: 1
+  selector:
+    matchLabels: {app: agen-nest}
+  template:
+    metadata:
+      labels: {app: agen-nest}
+    spec:
+      serviceAccountName: agen-nest
+      # Drain (up to 30s) + stop instances (10s) + margin.
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: nest
+          image: agen:dev
+          imagePullPolicy: IfNotPresent
+          args: ["nest", "run", "--hub", "https://agen-hub.agen.svc:7070", "--backend", "kubernetes", "--kube-image", "agen:dev",
+                 "--name", "$(POD_NAME)", "--capacity", "8", "--data-dir", "/var/lib/agen/nest",
+                 "--host-env-dir", "/etc/agen/host-env",
+                 "--gateway-listen", "0.0.0.0:7071", "--gateway-url", "http://$(POD_NAME).agen-nest.agen-nests.svc:7071"]
+          env:
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: POD_UID, valueFrom: {fieldRef: {fieldPath: metadata.uid}}}
+            - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
+            - name: AGEN_STORE
+              valueFrom: {secretKeyRef: {name: agen-store, key: url}}
+            - name: AGEN_JOIN_TOKEN
+              valueFrom: {secretKeyRef: {name: agen-join, key: token, optional: true}}
+            - name: AGEN_CA_HASH
+              valueFrom: {secretKeyRef: {name: agen-join, key: ca-hash}}
+          ports:
+            - {name: gateway, containerPort: 7071}
+            - {name: manager, containerPort: 7072}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/agen}
+            - {name: host-env, mountPath: /etc/agen/host-env, readOnly: true}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+      volumes:
+        - name: host-env
+          secret: {secretName: agen-host-env, optional: true}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 100Mi}}
+---
+# A2A from outside the cluster (kind maps node port 30071 to the host).
+apiVersion: v1
+kind: Service
+metadata:
+  name: agen-gateway-external
+  namespace: agen-nests
+spec:
+  type: NodePort
+  selector: {app: agen-nest}
+  ports: [{name: gateway, port: 7071, targetPort: 7071, nodePort: 30071}]
+---
+# Defence in depth, where the CNI enforces NetworkPolicy (e.g. Calico,
+# Cilium; kind's default CNI does not): instance pods accept connections
+# only from nest pods. Instances also require the Manager's per-instance
+# host token on every call, which holds on any CNI.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agen-instances
+  namespace: agen-nests
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/managed-by: agen}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: agen-nest}

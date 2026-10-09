@@ -1,0 +1,28 @@
+{
+  "name": "streaming",
+  "description": "Text streams as delta events and matches the final output.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "one two three four five"
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "one two three four five",
+      "minDeltas": 3,
+      "deltasEqualOutput": true
+    }
+  ]
+}

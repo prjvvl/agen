@@ -1,0 +1,252 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+)
+
+// Task is a durable unit of work for a deployment.
+type Task struct {
+	ID             string
+	Namespace      string
+	Deployment     string
+	Input          string
+	State          string // queued | leased | running | succeeded | failed | cancelled
+	Output         string
+	Error          string
+	InstanceID     string
+	RunID          string
+	Source         string
+	Attempts       int
+	IdempotencyKey string
+	LeaseID        string
+	LeaseNestID    string
+	LeaseExpiresMs int64
+	ParentTaskID   string
+	ParentRunID    string
+	RootRunID      string
+	Depth          int
+	Traceparent    string
+	// SubmittedBy is the principal that caused the task (see migration 7).
+	SubmittedBy string
+	CreatedMs   int64
+	UpdatedMs   int64
+}
+
+// Terminal reports whether the task has finished.
+func (t Task) Terminal() bool {
+	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
+}
+
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by"
+
+func scanTask(r interface{ Scan(...any) error }) (Task, error) {
+	var t Task
+	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
+		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy)
+	return t, err
+}
+
+func scanTasks(rows *sql.Rows) ([]Task, error) {
+	defer rows.Close()
+	var out []Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// SubmitTask queues a task. With an idempotency key, resubmitting returns the
+// existing task instead of creating a new one.
+func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
+	if t.ID == "" {
+		t.ID = NewID()
+	}
+	if t.Source == "" {
+		t.Source = "api"
+	}
+	now := NowMs()
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by) "+
+			"VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy)
+	if isUnique(err) && t.IdempotencyKey != "" {
+		return scanTask(s.db.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND idempotency_key = $3",
+			t.Namespace, t.Deployment, t.IdempotencyKey))
+	}
+	if err != nil {
+		return t, err
+	}
+	return s.GetTask(ctx, t.ID)
+}
+
+// GetTask returns one task.
+func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
+	t, err := scanTask(s.db.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE id = $1", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return t, ErrNotFound
+	}
+	return t, err
+}
+
+// ListTasks filters by namespace, deployment and state ("" = any), newest first.
+func (s *Store) ListTasks(ctx context.Context, ns, deployment, state string, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE ($1 = '' OR namespace = $1) AND ($2 = '' OR deployment = $2) AND ($3 = '' OR state = $3) ORDER BY created_ms DESC, id DESC LIMIT $4",
+		ns, deployment, state, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanTasks(rows)
+}
+
+// LeaseTasks atomically moves up to max queued tasks of a deployment to
+// "leased" for a nest, each with a fresh fencing lease id.
+func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, max int, leaseMs int64) ([]Task, error) {
+	if max <= 0 {
+		return nil, nil
+	}
+	lock := ""
+	if s.dialect == Postgres {
+		lock = " FOR UPDATE SKIP LOCKED"
+	}
+	var out []Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND state = 'queued' ORDER BY created_ms, id LIMIT $3"+lock, ns, deployment, max)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		now := NowMs()
+		for _, id := range ids {
+			t, err := scanTask(tx.QueryRowContext(ctx,
+				"UPDATE tasks SET state = 'leased', lease_id = $1, lease_nest_id = $2, lease_expires_ms = $3, attempts = attempts + 1, updated_ms = $4 "+
+					"WHERE id = $5 AND state = 'queued' RETURNING "+taskCols,
+				NewID(), nestID, now+leaseMs, now, id))
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // taken concurrently
+			}
+			if err != nil {
+				return err
+			}
+			out = append(out, t)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ExtendLease extends a lease the caller still holds.
+func (s *Store) ExtendLease(ctx context.Context, taskID, leaseID string, leaseMs int64) error {
+	now := NowMs()
+	res, err := s.db.ExecContext(ctx, "UPDATE tasks SET lease_expires_ms = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
+		now+leaseMs, now, taskID, leaseID)
+	return fenced(res, err)
+}
+
+// StartTask marks a leased task as running on an instance.
+func (s *Store) StartTask(ctx context.Context, taskID, leaseID, instanceID string) error {
+	res, err := s.db.ExecContext(ctx, "UPDATE tasks SET state = 'running', instance_id = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
+		instanceID, NowMs(), taskID, leaseID)
+	return fenced(res, err)
+}
+
+// CompleteTask records a result. Fails with ErrFenced unless leaseID is the
+// task's current lease (a partitioned nest cannot complete a re-leased task).
+func (s *Store) CompleteTask(ctx context.Context, taskID, leaseID string, success bool, output, errMsg, runID, instanceID string) error {
+	state := "failed"
+	if success {
+		state = "succeeded"
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET state = $1, output = $2, error = $3, run_id = $4, instance_id = $5, lease_expires_ms = 0, updated_ms = $6 "+
+			"WHERE id = $7 AND lease_id = $8 AND state IN ('leased', 'running')",
+		state, output, errMsg, runID, instanceID, NowMs(), taskID, leaseID)
+	return fenced(res, err)
+}
+
+// RequeueExpiredLeases returns tasks whose lease expired to the queue. A task
+// that has already been leased maxAttempts times fails instead, so a task
+// that keeps killing its host does not loop forever (maxAttempts <= 0: no cap).
+func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int64, error) {
+	now := NowMs()
+	var failed int64
+	if maxAttempts > 0 {
+		res, err := s.db.ExecContext(ctx,
+			"UPDATE tasks SET state = 'failed', error = $1, lease_expires_ms = 0, updated_ms = $2 WHERE state IN ('leased', 'running') AND lease_expires_ms < $2 AND attempts >= $3",
+			"task lease expired "+itoa(maxAttempts)+" times (the instance running it crashed or became unreachable)", now, maxAttempts)
+		if err != nil {
+			return 0, err
+		}
+		failed, _ = res.RowsAffected()
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET state = 'queued', lease_id = '', lease_nest_id = '', lease_expires_ms = 0, updated_ms = $1 WHERE state IN ('leased', 'running') AND lease_expires_ms < $1",
+		now)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return n + failed, err
+}
+
+// ReleaseTask gives a leased task back to the queue before its lease expires
+// (the host could not take it). notStarted also refunds the attempt.
+func (s *Store) ReleaseTask(ctx context.Context, taskID, leaseID string, notStarted bool) error {
+	refund := 0
+	if notStarted {
+		refund = 1
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET state = 'queued', lease_id = '', lease_nest_id = '', lease_expires_ms = 0, instance_id = '', attempts = attempts - $1, updated_ms = $2 "+
+			"WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
+		refund, NowMs(), taskID, leaseID)
+	return fenced(res, err)
+}
+
+// CancelTask cancels a task that has not finished.
+func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
+	if _, err := s.db.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running')", NowMs(), id); err != nil {
+		return Task{}, err
+	}
+	return s.GetTask(ctx, id)
+}
+
+// QueueStats counts unfinished tasks of a deployment.
+type QueueStats struct{ Queued, InFlight int }
+
+// Queue returns queued and in-flight (leased or running) counts.
+func (s *Store) Queue(ctx context.Context, ns, deployment string) (QueueStats, error) {
+	var q QueueStats
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN state IN ('leased', 'running') THEN 1 ELSE 0 END), 0) FROM tasks WHERE namespace = $1 AND deployment = $2 AND state IN ('queued', 'leased', 'running')",
+		ns, deployment).Scan(&q.Queued, &q.InFlight)
+	return q, err
+}
+
+func fenced(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrFenced
+	}
+	return nil
+}

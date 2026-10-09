@@ -1,0 +1,20 @@
+[package]
+name = "agen-python"
+description = "Python bindings for the Agen engine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/prjvvl/agen"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+agen-sdk-core = { path = "../../engine/crates/agen-sdk-core" }
+pyo3 = { version = "0.29", features = ["abi3-py39"] }
+
+[workspace]

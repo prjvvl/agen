@@ -1,0 +1,32 @@
+name: engine
+on:
+  push:
+    branches: [main]
+    paths: ["engine/**", "spec/**", "examples/**", "Cargo.toml", "Cargo.lock", ".github/workflows/engine.yml"]
+  pull_request:
+    paths: ["engine/**", "spec/**", "examples/**", "Cargo.toml", "Cargo.lock", ".github/workflows/engine.yml"]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Postgres conformance runs on Linux, where a service container is available.
+      AGEN_TEST_POSTGRES_URL: ${{ matrix.os == 'ubuntu-latest' && 'postgres://agen:agen@127.0.0.1:5432/agen' || '' }}
+      AGEN_REQUIRE_PG: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Postgres
+        if: runner.os == 'Linux'
+        run: |
+          docker run -d -p 5432:5432 -e POSTGRES_USER=agen -e POSTGRES_PASSWORD=agen -e POSTGRES_DB=agen postgres:17-alpine
+          for i in $(seq 1 30); do docker run --rm --network host postgres:17-alpine pg_isready -h 127.0.0.1 && break; sleep 2; done
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace

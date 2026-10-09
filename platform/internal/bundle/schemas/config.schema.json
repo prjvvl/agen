@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agen.dev/schemas/bundle/config.schema.json",
+  "title": "x-agen/config.json",
+  "type": "object",
+  "properties": {
+    "workspace": { "type": "string" },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "default": { "enum": ["allow", "ask", "deny"] },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool", "action"],
+            "properties": {
+              "tool": { "type": "string", "description": "exact name or glob, e.g. exchange.*" },
+              "action": { "enum": ["allow", "ask", "deny"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "approvalTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" }
+      },
+      "additionalProperties": false
+    },
+    "kind": { "enum": ["singleton", "pool", "task"] },
+    "scale": {
+      "type": "object",
+      "properties": {
+        "min": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 1 },
+        "targetQueuePerInstance": { "type": "integer", "minimum": 1 },
+        "idleTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+        "maxConcurrency": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "maxTokensPerRun": { "type": "integer", "minimum": 1 },
+        "maxUsdPerRun": { "type": "number", "exclusiveMinimum": 0 },
+        "maxUsdPerDay": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxDelegationDepth": { "type": "integer", "minimum": 0 },
+        "maxFanOut": { "type": "integer", "minimum": 0 },
+        "maxTotalDelegations": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "oneOf": [
+          { "properties": { "type": { "const": "cron" }, "name": { "type": "string" }, "schedule": { "type": "string" }, "input": { "type": "string" }, "catchUp": { "type": "boolean" } }, "required": ["schedule"] },
+          { "properties": { "type": { "const": "webhook" }, "name": { "type": "string" }, "input": { "type": "string" } }, "required": ["name"] }
+        ]
+      }
+    },
+    "delegates": {
+      "type": "array",
+      "description": "Deployments this agent may call over A2A (the call_agent tool)",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "namespace": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tools": {
+      "type": "object",
+      "description": "Per-tool metadata overrides",
+      "additionalProperties": {
+        "type": "object",
+        "properties": { "sideEffect": { "type": "boolean" } },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

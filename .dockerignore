@@ -1,0 +1,11 @@
+**/target
+**/node_modules
+**/.venv
+web/e2e/.bin
+web/test-results
+web/playwright-report
+platform/internal/ui/dist
+**/*.db
+**/*.db-wal
+**/*.db-shm
+.git

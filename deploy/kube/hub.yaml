@@ -1,0 +1,73 @@
+# Agen Hub on Kubernetes, in namespace `agen`. Needs two secrets there:
+#   kubectl -n agen create secret generic agen-admin --from-literal=token=<admin token>
+#   kubectl -n agen create secret generic agen-store --from-literal=url=postgres://...
+# The Hub prints its CA hash in its log ("CA sha256:..."): Nests pin it.
+# Nests run in their own namespace (nest.yaml), so the Nest's right to create
+# pods never reaches the Hub's secrets.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agen
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agen-hub
+  namespace: agen
+spec:
+  replicas: 2 # one leader, one standby (leader lease in the Store)
+  selector:
+    matchLabels: {app: agen-hub}
+  template:
+    metadata:
+      labels: {app: agen-hub}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: hub
+          image: agen:dev
+          imagePullPolicy: IfNotPresent
+          args: ["hub", "serve", "--tls", "--listen", "0.0.0.0:7070",
+                 "--tls-host", "agen-hub", "--tls-host", "agen-hub.agen.svc", "--tls-host", "agen-hub.agen.svc.cluster.local"]
+          env:
+            - name: AGEN_ADMIN_TOKEN
+              valueFrom: {secretKeyRef: {name: agen-admin, key: token}}
+            - name: AGEN_STORE
+              valueFrom: {secretKeyRef: {name: agen-store, key: url}}
+            # Seals the Hub's CA and call-token keys in the Store.
+            - name: AGEN_HUB_KEK
+              valueFrom: {secretKeyRef: {name: agen-hub-kek, key: kek, optional: true}}
+          ports: [{name: https, containerPort: 7070}]
+          readinessProbe:
+            tcpSocket: {port: 7070}
+            periodSeconds: 2
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agen-hub
+  namespace: agen
+spec:
+  selector: {app: agen-hub}
+  ports: [{name: https, port: 7070, targetPort: 7070}]
+---
+# Access from outside the cluster (kind maps node port 30070 to the host).
+apiVersion: v1
+kind: Service
+metadata:
+  name: agen-hub-external
+  namespace: agen
+spec:
+  type: NodePort
+  selector: {app: agen-hub}
+  ports: [{name: https, port: 7070, targetPort: 7070, nodePort: 30070}]

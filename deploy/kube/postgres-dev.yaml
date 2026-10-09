@@ -1,0 +1,41 @@
+# A throwaway Postgres for trying Agen on a local cluster (kind). Not for
+# production: no persistence, fixed dev credentials.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: agen
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70 # postgres in the alpine image
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          env:
+            - {name: POSTGRES_USER, value: agen}
+            - {name: POSTGRES_PASSWORD, value: agen}
+            - {name: POSTGRES_DB, value: agen}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "agen"]}
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: agen
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432}]

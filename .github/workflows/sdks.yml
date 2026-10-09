@@ -1,0 +1,77 @@
+name: sdks
+on:
+  push:
+    branches: [main]
+    paths: ["sdks/**", "engine/**", "spec/**", "Cargo.toml", "Cargo.lock", "scripts/build-ffi.sh", ".github/workflows/sdks.yml"]
+  pull_request:
+    paths: ["sdks/**", "engine/**", "spec/**", "Cargo.toml", "Cargo.lock", "scripts/build-ffi.sh", ".github/workflows/sdks.yml"]
+jobs:
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'Windows' && 'x86_64-pc-windows-gnu' || '' }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sdks/go/go.mod
+      - run: ./scripts/build-ffi.sh
+      - run: go vet ./... && go test -race -count=1 ./...
+        working-directory: sdks/go
+        env:
+          CGO_ENABLED: "1"
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sdks/python
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: build and test
+        working-directory: sdks/python
+        run: |
+          python -m venv .venv
+          if [ -d .venv/Scripts ]; then BIN=.venv/Scripts; else BIN=.venv/bin; fi
+          $BIN/python -m pip install -q maturin pytest
+          VIRTUAL_ENV="$PWD/.venv" $BIN/maturin develop -q
+          $BIN/python -m pytest -q tests
+  node:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sdks/node
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node scripts/build.js && node --test "test/*.test.js"
+        working-directory: sdks/node

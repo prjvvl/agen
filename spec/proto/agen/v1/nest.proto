@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package agen.v1;
+
+import "agen/v1/hub.proto";
+import "agen/v1/resources.proto";
+
+option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
+
+// Manager <-> Hub. Always initiated by the Manager (pull model); the Hub never
+// connects into a Nest.
+service NestService {
+  // Exchange a join token + CSR for a Nest certificate.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // Stream of the full assignment set for this Nest, re-sent on every change.
+  rpc WatchAssignments(WatchAssignmentsRequest) returns (stream WatchAssignmentsResponse);
+  // Heartbeat + actual state of every instance in the Nest.
+  rpc ReportStatus(ReportStatusRequest) returns (ReportStatusResponse);
+  // Lease queued tasks for deployments running in this Nest.
+  rpc LeaseTasks(LeaseTasksRequest) returns (LeaseTasksResponse);
+  rpc ExtendLease(ExtendLeaseRequest) returns (ExtendLeaseResponse);
+  rpc CompleteTask(CompleteTaskRequest) returns (CompleteTaskResponse);
+  // Give a leased task back to the queue early (the instance could not take
+  // it, or is gone).
+  rpc ReleaseTask(ReleaseTaskRequest) returns (ReleaseTaskResponse);
+  // Instance asked a human; returns the approval to wait on.
+  rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
+  rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
+  // Gateway saw traffic for a deployment (keeps it awake / wakes it).
+  rpc ReportActivity(ReportActivityRequest) returns (ReportActivityResponse);
+  rpc GetDefinition(GetDefinitionRequest) returns (GetDefinitionResponse);
+  // Queue a delegated task on behalf of an instance (lineage enforced by Hub).
+  rpc SubmitChildTask(SubmitChildTaskRequest) returns (SubmitChildTaskResponse);
+  // Resolve a deployment to A2A endpoints for an instance's delegation.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // The Hub's public keys for A2A call tokens; Gateways verify callers with
+  // them (cached, so the Hub may be down).
+  rpc GetTokenKeys(GetTokenKeysRequest) returns (GetTokenKeysResponse);
+  // mTLS: a new certificate for a fresh key, authenticated by the current
+  // one (Nests renew before expiry). The old certificate keeps working until
+  // the new one is first used.
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+  // A platform secret for an instance of a deployment this Nest runs; only
+  // names the deployment's bundle declares with source "platform".
+  rpc GetPlatformSecret(GetPlatformSecretRequest) returns (GetPlatformSecretResponse);
+}
+
+message GetPlatformSecretRequest {
+  string nest_id = 1;
+  DeploymentRef ref = 2;
+  string name = 3;
+}
+message GetPlatformSecretResponse {
+  string value = 1;
+}
+
+message RenewCertificateRequest {
+  string nest_id = 1;
+  string csr_pem = 2;
+}
+message RenewCertificateResponse {
+  string certificate_pem = 1;
+  string ca_pem = 2;
+}
+
+message GetTokenKeysRequest {
+  string nest_id = 1;
+}
+message TokenKey {
+  string kid = 1;
+  bytes public_key = 2;
+}
+message GetTokenKeysResponse {
+  repeated TokenKey keys = 1;
+}
+
+message EnrollRequest {
+  string join_token = 1;
+  string name = 2;
+  string backend = 3;
+  map<string, string> labels = 4;
+  int32 capacity = 5;
+  string gateway_url = 6;
+  // PEM-encoded certificate signing request.
+  string csr_pem = 7;
+}
+message EnrollResponse {
+  string nest_id = 1;
+  string certificate_pem = 2;
+  string ca_pem = 3;
+  // Public key Gateways use to verify instance tokens.
+  string token_public_key_pem = 4;
+  // Bearer token for this Nest's subsequent NestService calls (until mTLS).
+  string nest_token = 5;
+}
+
+message WatchAssignmentsRequest {
+  string nest_id = 1;
+}
+message WatchAssignmentsResponse {
+  repeated Assignment assignments = 1;
+  int64 revision = 2;
+}
+
+message ReportStatusRequest {
+  string nest_id = 1;
+  repeated Instance instances = 2;
+  int32 capacity = 3;
+  string gateway_url = 4;
+}
+message ReportStatusResponse {}
+
+message LeaseTasksRequest {
+  string nest_id = 1;
+  DeploymentRef ref = 2;
+  int32 max = 3;
+  int32 lease_seconds = 4;
+}
+message LeaseTasksResponse {
+  repeated Task tasks = 1;
+}
+
+message ExtendLeaseRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  int32 lease_seconds = 3;
+  string lease_id = 4;
+  // When set, the task is also marked running on this instance.
+  string instance_id = 5;
+}
+message ExtendLeaseResponse {}
+
+message CompleteTaskRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  bool success = 3;
+  string output = 4;
+  string error = 5;
+  string run_id = 6;
+  string instance_id = 7;
+  // Must match the current lease or the call fails with FAILED_PRECONDITION
+  // and the result is discarded.
+  string lease_id = 8;
+}
+message CompleteTaskResponse {}
+
+message ReleaseTaskRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  string lease_id = 3;
+  // The task never started on an instance: the attempt is not counted.
+  bool not_started = 4;
+}
+message ReleaseTaskResponse {}
+
+message CreateApprovalRequest {
+  Approval approval = 1;
+  int32 ttl_seconds = 2;
+  // The instance asking (authenticated by its Manager); the run must be
+  // owned by it.
+  string instance_id = 3;
+}
+message CreateApprovalResponse {
+  Approval approval = 1;
+}
+
+message GetApprovalRequest {
+  string id = 1;
+  int32 wait_seconds = 2;
+}
+message GetApprovalResponse {
+  Approval approval = 1;
+}
+
+message ReportActivityRequest {
+  DeploymentRef ref = 1;
+  // Calls are waiting because every instance is busy: scale up by one
+  // (A2A calls are load the task queue does not show).
+  bool saturated = 2;
+}
+message ReportActivityResponse {}
+
+message SubmitChildTaskRequest {
+  string nest_id = 1;
+  string instance_id = 2;
+  DeploymentRef ref = 3;
+  string input = 4;
+  // Required: a task this Nest currently leases. Depth and root run are
+  // derived from it by the Hub.
+  string parent_task_id = 5;
+  string parent_run_id = 6;
+  // Ignored (derived from the parent task); kept for wire compatibility.
+  string root_run_id = 7;
+  // Ignored (parent depth + 1); kept for wire compatibility.
+  int32 depth = 8;
+  string traceparent = 9;
+  string idempotency_key = 10;
+}
+message SubmitChildTaskResponse {
+  Task task = 1;
+}

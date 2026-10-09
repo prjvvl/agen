@@ -1,0 +1,39 @@
+{
+  "name": "session_continuation",
+  "description": "A second run in the same session continues the conversation.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "first"
+        },
+        {
+          "text": "second",
+          "expect": "again"
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "hello"
+    },
+    {
+      "input": "again",
+      "sameSession": true
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "first"
+    },
+    {
+      "status": "succeeded",
+      "output": "second",
+      "sameConversationAsPrevious": true
+    }
+  ]
+}

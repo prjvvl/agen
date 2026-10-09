@@ -1,0 +1,49 @@
+{
+  "name": "trace_shape",
+  "description": "A run's trace contains the run, model and tool spans.",
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "x"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "echo",
+      "readOnly": true,
+      "behavior": {
+        "echoArgs": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "go"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "traceIncludes": [
+        "agen.run",
+        "gen_ai.chat",
+        "agen.tool"
+      ]
+    }
+  ]
+}
