@@ -23,6 +23,9 @@ jobs:
           f=/etc/docker/daemon.json
           { [ -s $f ] && sudo cat $f || echo '{}'; } | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee $f.new >/dev/null
           sudo mv $f.new $f && sudo systemctl restart docker
+          for img in postgres:17-alpine nginx:1.27-alpine; do
+            docker pull -q mirror.gcr.io/library/$img && docker tag mirror.gcr.io/library/$img $img
+          done
       - run: docker build -f deploy/docker/Dockerfile -t agen:dev .
       - run: go test -count=1 -v -timeout 30m -run TestDistributedCluster ./e2e/
         working-directory: platform
@@ -41,6 +44,9 @@ jobs:
           f=/etc/docker/daemon.json
           { [ -s $f ] && sudo cat $f || echo '{}'; } | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee $f.new >/dev/null
           sudo mv $f.new $f && sudo systemctl restart docker
+          for img in postgres:17-alpine nginx:1.27-alpine; do
+            docker pull -q mirror.gcr.io/library/$img && docker tag mirror.gcr.io/library/$img $img
+          done
       - run: docker build -f deploy/docker/Dockerfile -t agen:dev .
       - run: go test -count=1 -v -timeout 30m -run TestKubernetesBackend ./e2e/
         working-directory: platform

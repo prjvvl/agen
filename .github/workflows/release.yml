@@ -26,9 +26,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - id: build
         run: |
-          set -o pipefail
-          archive="$(VERSION=$GITHUB_REF_NAME ./scripts/release.sh | tee /dev/stderr | tail -1)"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          VERSION=$GITHUB_REF_NAME ./scripts/release.sh | tee "$RUNNER_TEMP/release.out"
+          echo "archive=$(tail -1 "$RUNNER_TEMP/release.out")" >> "$GITHUB_OUTPUT"
       - name: install / up / down / uninstall
         if: runner.os != 'Windows'
         run: ./scripts/test-install.sh "${{ steps.build.outputs.archive }}"
