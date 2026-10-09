@@ -32,7 +32,7 @@ Status: early development. Interfaces may still change.
 
 Each [release](https://github.com/prjvvl/agen/releases) has an archive per
 platform: `agen_<version>_linux_amd64.tar.gz`, `_linux_arm64.tar.gz` (glibc
-2.35 or newer: Ubuntu 22.04, Debian 12 and later), `_darwin_arm64.tar.gz`
+2.34 or newer: Ubuntu 22.04, Debian 12, RHEL 9 and later), `_darwin_arm64.tar.gz`
 (Apple silicon) and `_windows_amd64.zip`. The installers check the archive's
 checksum and put `agen` and `agen-host` in `~/.agen/bin`.
 
