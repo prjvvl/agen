@@ -8,6 +8,9 @@ on:
     paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   e2e:
     runs-on: ubuntu-latest

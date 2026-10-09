@@ -8,6 +8,9 @@ on:
     paths: ["sdks/**", "engine/**", "spec/**", "Cargo.toml", "Cargo.lock", "scripts/build-ffi.sh", ".github/workflows/sdks.yml"]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   go:
     strategy:

@@ -8,6 +8,9 @@ on:
     paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", "scripts/gen.sh", ".github/workflows/platform.yml"]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     strategy:
