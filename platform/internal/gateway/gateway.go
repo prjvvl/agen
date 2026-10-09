@@ -16,9 +16,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -557,7 +559,12 @@ func (g *Gateway) remember(t *Task) {
 			g.order = g.order[1:]
 		}
 	}
+	// A deep enough copy: the caller keeps changing its task (metadata,
+	// history) without g.mu while other requests read the cached one.
 	cp := *t
+	cp.Metadata = maps.Clone(t.Metadata)
+	cp.History = slices.Clone(t.History)
+	cp.Artifacts = slices.Clone(t.Artifacts)
 	g.tasks[t.ID] = &cp
 }
 

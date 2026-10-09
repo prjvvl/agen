@@ -49,13 +49,14 @@ func TestReportsAllIssues(t *testing.T) {
 	files["x-agen/secrets.json"] = []byte(`{"KEY":{"source":"env","value":"sk-1"}}`)
 	files["x-agen/config.json"] = []byte(`{"kind":"singleton","scale":{"min":0,"max":3}}`)
 	files["../escape"] = []byte("x")
+	files["C:/drive"] = []byte("x")
 	_, err := Parse(files)
 	var be *Error
 	if !errors.As(err, &be) {
 		t.Fatalf("got %v", err)
 	}
 	text := be.Error()
-	for _, want := range []string{"plugin.json: required file is missing", "x-agen/harness.json: at /provider", "x-agen/secrets.json", "singleton runs at most one instance", "path escapes the bundle"} {
+	for _, want := range []string{"plugin.json: required file is missing", "x-agen/harness.json: at /provider", "x-agen/secrets.json", "singleton runs at most one instance", "path escapes the bundle", "C:/drive: ':' is not allowed"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}

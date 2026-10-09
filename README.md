@@ -1,5 +1,10 @@
 # Agen
 
+[![engine](https://github.com/prjvvl/agen/actions/workflows/engine.yml/badge.svg)](https://github.com/prjvvl/agen/actions/workflows/engine.yml)
+[![platform](https://github.com/prjvvl/agen/actions/workflows/platform.yml/badge.svg)](https://github.com/prjvvl/agen/actions/workflows/platform.yml)
+[![sdks](https://github.com/prjvvl/agen/actions/workflows/sdks.yml/badge.svg)](https://github.com/prjvvl/agen/actions/workflows/sdks.yml)
+[![cluster](https://github.com/prjvvl/agen/actions/workflows/cluster.yml/badge.svg)](https://github.com/prjvvl/agen/actions/workflows/cluster.yml)
+
 One agent engine, two ways to use it:
 
 - **Embed** an agent in your app with the Python, Node or Go SDK.
@@ -7,7 +12,90 @@ One agent engine, two ways to use it:
   (including to zero), wake them on demand, and manage them from the CLI, web
   UI, REST API or MCP — on one machine or many.
 
-Status: early development. See [docs/deploy.md](docs/deploy.md) to run it, [docs/security.md](docs/security.md) to operate it securely and [docs/architecture.md](docs/architecture.md) for the design.
+Status: early development. Interfaces may still change.
+
+## What an agent can do
+
+- Use tools: your own functions (SDK) or any MCP server.
+- Load skills when it needs them, and call other agents over A2A, with
+  depth and fan-out limits.
+- Ask a person first: an `ask` permission pauses the run until someone
+  approves it from the CLI, web UI or MCP.
+- Survive crashes: a run resumes from its last checkpoint, and a side effect
+  that already happened is not repeated.
+- Keep secrets out of logs, traces, storage and model input.
+- Be traced end to end, across agents.
+- Use any model through OpenRouter or an OpenAI-compatible API; tests use the
+  `fake` and `replay` providers.
+
+## Build from source
+
+Needs Rust (stable), Go 1.26 and, for the web UI, Node 22 or newer.
+
+```sh
+cargo build --release -p agen-host
+go build -o target/release/ ./platform/cmd/agen   # agen finds agen-host next to it
+sh scripts/build-web.sh                           # optional: the web UI, embedded by the Hub at build time
+```
+
+Release archives and the installers are described in
+[docs/deploy.md](docs/deploy.md#install).
+
+## Quickstart: a local fleet
+
+```sh
+agen up                                          # Hub + one Nest, SQLite in ~/.agen
+agen deploy examples/bundles/hello --replicas 1
+agen run hello "hi"
+agen ps --all                                    # deployments and instances
+agen ui                                          # sign-in link for the web UI
+agen down                                        # stops everything agen up started
+```
+
+An agent is a folder (a "bundle"): `plugin.json`, skills, and Agen's own
+settings in `x-agen/`: its prompt, model, scaling, permissions, budget,
+triggers and the agents it may call. See
+[examples/bundles/hello](examples/bundles/hello) and the schemas in
+[spec/bundle](spec/bundle).
+
+## Embed an agent (Python)
+
+```sh
+pip install ./sdks/python
+```
+
+```python
+from agen import Agent, openrouter, tool
+
+@tool(read_only=True)
+def lookup_order(order_id: str) -> dict:
+    """Look up an order by id."""
+    return {"status": "shipped", "carrier": "UPS"}
+
+agent = Agent("order-desk",
+              instructions="Answer order questions using lookup_order.",
+              model="deepseek/deepseek-v4-flash",
+              provider=openrouter(),          # reads OPENROUTER_API_KEY
+              tools=[lookup_order])
+
+with agent:
+    result = agent.run("Where is my order A-1001?")
+    print(result.status)
+    for span in agent.trace(result.trace_id):
+        print(span["name"])
+```
+
+Runnable versions for each language, which need no API key:
+[examples/python-app](examples/python-app),
+[examples/node-app](examples/node-app) and
+[examples/go-app](examples/go-app).
+
+## Docs
+
+- [docs/deploy.md](docs/deploy.md): run it locally, distributed (Hubs, Nests,
+  Postgres) or on Kubernetes.
+- [docs/security.md](docs/security.md): operate it securely.
+- [docs/architecture.md](docs/architecture.md): the design.
 
 ## Layout
 
@@ -21,6 +109,10 @@ Status: early development. See [docs/deploy.md](docs/deploy.md) to run it, [docs
 | `examples/` | Example bundles and apps |
 | `deploy/` | Docker image, compose cluster, Kubernetes manifests |
 | `scripts/` | Code generation, release, install |
+
+## Security
+
+Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## License
 

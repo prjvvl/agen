@@ -1,0 +1,24 @@
+# Weekly dependency updates, grouped so each ecosystem opens one pull request
+# (security updates still come as soon as an advisory is published).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directories: ["/", "/sdks/node", "/sdks/python"]
+    schedule: {interval: weekly}
+    groups:
+      cargo: {patterns: ["*"]}
+  - package-ecosystem: gomod
+    directories: ["/platform", "/sdks/go", "/examples/go-app"]
+    schedule: {interval: weekly}
+    groups:
+      go: {patterns: ["*"]}
+  - package-ecosystem: npm
+    directory: /web
+    schedule: {interval: weekly}
+    groups:
+      web: {patterns: ["*"]}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ["*"]}

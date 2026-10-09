@@ -636,7 +636,9 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 // safeJoin resolves a bundle-relative path inside root, rejecting absolute
 // paths and "..".
 func safeJoin(root, rel string) (string, error) {
-	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "\\") || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
+	// A drive prefix ("C:x") is refused on every OS, so a bundle is valid or
+	// not regardless of where its Nest runs.
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "\\") || strings.Contains(rel, ":") || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 		return "", fmt.Errorf("definition has an invalid file path %q", rel)
 	}
 	for _, part := range strings.Split(rel, "/") {
