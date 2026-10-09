@@ -6,8 +6,9 @@ Local and distributed fleets use the **same two binaries** (`agen`,
 
 ## Install
 
-From a release archive (`scripts/release.sh` builds one; CI builds them for
-Linux, macOS and Windows):
+From a release archive, downloaded from
+[GitHub Releases](https://github.com/prjvvl/agen/releases) or built with
+`scripts/release.sh`:
 
 ```sh
 sh scripts/install.sh dist/agen_<version>_<os>_<arch>.tar.gz # Linux/macOS
@@ -25,7 +26,7 @@ registers no OS services; `agen down` stops everything it started.
 ## Local: one process
 
 ```sh
-agen up # Hub + scheduler + one Nest, SQLite in ~/.agen
+agen up # Hub + scheduler + one Nest, SQLite in ~/.agen; keeps running, so use a second terminal for the rest
 agen deploy examples/bundles/hello --replicas 1
 agen run hello "hi"
 agen ps --all # deployments and instances
