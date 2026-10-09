@@ -23,7 +23,7 @@ jobs:
       AGEN_TEST_POSTGRES_URL: ${{ matrix.os == 'ubuntu-latest' && 'postgres://agen:agen@127.0.0.1:5432/agen' || '' }}
       AGEN_REQUIRE_PG: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Start Postgres
         if: runner.os == 'Linux'
         run: |
