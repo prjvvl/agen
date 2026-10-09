@@ -1,10 +1,13 @@
 name: platform
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-    paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", ".github/workflows/platform.yml"]
+    paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", "scripts/gen.sh", ".github/workflows/platform.yml"]
   pull_request:
-    paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", ".github/workflows/platform.yml"]
+    paths: ["platform/**", "spec/**", "engine/**", "examples/bundles/**", "go.work", "scripts/gen.sh", ".github/workflows/platform.yml"]
+permissions:
+  contents: read
 jobs:
   test:
     strategy:

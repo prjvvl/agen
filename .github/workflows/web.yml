@@ -1,10 +1,13 @@
 name: web
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
   pull_request:
     paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
+permissions:
+  contents: read
 jobs:
   e2e:
     runs-on: ubuntu-latest

@@ -1,10 +1,13 @@
 name: sdks
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ["sdks/**", "engine/**", "spec/**", "Cargo.toml", "Cargo.lock", "scripts/build-ffi.sh", ".github/workflows/sdks.yml"]
   pull_request:
     paths: ["sdks/**", "engine/**", "spec/**", "Cargo.toml", "Cargo.lock", "scripts/build-ffi.sh", ".github/workflows/sdks.yml"]
+permissions:
+  contents: read
 jobs:
   go:
     strategy:
