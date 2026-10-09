@@ -1,21 +1,27 @@
 name: web
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
   pull_request:
     paths: ["web/**", "platform/**", "engine/**", ".github/workflows/web.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: platform/go.mod
       - uses: dtolnay/rust-toolchain@stable

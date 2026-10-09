@@ -16,9 +16,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -67,7 +69,9 @@ type Gateway struct {
 	touched  map[[2]string]time.Time
 	// saturatedAt throttles scale-up requests per deployment.
 	saturatedAt map[[2]string]time.Time
-	maxTasks    int
+	// wokeAt throttles wake requests per deployment while calls wait.
+	wokeAt   map[[2]string]time.Time
+	maxTasks int
 }
 
 // New returns a Gateway over a Manager.
@@ -76,7 +80,7 @@ func New(f Fleet, baseURL string, log *slog.Logger) *Gateway {
 		log = slog.Default()
 	}
 	return &Gateway{Fleet: f, BaseURL: strings.TrimRight(baseURL, "/"), WakeTimeout: 60 * time.Second, RunTimeout: time.Hour, Log: log,
-		tasks: map[string]*Task{}, running: map[string]*manager.Slot{}, inflight: map[string]chan struct{}{}, touched: map[[2]string]time.Time{}, saturatedAt: map[[2]string]time.Time{}, maxTasks: 1000}
+		tasks: map[string]*Task{}, running: map[string]*manager.Slot{}, inflight: map[string]chan struct{}{}, touched: map[[2]string]time.Time{}, saturatedAt: map[[2]string]time.Time{}, wokeAt: map[[2]string]time.Time{}, maxTasks: 1000}
 }
 
 // Handler serves the A2A routes.
@@ -557,21 +561,30 @@ func (g *Gateway) remember(t *Task) {
 			g.order = g.order[1:]
 		}
 	}
+	// A deep enough copy: the caller keeps changing its task (metadata,
+	// history) without g.mu while other requests read the cached one.
 	cp := *t
+	cp.Metadata = maps.Clone(t.Metadata)
+	cp.History = slices.Clone(t.History)
+	cp.Artifacts = slices.Clone(t.Artifacts)
 	g.tasks[t.ID] = &cp
 }
 
 // acquire reserves a slot, waking the deployment if nothing is ready.
 func (g *Gateway) acquire(ctx context.Context, ns, dep string) (*manager.Slot, *rpcError) {
 	deadline := time.Now().Add(g.WakeTimeout)
-	woke := false
+	first, woke := true, false
 	for {
 		if s := g.Fleet.Acquire(ns, dep); s != nil {
 			g.touch(ctx, ns, dep)
 			return s, nil
 		}
-		if !woke {
-			woke = true
+		// Keep waking while calls wait (at most once a second per
+		// deployment): a waiting call is activity, so a deployment whose
+		// instance is slow to start is not scaled back to zero under it, and a
+		// failed wake is retried.
+		if first || g.wakeDue(ns, dep) {
+			first = false
 			c, cancel := context.WithTimeout(ctx, 10*time.Second)
 			err := g.Fleet.ReportActivity(c, ns, dep, false)
 			cancel()
@@ -585,7 +598,8 @@ func (g *Gateway) acquire(ctx context.Context, ns, dep string) (*manager.Slot, *
 			}
 			if err != nil {
 				g.Log.Warn("wake request failed; waiting for an instance", "deployment", ns+"/"+dep, "err", err)
-			} else {
+			} else if !woke {
+				woke = true
 				g.Log.Info("woke deployment for a2a call", "deployment", ns+"/"+dep)
 			}
 		}
@@ -601,6 +615,19 @@ func (g *Gateway) acquire(ctx context.Context, ns, dep string) (*manager.Slot, *
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// wakeDue reports whether a waiting call should wake ns/dep again: at most
+// once a second per deployment, however many calls wait.
+func (g *Gateway) wakeDue(ns, dep string) bool {
+	k := [2]string{ns, dep}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if time.Since(g.wokeAt[k]) < time.Second {
+		return false
+	}
+	g.wokeAt[k] = time.Now()
+	return true
 }
 
 // saturated tells the Hub, at most every 2s per deployment, that calls are

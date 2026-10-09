@@ -127,8 +127,13 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 	clean := map[string][]byte{}
 	for p, b := range files {
 		p = strings.TrimPrefix(path.Clean(strings.ReplaceAll(p, `\`, "/")), "./")
-		if strings.HasPrefix(p, "../") || strings.HasPrefix(p, "/") {
+		if p == ".." || strings.HasPrefix(p, "../") || strings.HasPrefix(p, "/") {
 			add("%s: path escapes the bundle", p)
+			continue
+		}
+		// Nests refuse ':' (a Windows drive or stream), so the Hub does too.
+		if strings.Contains(p, ":") {
+			add("%s: ':' is not allowed in bundle paths", p)
 			continue
 		}
 		if !definition.Ignored(p) {

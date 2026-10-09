@@ -279,8 +279,8 @@ func TestKubernetesBackend(t *testing.T) {
 
 	// Host settings: the provider key reached the instance's secret (not
 	// its pod spec), and the instance refuses callers without its host
-	// token (asked from a Hub pod; kind's CNI does not enforce the
-	// NetworkPolicy, so the token is what stops it).
+	// token (asked from a Hub pod): 401, or 000 where the CNI enforces the
+	// NetworkPolicy and the call times out.
 	inst := k.pods("hello")[0]
 	if v := k.mustKubectl("get", "secret", inst, "-o", "jsonpath={.data.DEMO_PROVIDER_KEY}"); v != base64.StdEncoding.EncodeToString([]byte("demo-value-42")) {
 		t.Fatalf("provider key in instance secret: %q", v)
@@ -291,10 +291,15 @@ func TestKubernetesBackend(t *testing.T) {
 	ip := strings.TrimSpace(k.mustKubectl("get", "pod", inst, "-o", "jsonpath={.status.podIP}"))
 	code, _ := k.kubectlIn(hubNS, "exec", "deploy/agen-hub", "--", "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5",
 		"-X", "POST", "-H", "Content-Type: application/json", "-d", "{}", "http://"+ip+":7080/agen.v1.HostService/Health")
-	if c := strings.TrimSpace(code); c != "401" && c != "000" {
+	// kubectl appends "command terminated ..." to curl's code on a timeout.
+	c := strings.TrimSpace(code)
+	if len(c) > 3 {
+		c = c[:3]
+	}
+	if c != "401" && c != "000" {
 		t.Fatalf("instance answered a foreign pod without the host token: %q", code)
 	}
-	t.Logf("host isolation: provider key only in the instance secret; foreign caller got %s", strings.TrimSpace(code))
+	t.Logf("host isolation: provider key only in the instance secret; foreign caller got %s", c)
 
 	// ---- pod failure: a deleted instance pod is replaced ----
 	before := k.pods("hello")

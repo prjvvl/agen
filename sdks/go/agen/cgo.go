@@ -3,8 +3,8 @@ package agen
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../../engine/crates/agen-ffi/include
 #cgo windows LDFLAGS: -L${SRCDIR}/../../../target/x86_64-pc-windows-gnu/release -l:libagen_ffi.a -static -lbcrypt -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp
-#cgo linux LDFLAGS: -L${SRCDIR}/../../../target/release -lagen_ffi -lm -ldl -lpthread
-#cgo darwin LDFLAGS: -L${SRCDIR}/../../../target/release -lagen_ffi -framework Security -framework CoreFoundation -framework SystemConfiguration
+#cgo linux LDFLAGS: -L${SRCDIR}/../../../target/release -l:libagen_ffi.a -lgcc_s -lutil -lrt -lpthread -lm -ldl -lc
+#cgo darwin LDFLAGS: ${SRCDIR}/../../../target/release/libagen_ffi.a -liconv -lc -lm -framework Security -framework CoreFoundation -framework SystemConfiguration
 #include <stdlib.h>
 #include "agen.h"
 

@@ -138,10 +138,6 @@ func startCluster(t *testing.T, capacity int, opts ...func(*Config, *clusterOpts
 	sched.Tick, sched.Log = 100*time.Millisecond, log
 	var co clusterOpts
 	cfgHooks := opts
-	// Most tests drive desired counts by hand.
-	sched.Autoscaling = false
-	schedDone := make(chan struct{})
-	go func() { sched.Run(ctx); close(schedDone) }()
 
 	client := agenv1connect.NewHubServiceClient(http.DefaultClient, srv.URL, connect.WithProtoJSON(), connect.WithInterceptors(connect.UnaryInterceptorFunc(
 		func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -159,7 +155,11 @@ func startCluster(t *testing.T, capacity int, opts ...func(*Config, *clusterOpts
 	for _, o := range cfgHooks {
 		o(&cfg, &co)
 	}
+	// Most tests drive desired counts by hand. Set before Run: the
+	// scheduler reads its settings without a lock.
 	sched.Autoscaling = co.autoscale
+	schedDone := make(chan struct{})
+	go func() { sched.Run(ctx); close(schedDone) }()
 	m, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)

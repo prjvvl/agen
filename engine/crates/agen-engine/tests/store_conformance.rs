@@ -10,7 +10,8 @@ async fn sqlite() -> (Store, tempfile::TempDir) {
 }
 
 async fn postgres() -> Option<Store> {
-    let Ok(url) = std::env::var("AGEN_TEST_POSTGRES_URL") else {
+    // CI sets the variable to "" on runners without Postgres: same as unset.
+    let Some(url) = std::env::var("AGEN_TEST_POSTGRES_URL").ok().filter(|u| !u.is_empty()) else {
         // CI sets AGEN_REQUIRE_PG=1 so a missing database fails loudly instead of skipping.
         assert!(
             std::env::var("AGEN_REQUIRE_PG").as_deref() != Ok("1"),
