@@ -18,6 +18,14 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: platform/go.mod
+      - name: Pull Docker Hub images through mirror.gcr.io
+        run: |
+          f=/etc/docker/daemon.json
+          { [ -s $f ] && sudo cat $f || echo '{}'; } | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee $f.new >/dev/null
+          sudo mv $f.new $f && sudo systemctl restart docker
+          for img in postgres:17-alpine nginx:1.27-alpine; do
+            docker pull -q mirror.gcr.io/library/$img && docker tag mirror.gcr.io/library/$img $img
+          done
       - run: docker build -f deploy/docker/Dockerfile -t agen:dev .
       - run: go test -count=1 -v -timeout 30m -run TestDistributedCluster ./e2e/
         working-directory: platform
@@ -31,8 +39,17 @@ jobs:
         with:
           go-version-file: platform/go.mod
       - run: go install sigs.k8s.io/kind@v0.29.0
+      - name: Pull Docker Hub images through mirror.gcr.io
+        run: |
+          f=/etc/docker/daemon.json
+          { [ -s $f ] && sudo cat $f || echo '{}'; } | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee $f.new >/dev/null
+          sudo mv $f.new $f && sudo systemctl restart docker
+          for img in postgres:17-alpine nginx:1.27-alpine; do
+            docker pull -q mirror.gcr.io/library/$img && docker tag mirror.gcr.io/library/$img $img
+          done
       - run: docker build -f deploy/docker/Dockerfile -t agen:dev .
       - run: go test -count=1 -v -timeout 30m -run TestKubernetesBackend ./e2e/
         working-directory: platform
         env:
           AGEN_KIND_E2E: "1"
+          AGEN_KIND_NODE_IMAGE: mirror.gcr.io/kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f

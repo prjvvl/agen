@@ -37,7 +37,8 @@ case "$src" in
   http://*|https://*)
     curl -fsSL "$src" -o "$tmp/agen.tar.gz"
     if [ -z "$want" ]; then
-      want="$(curl -fsSL "$src.sha256" | cut -d' ' -f1)" || { echo "no $src.sha256: pass --sha256" >&2; exit 1; }
+      curl -fsSL "$src.sha256" -o "$tmp/sum" || { echo "no $src.sha256: pass --sha256" >&2; exit 1; }
+      want="$(cut -d' ' -f1 < "$tmp/sum")"
     fi
     src="$tmp/agen.tar.gz" ;;
   *)

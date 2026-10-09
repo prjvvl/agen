@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: mirror.gcr.io/library/postgres:16
         env:
           POSTGRES_USER: agen
           POSTGRES_PASSWORD: agen

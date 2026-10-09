@@ -6,6 +6,7 @@
 # (required for URLs).
 param([string]$Archive, [string]$Sha256, [switch]$Uninstall, [switch]$Purge)
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 $dir = if ($env:AGEN_INSTALL_DIR) { $env:AGEN_INSTALL_DIR } else { Join-Path $HOME ".agen\bin" }
 $agenHome = if ($env:AGEN_HOME) { $env:AGEN_HOME } else { Join-Path $HOME ".agen" }
 
@@ -36,10 +37,12 @@ New-Item -ItemType Directory $tmp | Out-Null
 try {
   if ($Archive -match '^https?://') {
     $zip = Join-Path $tmp "agen.zip"
-    Invoke-WebRequest $Archive -OutFile $zip
+    Invoke-WebRequest -UseBasicParsing $Archive -OutFile $zip
     if (-not $Sha256) {
-      try { $Sha256 = ((Invoke-WebRequest "$Archive.sha256").Content -split '\s+')[0] }
+      $sum = Join-Path $tmp "agen.zip.sha256"
+      try { Invoke-WebRequest -UseBasicParsing "$Archive.sha256" -OutFile $sum }
       catch { throw "no $Archive.sha256: pass -Sha256" }
+      $Sha256 = ((Get-Content -Raw $sum) -split '\s+')[0]
     }
     $Archive = $zip
   } elseif (-not $Sha256 -and (Test-Path "$Archive.sha256")) {
