@@ -89,11 +89,8 @@ A Nest gets a value only for a deployment it runs that declares it and that the 
 
 ## Key rotation
 
-```sh
-AGEN_HUB_KEK=<old> AGEN_HUB_KEK_NEW=<new> agen hub rotate-kek --store postgres://admin@db/agen
-# then restart every Hub with AGEN_HUB_KEK=<new>
-AGEN_HUB_KEK=<kek> agen hub rotate-token-key --store postgres://admin@db/agen
-```
+See [Rotation](security.md#rotation): the KEK is rotated without downtime by
+restarting the Hubs with both keys before re-sealing.
 
 ## Kubernetes
 
@@ -104,6 +101,8 @@ can mount any secret of its namespace: the Hub's admin token must not be
 one of them. With kind:
 
 ```sh
+docker build -f deploy/docker/Dockerfile -t agen:dev .
+docker pull postgres:17-alpine
 kind create cluster --config deploy/kube/kind.yaml
 # Load the images. On Docker Desktop, `kind load docker-image` can fail for
 # multi-platform images; importing into the node directly works:
