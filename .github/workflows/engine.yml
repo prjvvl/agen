@@ -27,8 +27,8 @@ jobs:
       - name: Start Postgres
         if: runner.os == 'Linux'
         run: |
-          docker run -d -p 5432:5432 -e POSTGRES_USER=agen -e POSTGRES_PASSWORD=agen -e POSTGRES_DB=agen postgres:17-alpine
-          for i in $(seq 1 30); do docker run --rm --network host postgres:17-alpine pg_isready -h 127.0.0.1 && break; sleep 2; done
+          docker run -d -p 5432:5432 -e POSTGRES_USER=agen -e POSTGRES_PASSWORD=agen -e POSTGRES_DB=agen mirror.gcr.io/library/postgres:17-alpine
+          for i in $(seq 1 30); do docker run --rm --network host mirror.gcr.io/library/postgres:17-alpine pg_isready -h 127.0.0.1 && break; sleep 2; done
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
