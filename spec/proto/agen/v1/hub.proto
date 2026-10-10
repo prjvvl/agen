@@ -10,66 +10,82 @@ option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
 // Client-facing control plane API. Served by the Hub over Connect (gRPC,
 // Connect, JSON) and exposed 1:1 as MCP tools. CLI and UI use only this.
 service HubService {
-  // Deployments
+  // Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
   rpc CreateDeployment(CreateDeploymentRequest) returns (CreateDeploymentResponse);
+  // Roll out a new bundle version and/or change a deployment's scale, budget, limits, triggers or placement.
   rpc UpdateDeployment(UpdateDeploymentRequest) returns (UpdateDeploymentResponse);
+  // A deployment and its instances (with the tools each loaded and their tool servers' state).
   rpc GetDeployment(GetDeploymentRequest) returns (GetDeploymentResponse);
+  // Deployments in a namespace ("" = every namespace the token may see).
   rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  // Set the desired number of instances (within scale.min..max).
   rpc ScaleDeployment(ScaleDeploymentRequest) returns (ScaleDeploymentResponse);
+  // Delete a deployment; its instances stop.
   rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
   // Pause (stop all instances and hold at 0) or resume a deployment.
   rpc PauseDeployment(PauseDeploymentRequest) returns (PauseDeploymentResponse);
 
-  // Fleet view
+  // Every instance on every Nest, with state, running tasks and loaded tools.
   rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  // Enrolled Nests (machines or clusters that run instances).
   rpc ListNests(ListNestsRequest) returns (ListNestsResponse);
 
-  // Work
+  // Queue a task (one agent run) for a deployment. Use conversationKey to continue an earlier conversation.
   rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse);
+  // A task and its result; waitSeconds (up to 300) waits for it to finish.
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  // Recent tasks, newest first.
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  // Cancel a task that has not finished; a running run is stopped.
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
 
-  // Addressing
+  // A2A endpoints of a deployment and a short-lived call token for them.
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // Start a sleeping deployment (scale it to at least 1).
   rpc RequestWake(RequestWakeRequest) returns (RequestWakeResponse);
 
-  // Approvals
+  // Approvals ("ask" permissions) that wait for a decision, or past ones.
   rpc ListApprovals(ListApprovalsRequest) returns (ListApprovalsResponse);
+  // Approve or deny an approval. The principal whose work asked cannot decide it.
   rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
 
-  // Definitions (bundle versions)
+  // Bundle versions (definitions), without their files.
   rpc ListDefinitions(ListDefinitionsRequest) returns (ListDefinitionsResponse);
+  // One bundle version with its files (text files also as textFiles).
   rpc GetDefinition(GetDefinitionRequest) returns (GetDefinitionResponse);
 
-  // Triggers
+  // Trigger firings: fired, missed (Hub down) and rejected (bad credentials).
   rpc ListTriggerEvents(ListTriggerEventsRequest) returns (ListTriggerEventsResponse);
   // Create (or rotate) the secret a webhook trigger's callers must present.
   rpc CreateWebhookSecret(CreateWebhookSecretRequest) returns (CreateWebhookSecretResponse);
-  // Platform secrets (bundle secrets with source "platform"), per namespace.
-  // Values go in and never come back out through this API.
+  // Set a platform secret (bundle secrets with source "platform"), for named deployments. Values never come back out.
   rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
+  // Platform secret names in a namespace (never values).
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  // Delete a platform secret.
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
 
-  // Observability
+  // Runs (one per task or A2A call), newest first, with usage and cost.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  // The spans of a trace: model calls, tool calls and delegations across agents.
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
 
-  // Access
+  // A single-use token for enrolling a Nest (agen nest run --join-token).
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
+  // Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
   rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse);
+  // API tokens (never their secrets).
   rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse);
+  // Revoke an API token.
   rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse);
   // Revokes a Nest's credentials (bearer token and client certificate) and
   // reschedules its instances elsewhere.
   rpc RevokeNest(RevokeNestRequest) returns (RevokeNestResponse);
   // The caller's identity, scopes and namespaces.
   rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
-
-  // Bundle format: the JSON Schemas of every bundle file, an example bundle
-  // and a short guide to how bundles are laid out.
+  // How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
   rpc GetBundleGuide(GetBundleGuideRequest) returns (GetBundleGuideResponse);
 }
 

@@ -12,7 +12,7 @@ From a release archive, downloaded from
 
 ```sh
 sh scripts/install.sh dist/agen_<version>_<os>_<arch>.tar.gz # Linux/macOS
-.\scripts\install.ps1 dist\agen_<version>_windows_amd64.zip # Windows
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 dist\agen_<version>_windows_amd64.zip # Windows
 ```
 
 Both put `agen` and `agen-host` in `~/.agen/bin`. Uninstall with

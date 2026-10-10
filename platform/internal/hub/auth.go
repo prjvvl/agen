@@ -110,6 +110,9 @@ func bearer(h interface{ Get(string) string }) string {
 	return ""
 }
 
+// RequiredScope is the scope a HubService method (e.g. "SubmitTask") needs.
+func RequiredScope(method string) string { return procedureScope("/" + method) }
+
 // procedureScope maps each Hub RPC to the scope it requires.
 func procedureScope(procedure string) string {
 	name := procedure[strings.LastIndex(procedure, "/")+1:]

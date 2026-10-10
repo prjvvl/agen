@@ -124,57 +124,74 @@ const (
 
 // HubServiceClient is a client for the agen.v1.HubService service.
 type HubServiceClient interface {
-	// Deployments
+	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
 	CreateDeployment(context.Context, *connect.Request[v1.CreateDeploymentRequest]) (*connect.Response[v1.CreateDeploymentResponse], error)
+	// Roll out a new bundle version and/or change a deployment's scale, budget, limits, triggers or placement.
 	UpdateDeployment(context.Context, *connect.Request[v1.UpdateDeploymentRequest]) (*connect.Response[v1.UpdateDeploymentResponse], error)
+	// A deployment and its instances (with the tools each loaded and their tool servers' state).
 	GetDeployment(context.Context, *connect.Request[v1.GetDeploymentRequest]) (*connect.Response[v1.GetDeploymentResponse], error)
+	// Deployments in a namespace ("" = every namespace the token may see).
 	ListDeployments(context.Context, *connect.Request[v1.ListDeploymentsRequest]) (*connect.Response[v1.ListDeploymentsResponse], error)
+	// Set the desired number of instances (within scale.min..max).
 	ScaleDeployment(context.Context, *connect.Request[v1.ScaleDeploymentRequest]) (*connect.Response[v1.ScaleDeploymentResponse], error)
+	// Delete a deployment; its instances stop.
 	DeleteDeployment(context.Context, *connect.Request[v1.DeleteDeploymentRequest]) (*connect.Response[v1.DeleteDeploymentResponse], error)
 	// Pause (stop all instances and hold at 0) or resume a deployment.
 	PauseDeployment(context.Context, *connect.Request[v1.PauseDeploymentRequest]) (*connect.Response[v1.PauseDeploymentResponse], error)
-	// Fleet view
+	// Every instance on every Nest, with state, running tasks and loaded tools.
 	ListInstances(context.Context, *connect.Request[v1.ListInstancesRequest]) (*connect.Response[v1.ListInstancesResponse], error)
+	// Enrolled Nests (machines or clusters that run instances).
 	ListNests(context.Context, *connect.Request[v1.ListNestsRequest]) (*connect.Response[v1.ListNestsResponse], error)
-	// Work
+	// Queue a task (one agent run) for a deployment. Use conversationKey to continue an earlier conversation.
 	SubmitTask(context.Context, *connect.Request[v1.SubmitTaskRequest]) (*connect.Response[v1.SubmitTaskResponse], error)
+	// A task and its result; waitSeconds (up to 300) waits for it to finish.
 	GetTask(context.Context, *connect.Request[v1.GetTaskRequest]) (*connect.Response[v1.GetTaskResponse], error)
+	// Recent tasks, newest first.
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
+	// Cancel a task that has not finished; a running run is stopped.
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
-	// Addressing
+	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
+	// Start a sleeping deployment (scale it to at least 1).
 	RequestWake(context.Context, *connect.Request[v1.RequestWakeRequest]) (*connect.Response[v1.RequestWakeResponse], error)
-	// Approvals
+	// Approvals ("ask" permissions) that wait for a decision, or past ones.
 	ListApprovals(context.Context, *connect.Request[v1.ListApprovalsRequest]) (*connect.Response[v1.ListApprovalsResponse], error)
+	// Approve or deny an approval. The principal whose work asked cannot decide it.
 	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
-	// Definitions (bundle versions)
+	// Bundle versions (definitions), without their files.
 	ListDefinitions(context.Context, *connect.Request[v1.ListDefinitionsRequest]) (*connect.Response[v1.ListDefinitionsResponse], error)
+	// One bundle version with its files (text files also as textFiles).
 	GetDefinition(context.Context, *connect.Request[v1.GetDefinitionRequest]) (*connect.Response[v1.GetDefinitionResponse], error)
-	// Triggers
+	// Trigger firings: fired, missed (Hub down) and rejected (bad credentials).
 	ListTriggerEvents(context.Context, *connect.Request[v1.ListTriggerEventsRequest]) (*connect.Response[v1.ListTriggerEventsResponse], error)
 	// Create (or rotate) the secret a webhook trigger's callers must present.
 	CreateWebhookSecret(context.Context, *connect.Request[v1.CreateWebhookSecretRequest]) (*connect.Response[v1.CreateWebhookSecretResponse], error)
-	// Platform secrets (bundle secrets with source "platform"), per namespace.
-	// Values go in and never come back out through this API.
+	// Set a platform secret (bundle secrets with source "platform"), for named deployments. Values never come back out.
 	SetSecret(context.Context, *connect.Request[v1.SetSecretRequest]) (*connect.Response[v1.SetSecretResponse], error)
+	// Platform secret names in a namespace (never values).
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
+	// Delete a platform secret.
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error)
-	// Observability
+	// Runs (one per task or A2A call), newest first, with usage and cost.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
+	// The spans of a trace: model calls, tool calls and delegations across agents.
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
+	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
-	// Access
+	// A single-use token for enrolling a Nest (agen nest run --join-token).
 	CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error)
+	// Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
 	CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error)
+	// API tokens (never their secrets).
 	ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error)
+	// Revoke an API token.
 	RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error)
 	// Revokes a Nest's credentials (bearer token and client certificate) and
 	// reschedules its instances elsewhere.
 	RevokeNest(context.Context, *connect.Request[v1.RevokeNestRequest]) (*connect.Response[v1.RevokeNestResponse], error)
 	// The caller's identity, scopes and namespaces.
 	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
-	// Bundle format: the JSON Schemas of every bundle file, an example bundle
-	// and a short guide to how bundles are laid out.
+	// How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
 	GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error)
 }
 
@@ -606,57 +623,74 @@ func (c *hubServiceClient) GetBundleGuide(ctx context.Context, req *connect.Requ
 
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
-	// Deployments
+	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
 	CreateDeployment(context.Context, *connect.Request[v1.CreateDeploymentRequest]) (*connect.Response[v1.CreateDeploymentResponse], error)
+	// Roll out a new bundle version and/or change a deployment's scale, budget, limits, triggers or placement.
 	UpdateDeployment(context.Context, *connect.Request[v1.UpdateDeploymentRequest]) (*connect.Response[v1.UpdateDeploymentResponse], error)
+	// A deployment and its instances (with the tools each loaded and their tool servers' state).
 	GetDeployment(context.Context, *connect.Request[v1.GetDeploymentRequest]) (*connect.Response[v1.GetDeploymentResponse], error)
+	// Deployments in a namespace ("" = every namespace the token may see).
 	ListDeployments(context.Context, *connect.Request[v1.ListDeploymentsRequest]) (*connect.Response[v1.ListDeploymentsResponse], error)
+	// Set the desired number of instances (within scale.min..max).
 	ScaleDeployment(context.Context, *connect.Request[v1.ScaleDeploymentRequest]) (*connect.Response[v1.ScaleDeploymentResponse], error)
+	// Delete a deployment; its instances stop.
 	DeleteDeployment(context.Context, *connect.Request[v1.DeleteDeploymentRequest]) (*connect.Response[v1.DeleteDeploymentResponse], error)
 	// Pause (stop all instances and hold at 0) or resume a deployment.
 	PauseDeployment(context.Context, *connect.Request[v1.PauseDeploymentRequest]) (*connect.Response[v1.PauseDeploymentResponse], error)
-	// Fleet view
+	// Every instance on every Nest, with state, running tasks and loaded tools.
 	ListInstances(context.Context, *connect.Request[v1.ListInstancesRequest]) (*connect.Response[v1.ListInstancesResponse], error)
+	// Enrolled Nests (machines or clusters that run instances).
 	ListNests(context.Context, *connect.Request[v1.ListNestsRequest]) (*connect.Response[v1.ListNestsResponse], error)
-	// Work
+	// Queue a task (one agent run) for a deployment. Use conversationKey to continue an earlier conversation.
 	SubmitTask(context.Context, *connect.Request[v1.SubmitTaskRequest]) (*connect.Response[v1.SubmitTaskResponse], error)
+	// A task and its result; waitSeconds (up to 300) waits for it to finish.
 	GetTask(context.Context, *connect.Request[v1.GetTaskRequest]) (*connect.Response[v1.GetTaskResponse], error)
+	// Recent tasks, newest first.
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
+	// Cancel a task that has not finished; a running run is stopped.
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
-	// Addressing
+	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
+	// Start a sleeping deployment (scale it to at least 1).
 	RequestWake(context.Context, *connect.Request[v1.RequestWakeRequest]) (*connect.Response[v1.RequestWakeResponse], error)
-	// Approvals
+	// Approvals ("ask" permissions) that wait for a decision, or past ones.
 	ListApprovals(context.Context, *connect.Request[v1.ListApprovalsRequest]) (*connect.Response[v1.ListApprovalsResponse], error)
+	// Approve or deny an approval. The principal whose work asked cannot decide it.
 	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
-	// Definitions (bundle versions)
+	// Bundle versions (definitions), without their files.
 	ListDefinitions(context.Context, *connect.Request[v1.ListDefinitionsRequest]) (*connect.Response[v1.ListDefinitionsResponse], error)
+	// One bundle version with its files (text files also as textFiles).
 	GetDefinition(context.Context, *connect.Request[v1.GetDefinitionRequest]) (*connect.Response[v1.GetDefinitionResponse], error)
-	// Triggers
+	// Trigger firings: fired, missed (Hub down) and rejected (bad credentials).
 	ListTriggerEvents(context.Context, *connect.Request[v1.ListTriggerEventsRequest]) (*connect.Response[v1.ListTriggerEventsResponse], error)
 	// Create (or rotate) the secret a webhook trigger's callers must present.
 	CreateWebhookSecret(context.Context, *connect.Request[v1.CreateWebhookSecretRequest]) (*connect.Response[v1.CreateWebhookSecretResponse], error)
-	// Platform secrets (bundle secrets with source "platform"), per namespace.
-	// Values go in and never come back out through this API.
+	// Set a platform secret (bundle secrets with source "platform"), for named deployments. Values never come back out.
 	SetSecret(context.Context, *connect.Request[v1.SetSecretRequest]) (*connect.Response[v1.SetSecretResponse], error)
+	// Platform secret names in a namespace (never values).
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
+	// Delete a platform secret.
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error)
-	// Observability
+	// Runs (one per task or A2A call), newest first, with usage and cost.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
+	// The spans of a trace: model calls, tool calls and delegations across agents.
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
+	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
-	// Access
+	// A single-use token for enrolling a Nest (agen nest run --join-token).
 	CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error)
+	// Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
 	CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error)
+	// API tokens (never their secrets).
 	ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error)
+	// Revoke an API token.
 	RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error)
 	// Revokes a Nest's credentials (bearer token and client certificate) and
 	// reschedules its instances elsewhere.
 	RevokeNest(context.Context, *connect.Request[v1.RevokeNestRequest]) (*connect.Response[v1.RevokeNestResponse], error)
 	// The caller's identity, scopes and namespaces.
 	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
-	// Bundle format: the JSON Schemas of every bundle file, an example bundle
-	// and a short guide to how bundles are laid out.
+	// How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
 	GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error)
 }
 

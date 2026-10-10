@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver "pgx"
@@ -74,8 +75,18 @@ func (s *Store) LeaderLeaseName() string { return s.leader }
 // NowMs is the current time in unix milliseconds. Tests may override it.
 var NowMs = func() int64 { return time.Now().UnixMilli() }
 
-// NewID returns a new ULID string.
-func NewID() string { return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String() }
+var (
+	idMu      sync.Mutex
+	idEntropy = ulid.Monotonic(rand.Reader, 0)
+)
+
+// NewID returns a new ULID string. IDs made by one process sort in creation
+// order, also within a millisecond.
+func NewID() string {
+	idMu.Lock()
+	defer idMu.Unlock()
+	return ulid.MustNew(ulid.Timestamp(time.Now()), idEntropy).String()
+}
 
 // Open connects to `sqlite:<path>` (or `sqlite::memory:`) or `postgres://…`
 // and applies pending migrations.

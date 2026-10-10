@@ -590,11 +590,15 @@ func (e *env) cmdApprovals(ctx context.Context, args []string) error {
 		return e.printJSON(r.Msg)
 	}
 	w := e.table()
-	fmt.Fprintln(w, "APPROVAL\tDEPLOYMENT\tTOOL\tSTATE\tARGUMENTS\tEXPIRES")
+	fmt.Fprintln(w, "APPROVAL\tDEPLOYMENT\tTOOL\tSTATE\tREQUESTED BY\tTASK\tARGUMENTS\tCREATED\tEXPIRES")
 	for _, a := range r.Msg.Approvals {
 		args, _ := a.Arguments.MarshalJSON()
-		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%s\n", a.Id, a.Namespace, a.Deployment, a.Tool, stateName(a.State, "APPROVAL_STATE_"), args,
-			a.ExpiresAt.AsTime().Local().Format(time.RFC3339))
+		state := stateName(a.State, "APPROVAL_STATE_")
+		if a.DecidedByName != "" {
+			state += " by " + a.DecidedByName
+		}
+		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Id, a.Namespace, a.Deployment, a.Tool, state, a.RequestedByName, a.TaskId, args,
+			a.CreatedAt.AsTime().Local().Format(time.RFC3339), a.ExpiresAt.AsTime().Local().Format(time.RFC3339))
 	}
 	return w.Flush()
 }
