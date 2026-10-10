@@ -6,8 +6,9 @@ Local and distributed fleets use the **same two binaries** (`agen`,
 
 ## Install
 
-From a release archive (`scripts/release.sh` builds one; CI builds them for
-Linux, macOS and Windows):
+From a release archive, downloaded from
+[GitHub Releases](https://github.com/prjvvl/agen/releases) or built with
+`scripts/release.sh`:
 
 ```sh
 sh scripts/install.sh dist/agen_<version>_<os>_<arch>.tar.gz # Linux/macOS
@@ -25,7 +26,7 @@ registers no OS services; `agen down` stops everything it started.
 ## Local: one process
 
 ```sh
-agen up # Hub + scheduler + one Nest, SQLite in ~/.agen
+agen up # Hub + scheduler + one Nest, SQLite in ~/.agen; keeps running, so use a second terminal for the rest
 agen deploy examples/bundles/hello --replicas 1
 agen run hello "hi"
 agen ps --all # deployments and instances
@@ -88,11 +89,8 @@ A Nest gets a value only for a deployment it runs that declares it and that the 
 
 ## Key rotation
 
-```sh
-AGEN_HUB_KEK=<old> AGEN_HUB_KEK_NEW=<new> agen hub rotate-kek --store postgres://admin@db/agen
-# then restart every Hub with AGEN_HUB_KEK=<new>
-AGEN_HUB_KEK=<kek> agen hub rotate-token-key --store postgres://admin@db/agen
-```
+See [Rotation](security.md#rotation): the KEK is rotated without downtime by
+restarting the Hubs with both keys before re-sealing.
 
 ## Kubernetes
 
@@ -103,6 +101,8 @@ can mount any secret of its namespace: the Hub's admin token must not be
 one of them. With kind:
 
 ```sh
+docker build -f deploy/docker/Dockerfile -t agen:dev .
+docker pull postgres:17-alpine
 kind create cluster --config deploy/kube/kind.yaml
 # Load the images. On Docker Desktop, `kind load docker-image` can fail for
 # multi-platform images; importing into the node directly works:

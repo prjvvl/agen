@@ -1,7 +1,6 @@
 # Agen Architecture
 
-Status: implementation contract. Supersedes the earlier planning docs where they
-conflict. Changes to anything here are logged as decisions.
+Status: describes the current implementation.
 
 ## 1. Overview
 
@@ -23,8 +22,8 @@ Agen is one agent engine used two ways:
           assignments ↓   │  ↑ status/heartbeat    │ sessions, runs, spans
                 ┌─────────┴─────────┐              │
      machine    │ Nest              │              │
-                │  ├ Manager ───────┼── spawns ──► agent-host (Rust engine) ×N
-                │  └ Gateway ◄──────┼── A2A ─────► agent-host
+                │  ├ Manager ───────┼── spawns ──► agen-host (Rust engine) ×N
+                │  └ Gateway ◄──────┼── A2A ─────► agen-host
                 └───────────────────┘
 ```
 

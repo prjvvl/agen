@@ -6,7 +6,12 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 version="${VERSION:-$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)}"
 goos="${GOOS:-$(go env GOOS)}"; goarch="${GOARCH:-$(go env GOARCH)}"
-exe=""; [ "$goos" = windows ] && exe=".exe"
+exe=""
+if [ "$goos" = windows ]; then
+  exe=".exe"
+  # agen-host must not need the Visual C++ runtime on the target machine.
+  export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static"
+fi
 out="$root/dist/agen_${version}_${goos}_${goarch}"
 rm -rf "$out" && mkdir -p "$out"
 

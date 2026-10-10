@@ -28,23 +28,48 @@ Status: early development. Interfaces may still change.
 - Use any model through OpenRouter or an OpenAI-compatible API; tests use the
   `fake` and `replay` providers.
 
-## Build from source
+## Install
 
-Needs Rust (stable), Go 1.26 and, for the web UI, Node 22 or newer.
+Each [release](https://github.com/prjvvl/agen/releases) has an archive per
+platform: `agen_<version>_linux_amd64.tar.gz`, `_linux_arm64.tar.gz` (glibc
+2.34 or newer: Ubuntu 22.04, Debian 12, RHEL 9 and later), `_darwin_arm64.tar.gz`
+(Apple silicon) and `_windows_amd64.zip`. The installers check the archive's
+checksum and put `agen` and `agen-host` in `~/.agen/bin`.
+
+Linux / macOS (use the archive name for your platform):
 
 ```sh
-cargo build --release -p agen-host
-go build -o target/release/ ./platform/cmd/agen   # agen finds agen-host next to it
-sh scripts/build-web.sh                           # optional: the web UI, embedded by the Hub at build time
+curl -fsSLO https://raw.githubusercontent.com/prjvvl/agen/v0.1.0/scripts/install.sh
+sh install.sh https://github.com/prjvvl/agen/releases/download/v0.1.0/agen_v0.1.0_linux_amd64.tar.gz
 ```
 
-Release archives and the installers are described in
-[docs/deploy.md](docs/deploy.md#install).
+Windows (PowerShell):
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/prjvvl/agen/v0.1.0/scripts/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1 https://github.com/prjvvl/agen/releases/download/v0.1.0/agen_v0.1.0_windows_amd64.zip
+```
+
+Uninstall with `sh install.sh --uninstall` or
+`powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall`.
+
+### Build from source
+
+Needs Rust (stable), Go 1.26 and, for the web UI, Node 22.12 or newer.
+
+```sh
+sh scripts/build-web.sh                           # the web UI, embedded into agen (optional)
+cargo build --release -p agen-host
+go build -o target/release/ ./platform/cmd/agen   # agen finds agen-host next to it
+```
 
 ## Quickstart: a local fleet
 
+From a clone of this repository, for the example bundles (`hello` needs no
+API key):
+
 ```sh
-agen up                                          # Hub + one Nest, SQLite in ~/.agen
+agen up                                          # Hub + one Nest; keeps running, so use a second terminal for the rest
 agen deploy examples/bundles/hello --replicas 1
 agen run hello "hi"
 agen ps --all                                    # deployments and instances

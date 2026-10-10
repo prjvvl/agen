@@ -159,7 +159,11 @@ func TestKubernetesBackend(t *testing.T) {
 		patch := "kubeadmConfigPatches:\n  - |\n    kind: KubeletConfiguration\n    failCgroupV1: false\n"
 		os.WriteFile(cfg, append(b, []byte(patch)...), 0o644)
 	}
-	if out, err := run(k.kind, "create", "cluster", "--name", kindCluster, "--config", cfg, "--wait", "120s"); err != nil {
+	args := []string{"create", "cluster", "--name", kindCluster, "--config", cfg, "--wait", "120s"}
+	if img := os.Getenv("AGEN_KIND_NODE_IMAGE"); img != "" {
+		args = append(args, "--image", img)
+	}
+	if out, err := run(k.kind, args...); err != nil {
 		t.Fatalf("kind create: %v\n%s", err, out)
 	}
 	t.Cleanup(func() {

@@ -12,8 +12,7 @@ advisory is published with credit to you, unless you prefer otherwise.
 
 ## Supported versions
 
-Agen is in early development and has no stable release yet. Fixes go to the
-`main` branch.
+Security fixes go to the `main` branch and the latest release.
 
 ## Scope
 
