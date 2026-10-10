@@ -81,16 +81,17 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err := requireNamespace(ctx, ns); err != nil {
 		return nil, err
 	}
-	b, err := bundle.Parse(m.BundleFiles)
+	files, err := bundleFiles(m.BundleFiles, m.BundleText)
+	if err != nil {
+		return nil, err
+	}
+	b, err := bundle.Parse(files)
 	if err != nil {
 		return nil, connectErr(err)
 	}
 	name := m.Name
 	if name == "" {
 		name = b.Name
-	}
-	if err := h.Store.PutDefinition(ctx, store.Definition{Digest: b.Digest, Name: b.Name, Files: b.Files}); err != nil {
-		return nil, connectErr(err)
 	}
 	p := policyFromBundle(b)
 	kind := b.Kind
@@ -118,6 +119,16 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err := validateTriggers(p.Triggers); err != nil {
 		return nil, err
 	}
+	warnings := h.bundleWarnings(ctx, ns, b)
+	if m.ValidateOnly {
+		if _, err := h.Store.GetDeployment(ctx, ns, name); err == nil {
+			warnings = append(warnings, fmt.Sprintf("deployment %s/%s already exists: deploying would fail; use UpdateDeployment", ns, name))
+		}
+		return connect.NewResponse(&agenv1.CreateDeploymentResponse{Warnings: warnings}), nil
+	}
+	if err := h.Store.PutDefinition(ctx, store.Definition{Digest: b.Digest, Name: b.Name, Files: b.Files}); err != nil {
+		return nil, connectErr(err)
+	}
 	stampTriggers(p.Triggers, nil)
 	d := store.Deployment{Namespace: ns, Name: name, DefinitionDigest: b.Digest, Kind: kind, Desired: int(p.Scale.Min)}
 	p.apply(&d)
@@ -125,7 +136,7 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	return connect.NewResponse(&agenv1.CreateDeploymentResponse{Deployment: deploymentProto(d, 0)}), nil
+	return connect.NewResponse(&agenv1.CreateDeploymentResponse{Deployment: deploymentProto(d, 0), Warnings: warnings}), nil
 }
 
 func validateScale(kind string, s *agenv1.ScalePolicy) error {
@@ -151,15 +162,48 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		return nil, err
 	}
 	var nb *bundle.Bundle
-	if len(m.BundleFiles) > 0 {
-		b, err := bundle.Parse(m.BundleFiles)
+	var warnings []string
+	if len(m.BundleFiles) > 0 || len(m.BundleText) > 0 {
+		files, err := bundleFiles(m.BundleFiles, m.BundleText)
+		if err != nil {
+			return nil, err
+		}
+		b, err := bundle.Parse(files)
 		if err != nil {
 			return nil, connectErr(err)
 		}
-		if err := h.Store.PutDefinition(ctx, store.Definition{Digest: b.Digest, Name: b.Name, Files: b.Files}); err != nil {
-			return nil, connectErr(err)
+		warnings = h.bundleWarnings(ctx, ns, b)
+		if !m.ValidateOnly {
+			if err := h.Store.PutDefinition(ctx, store.Definition{Digest: b.Digest, Name: b.Name, Files: b.Files}); err != nil {
+				return nil, connectErr(err)
+			}
 		}
 		nb = b
+	}
+	if m.ValidateOnly {
+		cur, err := h.Store.GetDeployment(ctx, ns, m.GetRef().GetName())
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		p := PolicyOf(cur)
+		kind := cur.Kind
+		if nb != nil {
+			bp := policyFromBundle(nb)
+			kind, p.Scale, p.Triggers = nb.Kind, bp.Scale, bp.Triggers
+		}
+		if m.Scale != nil {
+			p.Scale = m.Scale
+		}
+		if len(m.Triggers) > 0 {
+			p.Triggers = m.Triggers
+		}
+		if err := validateScale(kind, p.Scale); err != nil {
+			return nil, err
+		}
+		if err := validateTriggers(p.Triggers); err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(&agenv1.UpdateDeploymentResponse{Warnings: warnings}), nil
 	}
 	d, err := h.Store.UpdateDeployment(ctx, ns, m.GetRef().GetName(), func(d *store.Deployment) error {
 		p := PolicyOf(*d)
@@ -203,7 +247,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	return connect.NewResponse(&agenv1.UpdateDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name)))}), nil
+	return connect.NewResponse(&agenv1.UpdateDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name))), Warnings: warnings}), nil
 }
 
 func clamp(v, lo, hi int) int {
@@ -356,8 +400,11 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if _, err := h.Store.GetDeployment(ctx, ns, name); err != nil {
 		return nil, connectErr(err)
 	}
+	if err := checkWorkIdentity(req.Msg.ConversationKey, req.Msg.Labels); err != nil {
+		return nil, err
+	}
 	t, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
-		SubmittedBy: PrincipalFrom(ctx).ID})
+		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: req.Msg.ConversationKey, Labels: req.Msg.Labels})
 	if err != nil {
 		return nil, connectErr(err)
 	}
@@ -365,11 +412,11 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
 }
 
+// MaxTaskWait bounds GetTask's wait_seconds.
+const MaxTaskWait = 5 * time.Minute
+
 func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRequest]) (*connect.Response[agenv1.GetTaskResponse], error) {
-	wait := time.Duration(req.Msg.WaitSeconds) * time.Second
-	if wait > 60*time.Second {
-		wait = 60 * time.Second
-	}
+	wait := min(time.Duration(req.Msg.WaitSeconds)*time.Second, MaxTaskWait)
 	deadline := time.Now().Add(wait)
 	for {
 		t, err := h.Store.GetTask(ctx, req.Msg.Id)
@@ -602,9 +649,10 @@ func (h *Hub) ListApprovals(ctx context.Context, req *connect.Request[agenv1.Lis
 	}
 	p := PrincipalFrom(ctx)
 	out := &agenv1.ListApprovalsResponse{}
+	name := h.principalNames(ctx)
 	for _, a := range list {
 		if p.AllowsNamespace(a.Namespace) {
-			out.Approvals = append(out.Approvals, ApprovalProto(a))
+			out.Approvals = append(out.Approvals, h.approvalProto(a, name))
 		}
 	}
 	return connect.NewResponse(out), nil
@@ -618,11 +666,21 @@ func (h *Hub) DecideApproval(ctx context.Context, req *connect.Request[agenv1.De
 	if err := requireNamespace(ctx, a.Namespace); err != nil {
 		return nil, err
 	}
-	a, err = h.Store.DecideApproval(ctx, req.Msg.Id, req.Msg.Approve, PrincipalFrom(ctx).ID)
+	me := PrincipalFrom(ctx).ID
+	if me == a.RequestedBy {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf(
+			"approval %s was requested by work this token (%s) asked for, and nobody may approve their own request: decide it with another token that has the approver scope",
+			a.ID, h.principalNames(ctx)(me)))
+	}
+	decided, err := h.Store.DecideApproval(ctx, req.Msg.Id, req.Msg.Approve, me)
+	if errors.Is(err, store.ErrConflict) {
+		cur, _ := h.Store.GetApproval(ctx, req.Msg.Id)
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("approval %s is no longer pending (it is %s)", a.ID, cur.State))
+	}
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	return connect.NewResponse(&agenv1.DecideApprovalResponse{Approval: ApprovalProto(a)}), nil
+	return connect.NewResponse(&agenv1.DecideApprovalResponse{Approval: h.approvalProto(decided, h.principalNames(ctx))}), nil
 }
 
 // ---- definitions ----
@@ -678,7 +736,8 @@ func (h *Hub) GetDefinition(ctx context.Context, req *connect.Request[agenv1.Get
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	return connect.NewResponse(&agenv1.GetDefinitionResponse{Definition: &agenv1.Definition{Name: d.Name, Digest: d.Digest, Files: d.Files, CreatedAt: ms(d.CreatedMs)}}), nil
+	return connect.NewResponse(&agenv1.GetDefinitionResponse{Definition: &agenv1.Definition{Name: d.Name, Digest: d.Digest, Files: d.Files, CreatedAt: ms(d.CreatedMs)},
+		TextFiles: textFiles(d.Files)}), nil
 }
 
 // ---- triggers ----

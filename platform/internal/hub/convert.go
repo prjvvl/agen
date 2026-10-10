@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -120,7 +121,10 @@ func policyFromBundle(b *bundle.Bundle) Policy {
 	_ = json.Unmarshal(b.Limits, &limits)
 	p.Limits = &agenv1.Limits{MaxDelegationDepth: limits.MaxDelegationDepth, MaxFanOut: limits.MaxFanOut, MaxTotalDelegations: limits.MaxTotalDelegations}
 	for _, t := range b.Triggers {
-		p.Triggers = append(p.Triggers, &agenv1.Trigger{Type: t.Type, Name: t.Name, Schedule: t.Schedule, Input: t.Input, CatchUp: t.CatchUp})
+		pt := &agenv1.Trigger{}
+		fromJSON(t.Raw, pt)
+		pt.Name = t.Name
+		p.Triggers = append(p.Triggers, pt)
 	}
 	return p
 }
@@ -179,11 +183,15 @@ func InstanceStateName(s agenv1.InstanceState) string {
 }
 
 func instanceProto(i store.Instance) *agenv1.Instance {
-	return &agenv1.Instance{
+	out := &agenv1.Instance{
 		Id: i.ID, Namespace: i.Namespace, Deployment: i.Deployment, NestId: i.NestID, DefinitionDigest: i.DefinitionDigest,
 		State: instanceStates[i.State], Endpoint: i.Endpoint, RunningTasks: int32(i.RunningTasks), StartedAt: ms(i.StartedMs),
-		LastSeen: ms(i.LastSeenMs), Message: i.Message,
+		LastSeen: ms(i.LastSeenMs), Message: i.Message, Tools: i.Tools.Tools,
 	}
+	for _, s := range i.Tools.Servers {
+		out.ToolServers = append(out.ToolServers, &agenv1.ToolServer{Name: s.Name, State: s.State, ToolCount: int32(s.ToolCount)})
+	}
+	return out
 }
 
 func nestProto(n store.Nest, used int) *agenv1.Nest {
@@ -215,6 +223,7 @@ func TaskProto(t store.Task) *agenv1.Task {
 		Error: t.Error, InstanceId: t.InstanceID, RunId: t.RunID, Source: t.Source, Attempts: int32(t.Attempts),
 		CreatedAt: ms(t.CreatedMs), UpdatedAt: ms(t.UpdatedMs), LeaseExpiresAt: ms(t.LeaseExpiresMs), LeaseId: t.LeaseID,
 		ParentTaskId: t.ParentTaskID, ParentRunId: t.ParentRunID, RootRunId: t.RootRunID, Depth: int32(t.Depth), Traceparent: t.Traceparent,
+		ConversationKey: t.ConversationKey, Labels: t.Labels,
 	}
 	if tp := t.Traceparent; len(tp) > 35 {
 		out.TraceId = tp[3:35]
@@ -232,7 +241,31 @@ func ApprovalProto(a store.Approval) *agenv1.Approval {
 	args := &structpb.Struct{}
 	_ = args.UnmarshalJSON(a.Arguments)
 	return &agenv1.Approval{Id: a.ID, Namespace: a.Namespace, Deployment: a.Deployment, RunId: a.RunID, Tool: a.Tool, Arguments: args,
-		State: approvalStates[a.State], RequestedBy: a.RequestedBy, DecidedBy: a.DecidedBy, CreatedAt: ms(a.CreatedMs), ExpiresAt: ms(a.ExpiresMs)}
+		State: approvalStates[a.State], RequestedBy: a.RequestedBy, DecidedBy: a.DecidedBy, CreatedAt: ms(a.CreatedMs), ExpiresAt: ms(a.ExpiresMs),
+		TaskId: a.TaskID, DecidedAt: ms(a.DecidedMs)}
+}
+
+// principalNames resolves principal ids ("token:<id>") to token names; other
+// ids ("admin", "trigger:webhook:x", "user:...") are already readable.
+func (h *Hub) principalNames(ctx context.Context) func(string) string {
+	names := map[string]string{}
+	if toks, err := h.Store.ListAPITokens(ctx); err == nil {
+		for _, t := range toks {
+			names["token:"+t.ID] = t.Name
+		}
+	}
+	return func(id string) string {
+		if n, ok := names[id]; ok {
+			return n
+		}
+		return id
+	}
+}
+
+func (h *Hub) approvalProto(a store.Approval, name func(string) string) *agenv1.Approval {
+	out := ApprovalProto(a)
+	out.RequestedByName, out.DecidedByName = name(a.RequestedBy), name(a.DecidedBy)
+	return out
 }
 
 func runProto(r store.RunRow) *agenv1.Run {

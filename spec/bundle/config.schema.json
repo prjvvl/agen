@@ -21,7 +21,17 @@
             "additionalProperties": false
           }
         },
-        "approvalTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" }
+        "approvalTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+        "notify": {
+          "type": "object",
+          "description": "POST each new pending approval as JSON to this URL",
+          "required": ["url"],
+          "properties": {
+            "url": { "type": "string", "format": "uri" },
+            "secret": { "type": "string", "description": "Platform secret (agen secrets set) whose value signs the body: X-Agen-Signature: sha256=<hex HMAC>" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
@@ -61,8 +71,43 @@
         "type": "object",
         "required": ["type"],
         "oneOf": [
-          { "properties": { "type": { "const": "cron" }, "name": { "type": "string" }, "schedule": { "type": "string" }, "input": { "type": "string" }, "catchUp": { "type": "boolean" } }, "required": ["schedule"] },
-          { "properties": { "type": { "const": "webhook" }, "name": { "type": "string" }, "input": { "type": "string" } }, "required": ["name"] }
+          {
+            "properties": {
+              "type": { "const": "cron" },
+              "name": { "type": "string" },
+              "schedule": { "type": "string" },
+              "input": { "type": "string" },
+              "catchUp": { "type": "boolean" },
+              "labels": { "$ref": "#/$defs/labels" }
+            },
+            "required": ["schedule"],
+            "additionalProperties": false
+          },
+          {
+            "properties": {
+              "type": { "const": "webhook" },
+              "name": { "type": "string" },
+              "input": { "type": "string" },
+              "auth": {
+                "type": "object",
+                "description": "How callers prove they hold the trigger's secret (default: bearer)",
+                "properties": {
+                  "type": { "enum": ["bearer", "hmac"] },
+                  "header": { "type": "string", "description": "hmac: header carrying the signature, e.g. X-Hub-Signature-256" },
+                  "algorithm": { "enum": ["sha256", "sha1"] },
+                  "prefix": { "type": "string", "description": "hmac: text before the hex signature, e.g. sha256=" },
+                  "secret": { "type": "string", "description": "hmac: platform secret (agen secrets set) holding the signing key" }
+                },
+                "required": ["type"],
+                "additionalProperties": false
+              },
+              "idempotencyKey": { "$ref": "#/$defs/keySource", "description": "Where to read the duplicate-protection key (default: Idempotency-Key header)" },
+              "conversationKey": { "$ref": "#/$defs/keySource", "description": "Where to read the conversation key" },
+              "labels": { "$ref": "#/$defs/labels" }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
         ]
       }
     },
@@ -83,13 +128,33 @@
     },
     "tools": {
       "type": "object",
-      "description": "Per-tool metadata overrides",
+      "description": "Per-tool metadata overrides, keyed by server.tool",
       "additionalProperties": {
         "type": "object",
-        "properties": { "sideEffect": { "type": "boolean" } },
+        "properties": {
+          "sideEffect": { "type": "boolean" },
+          "idempotent": { "type": "boolean", "description": "Repeating a call with the same arguments is safe, so an interrupted call is retried instead of ending as effect_unknown" }
+        },
         "additionalProperties": false
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "labels": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": { "pattern": "^[A-Za-z0-9._/-]{1,63}$" },
+      "additionalProperties": { "type": "string", "maxLength": 256 }
+    },
+    "keySource": {
+      "type": "object",
+      "properties": {
+        "header": { "type": "string", "minLength": 1 },
+        "field": { "type": "string", "minLength": 1, "description": "JSON body field; dots reach nested fields" }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    }
+  }
 }

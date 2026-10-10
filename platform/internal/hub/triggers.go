@@ -2,10 +2,17 @@ package hub
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +47,9 @@ func validateTriggers(ts []*agenv1.Trigger) error {
 				return invalid(fmt.Sprintf("trigger %q: invalid cron schedule %q: %v", t.Name, t.Schedule, err))
 			}
 		case "webhook":
+			if err := validateWebhook(t); err != nil {
+				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
+			}
 		default:
 			return invalid(fmt.Sprintf("trigger %q: type must be cron or webhook", t.Name))
 		}
@@ -52,6 +62,34 @@ func validateTriggers(ts []*agenv1.Trigger) error {
 		seen[t.Name] = true
 	}
 	return nil
+}
+
+func validateWebhook(t *agenv1.Trigger) error {
+	if a := t.GetAuth(); a != nil {
+		switch a.Type {
+		case "", "bearer":
+		case "hmac":
+			if a.Header == "" || a.Secret == "" {
+				return errors.New("hmac auth needs a header and a secret")
+			}
+			if _, err := hmacHash(a.Algorithm); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("auth type must be bearer or hmac, not %q", a.Type)
+		}
+	}
+	return store.CheckLabels(t.Labels)
+}
+
+func hmacHash(algorithm string) (func() hash.Hash, error) {
+	switch algorithm {
+	case "", "sha256":
+		return sha256.New, nil
+	case "sha1":
+		return sha1.New, nil
+	}
+	return nil, fmt.Errorf("hmac algorithm must be sha256 or sha1, not %q", algorithm)
 }
 
 // stampTriggers sets active_since_ms on triggers that are new (by name, type
@@ -136,7 +174,7 @@ func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.
 func (s *Scheduler) fire(ctx context.Context, d store.Deployment, t *agenv1.Trigger, at time.Time, note string) error {
 	st := s.Hub.Store
 	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: t.Input, Source: "cron:" + t.Name,
-		IdempotencyKey: fmt.Sprintf("cron:%s:%d", t.Name, at.UnixMilli()), SubmittedBy: "trigger:cron:" + t.Name})
+		IdempotencyKey: fmt.Sprintf("cron:%s:%d", t.Name, at.UnixMilli()), SubmittedBy: "trigger:cron:" + t.Name, Labels: t.Labels})
 	if err != nil {
 		return err
 	}
@@ -162,8 +200,12 @@ func (h *Hub) CreateWebhookSecret(ctx context.Context, req *connect.Request[agen
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	if webhookTrigger(d, req.Msg.Trigger) == nil {
+	t := webhookTrigger(d, req.Msg.Trigger)
+	if t == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%s/%s has no webhook trigger %q", ns, name, req.Msg.Trigger))
+	}
+	if t.GetAuth().GetType() == "hmac" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("trigger %q verifies signatures with the platform secret %q; set it with agen secrets set", t.Name, t.GetAuth().GetSecret()))
 	}
 	secret, err := h.Store.SetWebhookSecret(ctx, ns, name, req.Msg.Trigger)
 	if err != nil {
@@ -181,10 +223,12 @@ func webhookTrigger(d store.Deployment, name string) *agenv1.Trigger {
 	return nil
 }
 
-// WebhookHandler serves POST /hooks/<ns>/<deployment>/<trigger>: the caller
-// presents the trigger's secret (Authorization: Bearer); the body (up to
-// 1 MiB) becomes the task input, after the trigger's input if it has one.
-// An Idempotency-Key header makes retries return the same task.
+// WebhookHandler serves POST /hooks/<ns>/<deployment>/<trigger>. The caller
+// proves it may fire the trigger with the trigger's secret as a bearer token,
+// or, with hmac auth, a signature of the body keyed with a platform secret.
+// The body (up to 1 MiB) becomes the task input, after the trigger's input if
+// it has one. The idempotency key (default: the Idempotency-Key header) makes
+// a repeated delivery return the same task.
 func (h *Hub) WebhookHandler() (string, http.Handler) {
 	return "POST /hooks/{ns}/{dep}/{trigger}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ns, name, trig := r.PathValue("ns"), r.PathValue("dep"), r.PathValue("trigger")
@@ -200,8 +244,12 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 			return
 		}
 		t := webhookTrigger(d, trig)
-		secret := bearer(r.Header)
-		ok, err := h.Store.CheckWebhookSecret(ctx, ns, name, trig, secret)
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		if err != nil {
+			reply(http.StatusRequestEntityTooLarge, map[string]string{"error": "body too large (max 1 MiB)"})
+			return
+		}
+		ok, why, err := h.webhookAuthorized(ctx, d, t, r.Header, body)
 		if err != nil {
 			reply(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -209,26 +257,30 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		if !ok {
 			if h.rejectionDue(ns + "/" + name + "/" + trig) {
 				h.recordWebhook(ctx, store.TriggerEvent{Namespace: ns, Deployment: name, Trigger: trig, State: "rejected",
-					Message: "invalid or missing secret from " + clientIP(r) + " (further rejections within a minute are not recorded)"})
+					Message: why + " from " + clientIP(r) + " (further rejections within a minute are not recorded)"})
 			}
-			reply(http.StatusUnauthorized, map[string]string{"error": "invalid or missing webhook secret"})
-			return
-		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-		if err != nil {
-			reply(http.StatusRequestEntityTooLarge, map[string]string{"error": "body too large (max 1 MiB)"})
+			reply(http.StatusUnauthorized, map[string]string{"error": why})
 			return
 		}
 		input := string(body)
 		if t.Input != "" {
 			input = t.Input + "\n\n" + input
 		}
+		idem := t.GetIdempotencyKey()
+		if idem == nil {
+			idem = &agenv1.KeySource{Header: "Idempotency-Key"}
+		}
 		key := ""
-		if k := r.Header.Get("Idempotency-Key"); k != "" {
+		if k := keyFrom(idem, r.Header, body); k != "" {
 			key = "webhook:" + trig + ":" + k
 		}
+		conversation := keyFrom(t.GetConversationKey(), r.Header, body)
+		if len(conversation) > 256 {
+			reply(http.StatusBadRequest, map[string]string{"error": "conversation key is longer than 256 bytes"})
+			return
+		}
 		task, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: input, Source: "webhook:" + trig,
-			IdempotencyKey: key, SubmittedBy: "trigger:webhook:" + trig})
+			IdempotencyKey: key, SubmittedBy: "trigger:webhook:" + trig, ConversationKey: conversation, Labels: t.Labels})
 		if err != nil {
 			reply(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -237,6 +289,67 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		h.recordWebhook(ctx, store.TriggerEvent{Namespace: ns, Deployment: name, Trigger: trig, State: "fired", TaskID: task.ID})
 		reply(http.StatusAccepted, map[string]string{"task_id": task.ID})
 	})
+}
+
+// webhookAuthorized checks a webhook request; why says what was wrong.
+func (h *Hub) webhookAuthorized(ctx context.Context, d store.Deployment, t *agenv1.Trigger, hdr http.Header, body []byte) (ok bool, why string, err error) {
+	a := t.GetAuth()
+	if a.GetType() != "hmac" {
+		ok, err := h.Store.CheckWebhookSecret(ctx, d.Namespace, d.Name, t.Name, bearer(hdr))
+		return ok, "invalid or missing webhook secret", err
+	}
+	newHash, err := hmacHash(a.Algorithm)
+	if err != nil {
+		return false, "", err
+	}
+	key, err := h.Store.GetPlatformSecret(ctx, d.Namespace, a.Secret)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, "", fmt.Errorf("trigger %q: platform secret %q is not set", t.Name, a.Secret)
+	}
+	if err != nil {
+		return false, "", err
+	}
+	got, found := strings.CutPrefix(strings.TrimSpace(hdr.Get(a.Header)), a.Prefix)
+	sig, derr := hex.DecodeString(got)
+	if !found || derr != nil || len(sig) == 0 {
+		return false, "missing or malformed signature in " + a.Header, nil
+	}
+	mac := hmac.New(newHash, []byte(key))
+	mac.Write(body)
+	return hmac.Equal(sig, mac.Sum(nil)), "invalid signature in " + a.Header, nil
+}
+
+// keyFrom reads a key from a header or a JSON body field ("" if absent).
+func keyFrom(src *agenv1.KeySource, hdr http.Header, body []byte) string {
+	if src == nil {
+		return ""
+	}
+	if src.Header != "" {
+		if v := strings.TrimSpace(hdr.Get(src.Header)); v != "" {
+			return v
+		}
+	}
+	if src.Field == "" {
+		return ""
+	}
+	var v any
+	if json.Unmarshal(body, &v) != nil {
+		return ""
+	}
+	for _, part := range strings.Split(src.Field, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return ""
+		}
+		v = m[part]
+	}
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	}
+	return ""
 }
 
 // recordWebhook records a webhook event; events are unique per due time, so

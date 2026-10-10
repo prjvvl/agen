@@ -65,6 +65,32 @@ service HubService {
   // Revokes a Nest's credentials (bearer token and client certificate) and
   // reschedules its instances elsewhere.
   rpc RevokeNest(RevokeNestRequest) returns (RevokeNestResponse);
+  // The caller's identity, scopes and namespaces.
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+
+  // Bundle format: the JSON Schemas of every bundle file, an example bundle
+  // and a short guide to how bundles are laid out.
+  rpc GetBundleGuide(GetBundleGuideRequest) returns (GetBundleGuideResponse);
+}
+
+message WhoAmIRequest {}
+message WhoAmIResponse {
+  // The principal id used in approvals ("admin" or "token:<id>").
+  string id = 1;
+  // The token's name ("" for the admin token).
+  string name = 2;
+  repeated string scopes = 3;
+  // Empty means every namespace.
+  repeated string namespaces = 4;
+}
+
+message GetBundleGuideRequest {}
+message GetBundleGuideResponse {
+  string guide = 1;
+  // Bundle-relative path the schema applies to -> JSON Schema text.
+  map<string, string> schemas = 2;
+  // A complete example bundle: path -> file text.
+  map<string, string> example = 3;
 }
 
 message CreateDeploymentRequest {
@@ -73,6 +99,11 @@ message CreateDeploymentRequest {
   string name = 2;
   // The bundle files. The Hub validates and stores them as a Definition.
   map<string, bytes> bundle_files = 3;
+  // Bundle files as text (merged with bundle_files; easier to write by hand
+  // or from an MCP client than base64).
+  map<string, string> bundle_text = 11;
+  // Check the bundle and settings and return warnings without deploying.
+  bool validate_only = 10;
   // Overrides for values from x-agen/config.json; unset means use the bundle.
   DeploymentKind kind = 6;
   ScalePolicy scale = 4;
@@ -82,7 +113,11 @@ message CreateDeploymentRequest {
   repeated Trigger triggers = 9;
 }
 message CreateDeploymentResponse {
+  // Unset when validate_only.
   Deployment deployment = 1;
+  // Problems that do not stop the deployment but probably are mistakes,
+  // e.g. an agent with no tools.
+  repeated string warnings = 2;
 }
 
 message UpdateDeploymentRequest {
@@ -95,9 +130,12 @@ message UpdateDeploymentRequest {
   // Replaces the trigger set when non-empty.
   repeated Trigger triggers = 6;
   Placement placement = 7;
+  map<string, string> bundle_text = 9;
+  bool validate_only = 8;
 }
 message UpdateDeploymentResponse {
   Deployment deployment = 1;
+  repeated string warnings = 2;
 }
 
 message GetDeploymentRequest {
@@ -157,6 +195,10 @@ message SubmitTaskRequest {
   string input = 2;
   // Optional client key; resubmitting the same key returns the same task.
   string idempotency_key = 3;
+  // Tasks with the same key continue one conversation (and its memory).
+  string conversation_key = 4;
+  // Free-form labels, copied to runs, tool calls and delegated tasks.
+  map<string, string> labels = 5;
 }
 message SubmitTaskResponse {
   Task task = 1;
@@ -164,7 +206,8 @@ message SubmitTaskResponse {
 
 message GetTaskRequest {
   string id = 1;
-  // Wait up to this many seconds for the task to finish.
+  // Wait up to this many seconds (at most 300) for the task to finish; the
+  // task is returned as it is when the wait ends.
   int32 wait_seconds = 2;
 }
 message GetTaskResponse {
@@ -258,6 +301,9 @@ message GetDefinitionRequest {
 }
 message GetDefinitionResponse {
   Definition definition = 1;
+  // The text files of the definition (UTF-8), for clients that do not want
+  // to decode base64.
+  map<string, string> text_files = 2;
 }
 
 message SetSecretRequest {

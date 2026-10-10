@@ -9,6 +9,7 @@
     "model": { "type": "string", "minLength": 1 },
     "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
     "maxOutputTokens": { "type": "integer", "minimum": 1 },
+    "parallelToolCalls": { "type": "boolean", "description": "Run the tool calls of one model turn concurrently (default true)" },
     "baseUrl": { "type": "string" },
     "apiKeySecret": { "type": "string", "description": "Secret name holding the API key" },
     "script": { "type": "string", "description": "fake provider: path to script, relative to bundle" },

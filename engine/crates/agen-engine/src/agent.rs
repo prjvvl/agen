@@ -11,10 +11,12 @@
 //! restarted without repeating a recorded side effect. A previous owner that
 //! is still alive is fenced off and stops at its next write.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
@@ -89,6 +91,8 @@ pub struct AgentConfig {
     pub context_tokens: u64,
     /// How long an "ask" approval may wait before it counts as expired.
     pub approval_timeout: Duration,
+    /// Run the tool calls of one model turn concurrently.
+    pub parallel_tool_calls: bool,
 }
 
 impl AgentConfig {
@@ -113,6 +117,7 @@ impl AgentConfig {
             definition_digest: String::new(),
             context_tokens: 64_000,
             approval_timeout: Duration::from_secs(3600),
+            parallel_tool_calls: true,
         }
     }
 }
@@ -128,6 +133,13 @@ pub struct RunOptions {
     pub singleton: bool,
     /// Start a fresh conversation in the session.
     pub new_conversation: bool,
+    /// Continue the conversation of earlier runs with the same key (managed
+    /// mode: the task's conversation key). Ignored when `session_id` is set.
+    pub conversation_key: String,
+    /// Copied to the run, its tool calls and the tasks it delegates.
+    pub labels: BTreeMap<String, String>,
+    /// Which attempt at the task this is (1 for the first; 0 when unknown).
+    pub attempt: u32,
     pub task_id: String,
     pub parent_run_id: String,
     pub root_run_id: String,
@@ -143,6 +155,13 @@ pub struct RunOptions {
     /// A model request is being retried: discard text streamed since the
     /// last reset.
     pub on_reset: Option<ResetCallback>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolServerStatus {
+    pub name: String,
+    pub connected: bool,
+    pub tool_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -301,6 +320,7 @@ impl Agent {
         cfg.skills = bundle.skills.clone();
         cfg.temperature = bundle.harness.temperature;
         cfg.max_output_tokens = bundle.harness.max_output_tokens;
+        cfg.parallel_tool_calls = bundle.harness.parallel_tool_calls.unwrap_or(true);
         cfg.max_turns = bundle.agent.max_turns.unwrap_or(16);
         cfg.permissions = bundle.config.permissions.clone();
         if let Some(t) = bundle.config.permissions.approval_timeout.as_deref() {
@@ -375,6 +395,22 @@ impl Agent {
         &self.owner
     }
 
+    /// The agent's MCP servers, whether each is still connected, and how
+    /// many tools it provides.
+    pub fn tool_servers(&self) -> Vec<ToolServerStatus> {
+        let Some(m) = &self.mcp else { return vec![] };
+        let closed = m.closed_servers();
+        let specs = self.tools.specs();
+        m.servers()
+            .into_iter()
+            .map(|name| ToolServerStatus {
+                name: name.to_string(),
+                connected: !closed.contains(&name),
+                tool_count: specs.iter().filter(|t| t.name.strip_prefix(name).is_some_and(|r| r.starts_with('.'))).count(),
+            })
+            .collect()
+    }
+
     /// Problems that make this agent unable to work (e.g. a dead MCP server).
     pub fn health_problems(&self) -> Vec<String> {
         match &self.mcp {
@@ -421,6 +457,11 @@ impl Agent {
     async fn start_run(&self, input: &str, opts: &RunOptions) -> Result<RunResult, AgentError> {
         let session = match (&opts.session_id, opts.singleton) {
             (Some(id), _) => self.store.get_session(id).await?,
+            (None, _) if !opts.conversation_key.is_empty() => {
+                self.store
+                    .session_for_key(&self.cfg.name, &self.cfg.namespace, &self.cfg.deployment, &opts.conversation_key)
+                    .await?
+            }
             (None, true) => {
                 self.store
                     .session_for_deployment(&self.cfg.name, &self.cfg.namespace, &self.cfg.deployment)
@@ -467,6 +508,7 @@ impl Agent {
             trace_id: parent.trace_id.clone(),
             started_ms: now_ms(),
             ended_ms: None,
+            labels: opts.labels.clone(),
         };
         let epoch = self.store.create_run(&rec, &self.owner).await?;
         let first = self.redact_message(&Message::user(input));
@@ -484,10 +526,21 @@ impl Agent {
             return Ok(result_of(&rec));
         }
         let epoch = self.store.claim_run(run_id, &self.owner).await?;
-        let parent = TraceContext {
+        let mut parent = TraceContext {
             trace_id: rec.trace_id.clone(),
             span_id: String::new(),
         };
+        // The previous owner died mid-run: close its span as interrupted and
+        // hang the resumed run under it, so the trace keeps one root.
+        if let Some(mut old) = self.store.unfinished_run_span(run_id).await? {
+            old.end_ms = now_ms();
+            old.status = "interrupted".into();
+            if let Some(a) = old.attributes.as_object_mut() {
+                a.insert("agen.run.interrupted_at_step".into(), rec.step.into());
+            }
+            self.store.insert_span(&old).await?;
+            parent.span_id = old.span_id;
+        }
         self.drive(Live { rec, epoch }, &parent, "agen.run.resume", &opts).await
     }
 
@@ -503,18 +556,34 @@ impl Agent {
         span.set("agen.run.id", live.rec.id.clone());
         span.set("agen.agent.name", self.cfg.name.clone());
         span.set("gen_ai.conversation.id", live.rec.conversation_id.clone());
+        if !live.rec.task_id.is_empty() {
+            span.set("agen.task.id", live.rec.task_id.clone());
+        }
+        if opts.attempt > 0 {
+            span.set("agen.task.attempt", opts.attempt);
+        }
+        if !opts.conversation_key.is_empty() {
+            span.set("agen.conversation.key", opts.conversation_key.clone());
+        }
+        for (k, v) in &live.rec.labels {
+            span.set(&format!("agen.label.{k}"), v.clone());
+        }
+        tracer.record_open(&span).await;
         let started = std::time::Instant::now();
-        let task = if live.rec.task_id.is_empty() {
-            String::new()
-        } else {
-            format!(" (task {})", live.rec.task_id)
+        let task = match (live.rec.task_id.is_empty(), opts.attempt) {
+            (true, _) => String::new(),
+            (false, a) if a > 1 => format!(" (task {}, attempt {a})", live.rec.task_id),
+            (false, _) => format!(" (task {})", live.rec.task_id),
         };
         if live.rec.step == 0 {
             self.log("info", &format!("run {} started{task}", live.rec.id)).await;
         } else {
             self.log(
                 "info",
-                &format!("run {} resumed at step {}{task}", live.rec.id, live.rec.step),
+                &format!(
+                    "run {} resumed at step {}{task}: its previous owner stopped before finishing",
+                    live.rec.id, live.rec.step
+                ),
             )
             .await;
         }
@@ -623,16 +692,33 @@ impl Agent {
             if let Some(text) = final_text {
                 return Ok(Outcome::Done(text));
             }
-            for call in pending {
+            // Calls that may wait for an approval run one at a time, so the
+            // run's waiting state and the approval order stay simple.
+            let concurrent = self.cfg.parallel_tool_calls
+                && pending
+                    .iter()
+                    .all(|c| permissions::evaluate(&self.cfg.permissions, &c.name) != Action::Ask);
+            let width = if concurrent { pending.len().max(1) } else { 1 };
+            let shared: &Live = live;
+            let mut results = futures_util::stream::iter(pending.into_iter().map(|call| async move {
                 if opts.cancel.is_cancelled() {
-                    return Ok(Outcome::Cancelled);
+                    return Ok(None);
                 }
-                let result = self.execute_call(live, &call, tracer, ctx, opts).await?;
-                let msg = self.redact_message(&Message::tool(&call.id, result));
+                let result = self.execute_call(shared, &call, tracer, ctx, opts).await?;
+                Ok::<_, AgentError>(Some((call.id, result)))
+            }))
+            .buffered(width);
+            // Results are recorded in call order as they become available.
+            while let Some(r) = results.next().await {
+                let Some((id, result)) = r? else {
+                    return Ok(Outcome::Cancelled);
+                };
+                let msg = self.redact_message(&Message::tool(&id, result));
                 self.store
-                    .checkpoint(&live.rec.id, live.epoch, &live.rec.conversation_id, Some(&msg), None)
+                    .checkpoint(&shared.rec.id, shared.epoch, &shared.rec.conversation_id, Some(&msg), None)
                     .await?;
             }
+            drop(results);
             if opts.cancel.is_cancelled() {
                 return Ok(Outcome::Cancelled);
             }
@@ -648,7 +734,7 @@ impl Agent {
                 messages: self.request_messages(&live.rec).await?,
                 tools: self.tools.specs(),
                 temperature: self.cfg.temperature,
-                max_output_tokens: self.cfg.max_output_tokens,
+                max_output_tokens: self.output_cap(&live.rec.usage),
             };
             let mut span = tracer.start(ctx, "gen_ai.chat");
             span.set("gen_ai.operation.name", "chat");
@@ -778,6 +864,20 @@ impl Agent {
                     return result;
                 }
             }
+        }
+    }
+
+    /// The output limit for the next model turn: the configured maximum,
+    /// lowered so the turn's output cannot take the run past its token budget.
+    fn output_cap(&self, u: &Usage) -> Option<u32> {
+        let remaining = self
+            .cfg
+            .budget
+            .max_tokens_per_run
+            .map(|max| u32::try_from(max.saturating_sub(u.total_tokens())).unwrap_or(u32::MAX).max(1));
+        match (self.cfg.max_output_tokens, remaining) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
     }
 
@@ -919,6 +1019,12 @@ impl Agent {
             Action::Allow => {}
         }
         let tctx = ToolContext {
+            namespace: self.cfg.namespace.clone(),
+            deployment: self.cfg.deployment.clone(),
+            task_id: run.task_id.clone(),
+            conversation_id: run.conversation_id.clone(),
+            conversation_key: opts.conversation_key.clone(),
+            labels: run.labels.clone(),
             run_id: run.id.clone(),
             call_id: call.id.clone(),
             step: run.step,

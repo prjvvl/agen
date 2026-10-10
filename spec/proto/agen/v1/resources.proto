@@ -69,6 +69,39 @@ message Trigger {
   // windows before it are never considered (a trigger added later does not
   // back-fill "missed" windows).
   int64 active_since_ms = 6;
+  // Webhooks: how callers prove they hold the trigger's secret. Unset means
+  // a bearer token.
+  WebhookAuth auth = 7;
+  // Webhooks: where to read the task's idempotency key (default: the
+  // Idempotency-Key header). A repeated key returns the existing task.
+  KeySource idempotency_key = 8;
+  // Webhooks: where to read the task's conversation key, if anywhere.
+  KeySource conversation_key = 9;
+  // Labels set on every task this trigger submits.
+  map<string, string> labels = 10;
+}
+
+message WebhookAuth {
+  // "bearer" (Authorization: Bearer <the trigger's webhook secret>) or
+  // "hmac" (a signature of the raw body keyed with a platform secret).
+  string type = 1;
+  // hmac: the header carrying the signature, e.g. "X-Hub-Signature-256".
+  string header = 2;
+  // hmac: "sha256" (default) or "sha1".
+  string algorithm = 3;
+  // hmac: text before the hex signature, e.g. "sha256=".
+  string prefix = 4;
+  // hmac: the platform secret (SetSecret, same namespace) holding the
+  // signing key shared with the sender.
+  string secret = 5;
+}
+
+// A value taken from a webhook request: a header, or a top-level field of a
+// JSON body (dotted paths reach nested fields). Header wins when both are set
+// and present.
+message KeySource {
+  string header = 1;
+  string field = 2;
 }
 
 enum TriggerEventState {
@@ -149,6 +182,17 @@ message Instance {
   google.protobuf.Timestamp started_at = 9;
   google.protobuf.Timestamp last_seen = 10;
   string message = 11;
+  // Tools the agent loaded (as the agent names them) and the state of each
+  // tool server, as last reported by the instance.
+  repeated string tools = 12;
+  repeated ToolServer tool_servers = 13;
+}
+
+message ToolServer {
+  string name = 1;
+  // "connected" or "disconnected".
+  string state = 2;
+  int32 tool_count = 3;
 }
 
 enum NestState {
@@ -226,6 +270,11 @@ message Task {
   int32 depth = 20;
   // W3C traceparent to continue.
   string traceparent = 21;
+  // Tasks of a deployment with the same key continue one conversation.
+  string conversation_key = 22;
+  // Free-form labels, copied to the task's runs, its tool calls and the
+  // tasks it delegates.
+  map<string, string> labels = 23;
 }
 
 enum ApprovalState {
@@ -250,6 +299,12 @@ message Approval {
   string decided_by = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp expires_at = 11;
+  // The task whose run asked ("" for a run that is not a Hub task).
+  string task_id = 12;
+  google.protobuf.Timestamp decided_at = 13;
+  // Readable names for requested_by / decided_by (token names).
+  string requested_by_name = 14;
+  string decided_by_name = 15;
 }
 
 message Usage {
@@ -306,4 +361,6 @@ message Run {
   string parent_run_id = 13;
   string root_run_id = 14;
   string definition_digest = 15;
+  string task_id = 16;
+  map<string, string> labels = 17;
 }

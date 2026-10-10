@@ -274,7 +274,10 @@ func (n *NestAPI) ReportStatus(ctx context.Context, req *connect.Request[agenv1.
 		}
 		si := store.Instance{ID: in.Id, Namespace: nsOr(in.Namespace), Deployment: in.Deployment, NestID: m.NestId,
 			DefinitionDigest: in.DefinitionDigest, State: InstanceStateName(in.State), Endpoint: in.Endpoint,
-			RunningTasks: int(in.RunningTasks), Message: in.Message}
+			RunningTasks: int(in.RunningTasks), Message: in.Message, Tools: store.InstanceTools{Tools: in.Tools}}
+		for _, ts := range in.ToolServers {
+			si.Tools.Servers = append(si.Tools.Servers, store.ToolServer{Name: ts.Name, State: ts.State, ToolCount: int(ts.ToolCount)})
+		}
 		if in.StartedAt != nil {
 			si.StartedMs = in.StartedAt.AsTime().UnixMilli()
 		}
@@ -435,10 +438,14 @@ func (n *NestAPI) CreateApproval(ctx context.Context, req *connect.Request[agenv
 	if by != "" {
 		requestedBy = by
 	}
-	out, err := n.hub.Store.CreateApproval(ctx, store.Approval{Namespace: ns, Deployment: a.Deployment, RunID: a.RunId, Tool: a.Tool,
+	id := store.NewID()
+	out, err := n.hub.Store.CreateApproval(ctx, store.Approval{ID: id, Namespace: ns, Deployment: a.Deployment, RunID: a.RunId, Tool: a.Tool,
 		Arguments: args, RequestedBy: requestedBy}, ttl)
 	if err != nil {
 		return nil, connectErr(err)
+	}
+	if out.ID == id {
+		go n.hub.notifyApproval(context.WithoutCancel(ctx), out)
 	}
 	return connect.NewResponse(&agenv1.CreateApprovalResponse{Approval: ApprovalProto(out)}), nil
 }

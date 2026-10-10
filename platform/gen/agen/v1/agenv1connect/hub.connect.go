@@ -115,6 +115,11 @@ const (
 	HubServiceRevokeApiTokenProcedure = "/agen.v1.HubService/RevokeApiToken"
 	// HubServiceRevokeNestProcedure is the fully-qualified name of the HubService's RevokeNest RPC.
 	HubServiceRevokeNestProcedure = "/agen.v1.HubService/RevokeNest"
+	// HubServiceWhoAmIProcedure is the fully-qualified name of the HubService's WhoAmI RPC.
+	HubServiceWhoAmIProcedure = "/agen.v1.HubService/WhoAmI"
+	// HubServiceGetBundleGuideProcedure is the fully-qualified name of the HubService's GetBundleGuide
+	// RPC.
+	HubServiceGetBundleGuideProcedure = "/agen.v1.HubService/GetBundleGuide"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -166,6 +171,11 @@ type HubServiceClient interface {
 	// Revokes a Nest's credentials (bearer token and client certificate) and
 	// reschedules its instances elsewhere.
 	RevokeNest(context.Context, *connect.Request[v1.RevokeNestRequest]) (*connect.Response[v1.RevokeNestResponse], error)
+	// The caller's identity, scopes and namespaces.
+	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
+	// Bundle format: the JSON Schemas of every bundle file, an example bundle
+	// and a short guide to how bundles are laid out.
+	GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -371,6 +381,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("RevokeNest")),
 			connect.WithClientOptions(opts...),
 		),
+		whoAmI: connect.NewClient[v1.WhoAmIRequest, v1.WhoAmIResponse](
+			httpClient,
+			baseURL+HubServiceWhoAmIProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("WhoAmI")),
+			connect.WithClientOptions(opts...),
+		),
+		getBundleGuide: connect.NewClient[v1.GetBundleGuideRequest, v1.GetBundleGuideResponse](
+			httpClient,
+			baseURL+HubServiceGetBundleGuideProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetBundleGuide")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -408,6 +430,8 @@ type hubServiceClient struct {
 	listApiTokens       *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
 	revokeApiToken      *connect.Client[v1.RevokeApiTokenRequest, v1.RevokeApiTokenResponse]
 	revokeNest          *connect.Client[v1.RevokeNestRequest, v1.RevokeNestResponse]
+	whoAmI              *connect.Client[v1.WhoAmIRequest, v1.WhoAmIResponse]
+	getBundleGuide      *connect.Client[v1.GetBundleGuideRequest, v1.GetBundleGuideResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -570,6 +594,16 @@ func (c *hubServiceClient) RevokeNest(ctx context.Context, req *connect.Request[
 	return c.revokeNest.CallUnary(ctx, req)
 }
 
+// WhoAmI calls agen.v1.HubService.WhoAmI.
+func (c *hubServiceClient) WhoAmI(ctx context.Context, req *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error) {
+	return c.whoAmI.CallUnary(ctx, req)
+}
+
+// GetBundleGuide calls agen.v1.HubService.GetBundleGuide.
+func (c *hubServiceClient) GetBundleGuide(ctx context.Context, req *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error) {
+	return c.getBundleGuide.CallUnary(ctx, req)
+}
+
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
 	// Deployments
@@ -619,6 +653,11 @@ type HubServiceHandler interface {
 	// Revokes a Nest's credentials (bearer token and client certificate) and
 	// reschedules its instances elsewhere.
 	RevokeNest(context.Context, *connect.Request[v1.RevokeNestRequest]) (*connect.Response[v1.RevokeNestResponse], error)
+	// The caller's identity, scopes and namespaces.
+	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
+	// Bundle format: the JSON Schemas of every bundle file, an example bundle
+	// and a short guide to how bundles are laid out.
+	GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -820,6 +859,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("RevokeNest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceWhoAmIHandler := connect.NewUnaryHandler(
+		HubServiceWhoAmIProcedure,
+		svc.WhoAmI,
+		connect.WithSchema(hubServiceMethods.ByName("WhoAmI")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceGetBundleGuideHandler := connect.NewUnaryHandler(
+		HubServiceGetBundleGuideProcedure,
+		svc.GetBundleGuide,
+		connect.WithSchema(hubServiceMethods.ByName("GetBundleGuide")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HubServiceCreateDeploymentProcedure:
@@ -886,6 +937,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceRevokeApiTokenHandler.ServeHTTP(w, r)
 		case HubServiceRevokeNestProcedure:
 			hubServiceRevokeNestHandler.ServeHTTP(w, r)
+		case HubServiceWhoAmIProcedure:
+			hubServiceWhoAmIHandler.ServeHTTP(w, r)
+		case HubServiceGetBundleGuideProcedure:
+			hubServiceGetBundleGuideHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1021,4 +1076,12 @@ func (UnimplementedHubServiceHandler) RevokeApiToken(context.Context, *connect.R
 
 func (UnimplementedHubServiceHandler) RevokeNest(context.Context, *connect.Request[v1.RevokeNestRequest]) (*connect.Response[v1.RevokeNestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.RevokeNest is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.WhoAmI is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetBundleGuide is not implemented"))
 }

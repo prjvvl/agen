@@ -111,20 +111,29 @@ impl Tracer {
         }
     }
 
+    /// Persist a long-lived span now as `unfinished`, so it survives if the
+    /// process dies before [`Tracer::end`] replaces it.
+    pub async fn record_open(&self, span: &OpenSpan) {
+        self.write(span, span.start_ms, "unfinished").await;
+    }
+
     /// Persist the span (attributes redacted). Tracing failures never fail a run.
     pub async fn end(&self, span: OpenSpan, status: &str) {
-        let attrs = self.redactor.redact_json(&Value::Object(span.attributes));
+        self.write(&span, now_ms(), status).await;
+    }
+
+    async fn write(&self, span: &OpenSpan, end_ms: i64, status: &str) {
         let rec = SpanRecord {
-            span_id: span.ctx.span_id,
-            trace_id: span.ctx.trace_id,
-            parent_span_id: span.parent_span_id,
+            span_id: span.ctx.span_id.clone(),
+            trace_id: span.ctx.trace_id.clone(),
+            parent_span_id: span.parent_span_id.clone(),
             run_id: self.run_id.clone(),
-            name: span.name,
+            name: span.name.clone(),
             start_ms: span.start_ms,
             seq: span.seq,
-            end_ms: now_ms(),
+            end_ms,
             status: status.to_string(),
-            attributes: attrs,
+            attributes: self.redactor.redact_json(&Value::Object(span.attributes.clone())),
         };
         if let Err(e) = self.store.insert_span(&rec).await {
             eprintln!("agen: failed to record span: {e}");

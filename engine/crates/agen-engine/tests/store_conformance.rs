@@ -43,6 +43,7 @@ fn run(session: &str, conv: &str, root: &str) -> RunRecord {
         started_ms: now_ms(),
         ended_ms: None,
         requested_by: String::new(),
+        labels: [("project".to_string(), "p1".to_string())].into(),
     }
 }
 
@@ -102,6 +103,7 @@ async fn runs_lifecycle(s: &Store) {
     let epoch = s.create_run(&r, "owner-a").await.unwrap();
     let unfinished = s.unfinished_runs(&r.namespace, &r.deployment).await.unwrap();
     assert_eq!(unfinished.len(), 1);
+    assert_eq!(s.get_run(&r.id).await.unwrap().labels["project"], "p1");
     let u = Usage {
         input_tokens: 10,
         output_tokens: 5,
@@ -179,6 +181,23 @@ async fn concurrent_singleton_sessions_and_conversations_are_unique(s: &Store) {
     assert!(ids.iter().all(|i| *i == ids[0]), "{ids:?}");
     let (c1, c2) = tokio::join!(s.current_conversation(&ids[0]), s.current_conversation(&ids[0]));
     assert_eq!(c1.unwrap(), c2.unwrap());
+}
+
+async fn conversation_keys_share_a_session(s: &Store) {
+    let dep = format!("keyed-{}", new_id());
+    let (a, b) = tokio::join!(
+        s.session_for_key("x", "default", &dep, "chat-1"),
+        s.session_for_key("x", "default", &dep, "chat-1")
+    );
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert_eq!(a.id, b.id);
+    let other = s.session_for_key("x", "default", &dep, "chat-2").await.unwrap();
+    assert_ne!(other.id, a.id);
+    let elsewhere = s.session_for_key("x", "default", &format!("{dep}-b"), "chat-1").await.unwrap();
+    assert_ne!(elsewhere.id, a.id);
+    // Keyed sessions and the singleton session do not collide.
+    let single = s.session_for_deployment("x", "default", &dep).await.unwrap();
+    assert_ne!(single.id, a.id);
 }
 
 /// A fresh run owned by "owner-a"; returns (run id, epoch).
@@ -298,6 +317,13 @@ async fn spans_delegations_logs(s: &Store) {
     assert_eq!(spans.len(), 3);
     assert_eq!(spans[1].parent_span_id, spans[0].span_id);
     assert_eq!(spans[1].attributes["gen_ai.request.model"], "fake-1");
+    // Writing a span again (an open span being finished) replaces it.
+    let mut done = spans[0].clone();
+    done.end_ms = 3000;
+    done.status = "error".into();
+    s.insert_span(&done).await.unwrap();
+    let spans = s.trace(&trace).await.unwrap();
+    assert_eq!((spans.len(), spans[0].end_ms, spans[0].status.as_str()), (3, 3000, "error"));
 
     let root = new_id();
     for want in 1..=3 {
@@ -395,6 +421,7 @@ conformance!(
     fenced_owner_cannot_touch_the_ledger,
     agent_run_persists_everything,
     concurrent_singleton_sessions_and_conversations_are_unique,
+    conversation_keys_share_a_session,
     sessions_conversations_messages,
     runs_lifecycle,
     effect_ledger,

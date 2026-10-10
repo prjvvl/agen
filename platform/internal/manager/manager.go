@@ -147,6 +147,8 @@ type instance struct {
 	endpoint       string
 	state          string // starting | ready | busy | draining | stopped | failed
 	message        string
+	tools          []string
+	toolServers    []*agenv1.ToolServer
 	running        int
 	started        time.Time
 	exited         chan struct{}
@@ -684,7 +686,10 @@ func (m *Manager) start(ctx context.Context, a *agenv1.Assignment) error {
 	log := m.cfg.Log.With("instance", in.id, "deployment", in.ns+"/"+in.dep)
 	endpoint := make(chan string, 1)
 	proc, err := m.backend.start(ctx, hostSpec{id: in.id, ns: in.ns, dep: in.dep, digest: in.digest, args: args, log: log, endpoint: endpoint,
-		env: []string{"AGEN_STORE=" + m.storeFor(in.ns), "AGEN_INSTANCE_ID=" + in.id, "AGEN_MANAGER_URL=" + m.managerURL, "AGEN_MANAGER_TOKEN=" + token, "AGEN_HOST_TOKEN=" + in.hostToken}})
+		env: []string{"AGEN_STORE=" + m.storeFor(in.ns), "AGEN_INSTANCE_ID=" + in.id, "AGEN_MANAGER_URL=" + m.managerURL, "AGEN_MANAGER_TOKEN=" + token, "AGEN_HOST_TOKEN=" + in.hostToken,
+			// Tool servers may write into the shared definition directory, so
+			// the host must not re-derive the digest from what is on disk.
+			"AGEN_DEFINITION_DIGEST=" + in.digest}})
 	if err != nil {
 		m.mu.Lock()
 		delete(m.instanceTokens, token)
@@ -747,6 +752,12 @@ func (m *Manager) checkInstance(ctx context.Context, in *instance) {
 	if in.retiring {
 		return
 	}
+	if err == nil {
+		in.tools, in.toolServers = hl.Tools, nil
+		for _, s := range hl.ToolServers {
+			in.toolServers = append(in.toolServers, &agenv1.ToolServer{Name: s.Name, State: s.State, ToolCount: int32(s.ToolCount)})
+		}
+	}
 	if err == nil && hl.Ready {
 		in.unhealthy = 0
 		in.message = ""
@@ -797,7 +808,7 @@ func (m *Manager) report(ctx context.Context) {
 	for _, in := range m.instances {
 		req.Instances = append(req.Instances, &agenv1.Instance{Id: in.id, Namespace: in.ns, Deployment: in.dep, NestId: m.nestID,
 			DefinitionDigest: in.digest, State: states[in.state], Endpoint: in.endpoint, RunningTasks: int32(in.running),
-			StartedAt: timestamppb.New(in.started), Message: in.message})
+			StartedAt: timestamppb.New(in.started), Message: in.message, Tools: in.tools, ToolServers: in.toolServers})
 	}
 	m.mu.Unlock()
 	c, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -938,7 +949,7 @@ func (m *Manager) runTask(ctx context.Context, in *instance, t *agenv1.Task) {
 		}
 	}()
 	res, err := in.host.RunTask(runCtx, HostTask{ID: t.Id, Input: t.Input, ParentRunID: t.ParentRunId, RootRunID: t.RootRunId, Traceparent: t.Traceparent,
-		Depth: int(t.Depth)})
+		Depth: int(t.Depth), ConversationKey: t.ConversationKey, Labels: t.Labels, Attempts: int(t.Attempts)})
 	stopRun()
 	var he *HostError
 	switch {

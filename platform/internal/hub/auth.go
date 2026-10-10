@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -25,7 +27,9 @@ var validScopes = map[string]bool{ScopeViewer: true, ScopeOperator: true, ScopeA
 // Principal is an authenticated caller.
 type Principal struct {
 	// ID is stable and used as the approval "decided_by" / "requested_by".
-	ID         string
+	ID string
+	// Name is the token's name ("" for the admin token).
+	Name       string
 	Scopes     map[string]bool
 	Namespaces []string // empty = all
 	// NestID is set for a Nest's own token (NestService only).
@@ -88,7 +92,7 @@ func (a *Auth) Authenticate(ctx context.Context, secret string) (Principal, erro
 	if err != nil {
 		return Principal{}, errors.New("invalid or revoked token")
 	}
-	p := Principal{ID: "token:" + t.ID, Scopes: map[string]bool{}, Namespaces: t.Namespaces}
+	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces}
 	for _, s := range t.Scopes {
 		p.Scopes[s] = true
 	}
@@ -111,7 +115,7 @@ func procedureScope(procedure string) string {
 	name := procedure[strings.LastIndex(procedure, "/")+1:]
 	switch name {
 	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "Resolve",
-		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs":
+		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide":
 		return ScopeViewer
 	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "RequestWake",
 		"CreateWebhookSecret":
@@ -132,11 +136,25 @@ func (a *Auth) Interceptor() connect.UnaryInterceptorFunc {
 				return nil, connect.NewError(connect.CodeUnauthenticated, err)
 			}
 			if need := procedureScope(req.Spec().Procedure); !p.Can(need) {
-				return nil, connect.NewError(connect.CodePermissionDenied, errors.New("requires scope "+need))
+				return nil, connect.NewError(connect.CodePermissionDenied, scopeError(req.Spec().Procedure, need, p))
 			}
 			return next(WithPrincipal(ctx, p), req)
 		}
 	}
+}
+
+func scopeError(procedure, need string, p Principal) error {
+	have := make([]string, 0, len(p.Scopes))
+	for s := range p.Scopes {
+		have = append(have, s)
+	}
+	sort.Strings(have)
+	held := "none"
+	if len(have) > 0 {
+		held = strings.Join(have, ", ")
+	}
+	return fmt.Errorf("%s requires the %s scope; this token has: %s (create one with: agen token create --scope %s)",
+		procedure[strings.LastIndex(procedure, "/")+1:], need, held, need)
 }
 
 // requireNamespace fails unless the caller may act in ns.
