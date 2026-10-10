@@ -253,7 +253,7 @@ function Progress({ runId, approval }: { runId?: string; approval: boolean }) {
   );
 }
 
-/** A small, safe Markdown subset: paragraphs, lists, code, tables, bold and inline code. */
+/** A small, safe Markdown subset: paragraphs, headings, lists, code, tables and emphasis. */
 export function Markdown({ text }: { text: string }) {
   const out: ReactNode[] = [];
   const lines = text.split("\n");

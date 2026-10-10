@@ -70,7 +70,7 @@ export function FleetMap({ deps, edges, metrics }: { deps: Deployment[]; edges: 
   const isActive = (k: string) => Date.now() - (active.get(k) ?? 0) < 5000;
 
   return (
-    <div className="map" role="img" aria-label={`Map of ${deps.length} deployments and ${edges.length} call paths`}>
+    <div className="map" role="group" aria-label={`Map of ${deps.length} deployments and ${edges.length} call paths`}>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <defs>
           <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">

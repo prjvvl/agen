@@ -219,7 +219,20 @@ export function Panel({
   return (
     <>
       <div className="panel-backdrop" onClick={onClose} />
-      <div className={`panel${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} ref={ref}>
+      <div
+        className={`panel${wide ? " wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={id}
+        tabIndex={-1}
+        ref={ref}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onClose();
+          }
+        }}
+      >
         <div className="panel-head">
           <h2 id={id} className="truncate">
             {title}

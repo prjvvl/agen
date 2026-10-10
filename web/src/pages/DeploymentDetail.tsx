@@ -23,7 +23,7 @@ import {
   Time,
 } from "../ui";
 import { RunsTable } from "./Runs";
-import { TaskPanel, TasksTable } from "./Tasks";
+import { TaskDetails, TaskPanel, TasksTable } from "./Tasks";
 
 type Tab = "overview" | "runs" | "tasks" | "logs" | "bundle" | "triggers";
 
@@ -131,7 +131,7 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
       ) : (
         <OverviewTab d={d} instances={dep.data?.instances ?? []} onOpenTask={setOpenTask} />
       )}
-      {running && <RunTaskPanel d={d} onClose={() => setRunning(false)} onSubmitted={(id) => setOpenTask(id)} />}
+      {running && <RunTaskPanel d={d} onClose={() => setRunning(false)} />}
       {openTask && <TaskPanel id={openTask} onClose={() => setOpenTask(undefined)} />}
     </div>
   );
@@ -253,12 +253,14 @@ function OverviewTab({ d, instances, onOpenTask }: { d: Deployment; instances: I
   );
 }
 
-export function RunTaskPanel({ d, onClose, onSubmitted }: { d: Deployment; onClose: () => void; onSubmitted: (taskId: string) => void }) {
+/** Submits a task, then follows it in the same panel. */
+export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => void }) {
   const [input, setInput] = useState("");
   const [conversation, setConversation] = useState("");
   const [labels, setLabels] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState<string>();
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -275,13 +277,33 @@ export function RunTaskPanel({ d, onClose, onSubmitted }: { d: Deployment; onClo
         conversationKey: conversation || undefined,
         labels: Object.keys(lab).length ? lab : undefined,
       });
-      onClose();
-      onSubmitted(r.task.id);
+      setError("");
+      setSubmitted(r.task.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
     setBusy(false);
   }
+  if (submitted)
+    return (
+      <Panel
+        title="Task"
+        onClose={onClose}
+        footer={
+          <button
+            className="btn"
+            onClick={() => {
+              setSubmitted(undefined);
+              setInput("");
+            }}
+          >
+            Run another
+          </button>
+        }
+      >
+        <TaskDetails id={submitted} />
+      </Panel>
+    );
   return (
     <form onSubmit={submit}>
       <PanelForm title={`Run a task on ${d.name}`} onClose={onClose} busy={busy} disabled={!input.trim()} submit="Submit task">

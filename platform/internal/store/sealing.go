@@ -104,9 +104,9 @@ func (s *Store) sealInPlace(ctx context.Context, stored, query string) {
 }
 
 // RotateKEK re-seals every sealed secret (the Hub's CA and call-token keys,
-// platform secrets, notification signing secrets) from the current KEK to next, in one transaction, and
-// switches this Store to next. Plaintext values are sealed too. Every Hub
-// must then run with the new AGEN_HUB_KEK.
+// platform secrets, notification signing secrets) from the current KEK to
+// next, in one transaction, and switches this Store to next. Plaintext
+// values are sealed too. Every Hub must then run with the new AGEN_HUB_KEK.
 func (s *Store) RotateKEK(ctx context.Context, next string) (int, error) {
 	if next == "" {
 		return 0, errors.New("the new KEK is empty")

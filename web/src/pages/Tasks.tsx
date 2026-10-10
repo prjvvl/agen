@@ -68,12 +68,21 @@ export function TasksTable({
 }
 
 export function TaskPanel({ id, onClose }: { id: string; onClose: () => void }) {
+  return (
+    <Panel title="Task" onClose={onClose}>
+      <TaskDetails id={id} />
+    </Panel>
+  );
+}
+
+/** A task's state, input, result and identity, kept live. */
+export function TaskDetails({ id }: { id: string }) {
   const task = useQuery(() => call<{ task: Task }>("GetTask", { id }), [id], {
     on: (e) => (e.kind === "task" && e.id === id) || e.kind === "approval",
   });
   const t = task.data?.task;
   return (
-    <Panel title="Task" onClose={onClose}>
+    <>
       {task.error && <Alert>{task.error}</Alert>}
       {!t ? (
         <SkeletonRows rows={3} cols={2} />
@@ -160,6 +169,6 @@ export function TaskPanel({ id, onClose }: { id: string; onClose: () => void }) 
           </dl>
         </>
       )}
-    </Panel>
+    </>
   );
 }

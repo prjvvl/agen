@@ -34,7 +34,7 @@ async function signIn(page: Page, token = state().token) {
   expect(page.url()).not.toContain("token=");
 }
 
-/** Submits a task from a deployment page and returns to it with the task panel closed. */
+/** Submits a task from a deployment page and closes the panel that follows it. */
 async function runTask(page: Page, input: string) {
   await page.getByRole("button", { name: "Run a task" }).click();
   await page.getByLabel("Task input").fill(input);
