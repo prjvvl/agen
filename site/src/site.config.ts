@@ -1,5 +1,5 @@
 /**
- * Single source of truth for site metadata, navigation, and feature toggles.
+ * Single source of truth for site metadata and navigation.
  * Brand colors and fonts live in src/styles/global.css (the @theme block).
  * Tailwind v4's config is CSS-first, so tokens stay there, not here.
  */
@@ -47,10 +47,4 @@ export const siteConfig = {
     },
     { group: "Reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks", "architecture"] },
   ],
-
-  features: {
-    search: false,
-    comments: false,
-    contactForm: false,
-  },
 } as const;

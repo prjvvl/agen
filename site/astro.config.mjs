@@ -17,7 +17,7 @@ import { docLinks } from "./src/lib/doc-links.mjs";
  */
 function cnameIntegration() {
   return {
-    name: "trestle-cname",
+    name: "agen-cname",
     hooks: {
       "astro:build:done": (/** @type {{ dir: URL }} */ { dir }) => {
         if (!siteConfig.domain) return;

@@ -7,7 +7,7 @@ Instructions for AI coding agents working on Agen's docs site, built on
 
 - **Content** — the repository's `docs/**/*.md`, read in place (the same files
   render on GitHub and are checked by the Go docs tests). Write links as
-  relative `.md` paths; `src/lib/remark-doc-links.mjs` turns them into site
+  relative `.md` paths; `src/lib/doc-links.mjs` turns them into site
   routes. A new page appears in the sidebar once it is listed in
   `src/site.config.ts` `sidebar`.
 - **Content schema** — `src/content.config.ts`. Frontmatter is optional; the
@@ -40,8 +40,8 @@ Instructions for AI coding agents working on Agen's docs site, built on
   this per-component.
 - **Never hardcode an internal `href="/..."`.** GitHub Pages without a
   custom domain serves the site at a subpath (`username.github.io/repo/`),
-  which Astro's `base` config handles — but plain `<a href="/blog">` isn't
-  auto-prefixed. Use `withBase("/blog")` from `src/lib/url.ts` for any
+  which Astro's `base` config handles — but plain `<a href="/guides/tools/">` isn't
+  auto-prefixed. Use `withBase("/guides/tools/")` from `src/lib/url.ts` for any
   internal link, or go through `<Button>` / `<Card>` (both already apply it
   automatically for any `href` starting with `/`). External URLs need no
   change. Forgetting this is a silent bug, not a build error — the site
@@ -82,19 +82,6 @@ Instructions for AI coding agents working on Agen's docs site, built on
   `global.css`: duplicate the rule once under
   `@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) ... }`
   and once under `:root[data-theme="light"] ...`.
-- **Building the contact form or anything else with validation**: validate
-  each field on blur (not on every keystroke — that's worse, not better),
-  plus a final check on submit that also summarizes remaining errors. Use
-  `text-error` / `bg-error-bg` (and the matching `-success`/`-warning`/
-  `-info` tokens) for state, not ad hoc colors — they're defined in
-  `global.css` specifically so nobody has to invent them per-form. Use
-  `<Button loading={...}>` (shows a spinner, disables the button) to
-  prevent double-submit during the async request.
-- **Building anything that loads content asynchronously** (search results,
-  etc.): use a skeleton placeholder shaped like the real content, not a
-  spinner — it avoids the layout jumping when the content arrives, same
-  reasoning as the image-sizing rule above. A spinner is only correct for a
-  single action with no shape to preview (a button's own pending state).
 - **Before finishing a change**, run `npm run check` (type-check) and
   `npm run build` — both must pass with zero errors. The CI workflow runs the
   same two commands on every PR.
