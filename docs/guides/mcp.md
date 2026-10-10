@@ -15,9 +15,13 @@ Give the client its own token with only the scopes it needs, for example:
 agen token create --name claude --scope operator
 ```
 
-Add `--scope approver` only if it should also decide approvals, and remember
-that it cannot decide approvals for tasks it submitted itself. The client can
-check its access with `who_am_i`.
+It prints the token (once); use it as `AGEN_TOKEN` below. Add
+`--scope approver` only if the client should also decide approvals, and
+remember that it cannot decide approvals for tasks it submitted itself. The
+client can check its access with `who_am_i`.
+
+The examples use `http://127.0.0.1:7070/mcp`, the MCP endpoint of a local
+`agen up`; for another Hub use its URL with `/mcp`.
 
 ## Claude Code
 

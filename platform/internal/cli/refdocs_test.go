@@ -69,7 +69,7 @@ func cliReference() string {
 		seen[name] = true
 		var out, errOut safeBuf
 		Main(context.Background(), append(cmd, "-h"), &out, &errOut)
-		help := strings.TrimRight(out.String()+errOut.String(), "\n")
+		help := strings.TrimPrefix(strings.TrimRight(out.String()+errOut.String(), "\n"), "agen: ")
 		fmt.Fprintf(&b, "\n## agen %s\n\n```text\n%s\n```\n", name, help)
 	}
 	return b.String()

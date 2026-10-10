@@ -205,7 +205,11 @@ func (e *env) cmdStart(ctx context.Context, args []string) error { return e.paus
 
 func (e *env) pause(ctx context.Context, args []string, paused bool) error {
 	var cf clientFlags
-	pos, err := parse(e.flags("stop", &cf), args)
+	name := "start"
+	if paused {
+		name = "stop"
+	}
+	pos, err := parse(e.flags(name, &cf), args)
 	if err != nil {
 		return err
 	}

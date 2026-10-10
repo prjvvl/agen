@@ -1,95 +1,123 @@
 # Getting started
 
-This walkthrough ends with an agent that answers questions by reading web
-pages with a real model and a real tool, remembers the conversation, and
-shows you what it did. It takes about ten minutes.
+In about ten minutes: run a local fleet, deploy an agent, then give one a
+real model and a real tool, and see what it did. You need nothing but Agen
+for the first part.
 
-You need:
-
-- Agen installed ([install from a release](https://github.com/prjvvl/agen#install)).
-- An [OpenRouter](https://openrouter.ai) API key. The example uses
-  `deepseek/deepseek-v4-flash`; the whole walkthrough costs well under a cent.
-- [uv](https://docs.astral.sh/uv/), which runs the
-  [fetch MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)
-  the agent uses as its tool.
-
-## 1. Start a local fleet
-
-The agent's instances inherit the environment of `agen up`, so set the key
-first:
+## 1. Install
 
 ```sh
-git clone https://github.com/prjvvl/agen && cd agen
-export OPENROUTER_API_KEY=sk-or-...   # PowerShell: $env:OPENROUTER_API_KEY = "sk-or-..."
-agen up                               # keeps running; use a second terminal for the rest
+curl -fsSL https://prjvvl.github.io/agen/install.sh | sh
 ```
 
-`agen up` runs a Hub and one Nest on localhost with a SQLite store under
-`~/.agen`. `agen ui` prints a sign-in link for the web UI.
+On Windows, in PowerShell: `irm https://prjvvl.github.io/agen/install.ps1 | iex`.
+Open a new terminal and check it with `agen version`. [Install](install.md)
+has the details.
 
-## 2. Look at the bundle
-
-`examples/bundles/researcher` is a complete agent:
-
-| File | What it says |
-|---|---|
-| `plugin.json` | The name, `researcher`. |
-| `x-agen/agent.md` | The system prompt, and `maxTurns: 8`. |
-| `x-agen/harness.json` | The model: OpenRouter, `deepseek/deepseek-v4-flash`. |
-| `x-agen/secrets.json` | It needs `OPENROUTER_API_KEY`, from the environment. |
-| `mcp.json` | Its tool server: `uvx mcp-server-fetch`, so it gets a `fetch.fetch` tool. |
-| `x-agen/config.json` | A pool of up to 2 instances that sleeps after 5 minutes; a token budget per run and a dollar budget per day; tools are denied unless allowed, and `fetch.*` is allowed. |
-
-## 3. Check it and deploy it
+## 2. Start a local fleet
 
 ```sh
-agen deploy examples/bundles/researcher --validate
-agen deploy examples/bundles/researcher --replicas 1
-agen ps --all
+agen up
 ```
 
-`--validate` checks the bundle and warns about likely mistakes (an agent with
-no tools, a permission rule for a server that does not exist, a scripted
-model) without deploying. `agen ps --all` shows the instance and how many
-tools it loaded; the first start downloads the fetch server, so give it a
-few seconds.
+```text
+agen is up: hub http://127.0.0.1:7070 (credentials in ~/.agen/local.json)
+web UI: http://127.0.0.1:7070/ (run 'agen ui' for a sign-in link)
+```
 
-## 4. Ask it something
+`agen up` runs a Hub (the control plane) and one Nest (which runs agents) on
+your machine and keeps running; use a second terminal for the rest.
+[Concepts](concepts.md) explains the words.
+
+## 3. Deploy an agent
 
 ```sh
+agen init
+agen deploy hello --replicas 1
+agen run hello "hi"
+```
+
+```text
+wrote the hello example to hello
+next: agen deploy hello --replicas 1
+deployed default/hello definition <digest> desired 1
+Hello! Nice to meet you.
+```
+
+`agen init` writes an example agent (a "bundle") into `./hello`. Its model is
+scripted, so this works without an API key; the reply is canned. Look at the
+files: `x-agen/agent.md` is the system prompt, `x-agen/harness.json` picks the
+model, `x-agen/config.json` sets scaling and permissions.
+
+## 4. A real model and a real tool
+
+The `researcher` example answers questions by reading web pages, with a model
+on [OpenRouter](https://openrouter.ai) and the
+[fetch MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)
+as its tool. It needs an OpenRouter API key (this walkthrough costs well under
+a cent) and [uv](https://docs.astral.sh/uv/), which runs the tool server.
+
+Agents get their keys from the environment of `agen up`, so stop it (Ctrl+C
+in its terminal, or `agen down`), set the key, and start it again:
+
+```sh
+agen down
+export OPENROUTER_API_KEY=sk-or-...
+agen up
+```
+
+On Windows: `$env:OPENROUTER_API_KEY = "sk-or-..."` before `agen up`. Then, in
+the second terminal:
+
+```sh
+agen init --example researcher
+agen deploy researcher --validate
+agen deploy researcher --replicas 1
 agen run researcher "What is the title of the page at https://example.com?" --conversation demo --label project=docs
 agen run researcher "Which URL did you read in my previous question?" --conversation demo
 ```
 
-Both tasks use the conversation key `demo`, so the second run sees the first
-one's messages. Without `--conversation` every task starts fresh (see
-[Memory](guides/memory.md)). The label travels with the task to its run,
-trace and tool calls.
+```text
+bundle is valid
+deployed default/researcher definition <digest> desired 1
+Example Domain
+https://example.com
+```
+
+- `--validate` checks a bundle and warns about likely mistakes without
+  deploying it.
+- Both tasks use the conversation key `demo`, so the second sees the first
+  (see [Memory](guides/memory.md)). Without `--conversation` every task
+  starts fresh.
+- The label travels with the task to its run, trace and tool calls.
 
 ## 5. See what happened
 
 ```sh
+agen ps --all
 agen tasks researcher
-agen trace <task-id>
 agen logs researcher
+agen trace <task-id>
 ```
 
-The trace shows each model call and each tool call with its timing; the logs
-show the instance starting and each run with its token usage. The web UI
-shows the same, and the cost of each run.
+`agen ps --all` shows each instance and how many tools it loaded; the trace
+shows every model call and tool call with its timing; the logs show the
+instance starting and each run's token usage. `agen ui` prints a sign-in link
+for the web UI, which shows the same, with the cost of each run.
 
 ## 6. Clean up
 
 ```sh
 agen rm researcher
+agen rm hello
 agen down
 ```
 
 ## Next
 
-- [Giving agents tools](guides/tools.md): MCP servers, side effects and retries.
-- [Permissions and approvals](guides/permissions.md): let a person approve risky calls.
-- [Connecting agents](guides/agents.md): one agent handing work to another.
-- [Triggers](guides/triggers.md): run agents on a schedule or from webhooks.
-- [Use Agen from Claude or another MCP client](guides/mcp.md).
-- [Concepts](concepts.md) and [Troubleshooting](troubleshooting.md).
+- [Giving agents tools](guides/tools.md)
+- [Permissions and approvals](guides/permissions.md)
+- [Connecting agents](guides/agents.md)
+- [Triggers](guides/triggers.md): schedules and webhooks
+- [Use Agen from Claude or another MCP client](guides/mcp.md)
+- [Embed an agent in your app](embed.md) instead of running a fleet

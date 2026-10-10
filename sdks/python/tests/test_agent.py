@@ -124,21 +124,28 @@ def test_errors_have_codes():
 
 
 def test_run_releases_the_gil():
-    agent = Agent("slow", provider=fake(say("done", delayMs=500)))
-    ticks = []
+    # A run holding the GIL would let the ticker in at most once. Counting
+    # only ticks inside run(), with a generous margin, keeps this independent
+    # of how coarse sleep() is on a busy CI machine.
+    agent = Agent("slow", provider=fake(say("done", delayMs=1500)))
+    running = threading.Event()
     stop = threading.Event()
+    ticks = []
 
     def ticker():
         while not stop.is_set():
-            ticks.append(1)
+            if running.is_set():
+                ticks.append(1)
             time.sleep(0.01)
 
     th = threading.Thread(target=ticker)
     th.start()
+    running.set()
     agent.run("x")
+    running.clear()
     stop.set()
     th.join()
-    assert len(ticks) > 10, "other Python threads must keep running during run()"
+    assert len(ticks) >= 5, f"other Python threads must keep running during run() ({len(ticks)} ticks)"
 
 
 def test_closed_agent_and_tool_that_raises_base_exception():

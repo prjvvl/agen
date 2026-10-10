@@ -10,6 +10,35 @@ agen trace <task-id>   # every model call, tool call and delegation of a task
 
 `agen whoami` shows which token you are using and its scopes.
 
+## Installing and starting
+
+**`agen: command not found`** (or `not recognized` on Windows) right after
+installing. The terminal predates the `PATH` change: open a new one. If it
+persists, `~/.agen/bin` is not on `PATH` (you set `AGEN_NO_MODIFY_PATH=1`, or
+your shell reads another profile); add it yourself.
+
+**`unsupported OS` / `unsupported CPU` / `there is no release for Intel Macs`.**
+There is no build for that machine yet; [build from source](development.md).
+
+**`checksum mismatch`.** The download was corrupted or altered; run the
+installer again. It never installs an archive that fails the check.
+
+**`agen up` fails to listen** (`address already in use`; on Windows `Only one
+usage of each socket address`). Another `agen up` (or something else) holds
+port 7070 or 7071. Stop it with `agen down`, or start
+on other ports: `agen up --listen 127.0.0.1:7170 --gateway-listen 127.0.0.1:7171`.
+
+**`no local agen found`.** A fleet command found no running `agen up`. Start
+one, or point the CLI at a Hub with `--hub` and `--token` (or `AGEN_HUB`,
+`AGEN_TOKEN`).
+
+**`hello` always answers the same thing.** Its model is scripted (`"provider":
+"fake"`); it never calls a real model. Use `agen init --example researcher` for
+a real one.
+
+**Start over.** `agen down`, then delete `~/.agen` (keep `~/.agen/bin` if you
+want the programs).
+
 ## Errors
 
 **`... requires the operator scope; this token has: viewer`.** The token lacks

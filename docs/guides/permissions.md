@@ -55,6 +55,15 @@ approvals. Give the approver a separate token:
 agen token create --name alice-approver --scope approver
 ```
 
+It prints the token once. With `agen up`, your own CLI uses the local admin
+token, which submitted your tasks, so decide your agents' approvals with the
+approver token:
+
+```sh
+agen approvals
+agen approve <id> --token <approver token>
+```
+
 A delegated run's approvals name the person behind the root task, so
 delegation cannot be used to approve your own request either.
 

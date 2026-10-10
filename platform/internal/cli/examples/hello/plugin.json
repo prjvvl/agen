@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agentplugins.dev/schema/1.0/plugin.json",
+  "name": "hello",
+  "version": "0.1.0",
+  "description": "Minimal Agen example agent"
+}

@@ -14,8 +14,10 @@ Platform:
   agen hub serve                  run a Hub
   agen nest run --hub URL         run a Nest Manager
   agen migrate --to URL           copy the local store into Postgres (distributed)
+  agen store host-role            create the least-privilege Postgres role for Nests
 
 Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local config from agen up):
+  agen init [dir]                 write an example bundle to start from (--example hello|researcher)
   agen deploy <bundle-dir>        create or update a deployment (--validate: check only)
   agen scale <name> <n>           set desired instances
   agen ps [--all]                 deployments (--all: every instance on every nest)
@@ -29,6 +31,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
+  agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
+  agen resolve <name>             A2A endpoints of a deployment and a call token
   agen nests                      enrolled nests
   agen approvals | approve <id> | deny <id>
   agen join-token                 one-time token for 'agen nest run'
@@ -56,7 +60,7 @@ Usage of up:
 ## agen down
 
 ```text
-agen: usage: agen down
+usage: agen down
 ```
 
 ## agen ui
@@ -157,6 +161,20 @@ Usage of migrate:
     	target store URL, empty (e.g. postgres://user:pass@host/db)
 ```
 
+## agen store
+
+```text
+usage: agen store host-role --store postgres://<admin>@host/db [--role agen_host]  (password from AGEN_HOST_DB_PASSWORD)
+```
+
+## agen init
+
+```text
+Usage of init:
+  -example string
+    	example to start from: hello, researcher (default "hello")
+```
+
 ## agen deploy
 
 ```text
@@ -254,7 +272,7 @@ Usage of stop:
 ## agen start
 
 ```text
-Usage of stop:
+Usage of start:
   -ca-hash string
     	pin the Hub CA of an https Hub
   -hub string
@@ -383,6 +401,28 @@ Usage of triggers:
 
 ```text
 Usage of webhook-secret:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen secret
+
+```text
+usage: agen secret set NAME --for DEPLOYMENT... [-n NS] (value on stdin) | agen secret ls [-n NS] | agen secret rm NAME [-n NS]
+```
+
+## agen resolve
+
+```text
+Usage of resolve:
   -ca-hash string
     	pin the Hub CA of an https Hub
   -hub string

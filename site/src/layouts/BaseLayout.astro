@@ -61,5 +61,27 @@ const ogImageURL = new URL(withBase("/og-image.png"), Astro.site);
       <slot />
     </main>
     <Footer />
+    <script>
+      // A copy button on every code block; re-run after ClientRouter swaps pages.
+      document.addEventListener("astro:page-load", () => {
+        for (const pre of document.querySelectorAll<HTMLPreElement>(".prose pre")) {
+          if (pre.parentElement?.classList.contains("code-block")) continue;
+          const wrap = document.createElement("div");
+          wrap.className = "code-block";
+          pre.replaceWith(wrap);
+          wrap.append(pre);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "copy-code";
+          button.textContent = "Copy";
+          button.addEventListener("click", async () => {
+            await navigator.clipboard.writeText(pre.innerText.trimEnd());
+            button.textContent = "Copied";
+            setTimeout(() => (button.textContent = "Copy"), 1500);
+          });
+          wrap.append(button);
+        }
+      });
+    </script>
   </body>
 </html>

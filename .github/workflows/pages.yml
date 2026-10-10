@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["docs/**", "site/**", ".github/workflows/pages.yml"]
+    paths: ["docs/**", "site/**", "scripts/install.*", ".github/workflows/pages.yml"]
   pull_request:
-    paths: ["docs/**", "site/**", ".github/workflows/pages.yml"]
+    paths: ["docs/**", "site/**", "scripts/install.*", ".github/workflows/pages.yml"]
 permissions:
   contents: read
 concurrency:
@@ -26,6 +26,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run check
           npm run build
+          npm run check-links
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site/dist

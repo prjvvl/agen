@@ -20,6 +20,7 @@ export const siteConfig = {
   },
 
   nav: [
+    { label: "Install", href: "/install/" },
     { label: "Get started", href: "/getting-started/" },
     { label: "Guides", href: "/guides/tools/" },
     { label: "Reference", href: "/reference/bundle/" },
@@ -29,9 +30,9 @@ export const siteConfig = {
   /** The docs sidebar. Pages are files in the repository's docs/ directory,
    *  addressed by their path without `.md`. */
   sidebar: [
-    { group: "Start here", pages: ["getting-started", "concepts"] },
+    { group: "Start here", pages: ["install", "getting-started", "embed"] },
     {
-      group: "Guides",
+      group: "How-to guides",
       pages: [
         "guides/tools",
         "guides/agents",
@@ -41,10 +42,10 @@ export const siteConfig = {
         "guides/memory",
         "guides/mcp",
         "deploy",
-        "security",
         "troubleshooting",
       ],
     },
-    { group: "Reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks", "architecture"] },
+    { group: "Reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks"] },
+    { group: "Explanation", pages: ["concepts", "architecture", "security", "development"] },
   ],
 } as const;
