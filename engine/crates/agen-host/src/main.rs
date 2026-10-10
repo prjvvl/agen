@@ -105,7 +105,11 @@ fn default_store() -> anyhow::Result<String> {
 }
 
 async fn build_agent(bundle_dir: &Path, common: &Common) -> anyhow::Result<Agent> {
-    let bundle = Bundle::load(bundle_dir)?;
+    let mut bundle = Bundle::load(bundle_dir)?;
+    // Managed mode: the digest of the definition the Manager unpacked.
+    if let Some(d) = std::env::var("AGEN_DEFINITION_DIGEST").ok().filter(|d| !d.is_empty()) {
+        bundle.digest = d;
+    }
     let url = match &common.store {
         Some(u) => u.clone(),
         None => default_store()?,
@@ -300,6 +304,9 @@ struct TaskIn {
     /// The verified A2A caller ("agent:<ns>/<deployment>"), set by the
     /// Gateway: its lineage claims are checked against the Store.
     caller: String,
+    conversation_key: String,
+    labels: std::collections::BTreeMap<String, String>,
+    attempts: u32,
 }
 
 #[derive(Deserialize, Default)]
@@ -451,12 +458,20 @@ async fn health(State(st): State<Arc<HostState>>) -> Response {
     let running = st.running.lock().unwrap().len();
     let draining = st.draining.load(Ordering::SeqCst);
     let problems = st.agent.health_problems();
+    let servers: Vec<Value> = st
+        .agent
+        .tool_servers()
+        .into_iter()
+        .map(|s| json!({"name": s.name, "state": if s.connected { "connected" } else { "disconnected" }, "toolCount": s.tool_count}))
+        .collect();
     Json(json!({
         "instanceId": st.agent.owner(),
         "ready": !draining && problems.is_empty(),
         "runningTasks": running,
         "draining": draining,
         "problems": problems,
+        "tools": st.agent.tools().specs().into_iter().map(|t| t.name).collect::<Vec<_>>(),
+        "toolServers": servers,
     }))
     .into_response()
 }
@@ -525,6 +540,9 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         root_run_id,
         depth,
         requested_by: req.task.requested_by,
+        conversation_key: req.task.conversation_key,
+        labels: req.task.labels,
+        attempt: req.task.attempts,
         traceparent: (!traceparent.is_empty()).then_some(traceparent),
         cancel,
         ..Default::default()

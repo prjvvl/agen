@@ -90,7 +90,12 @@ impl Drop for Served {
 }
 
 fn serve(bundle: &Path, store: &str, extra: &[&str]) -> Served {
+    serve_with_env(bundle, store, extra, &[])
+}
+
+fn serve_with_env(bundle: &Path, store: &str, extra: &[&str], env: &[(&str, &str)]) -> Served {
     let mut child = Command::new(HOST)
+        .envs(env.iter().copied())
         .args([
             "serve",
             bundle.to_str().unwrap(),
@@ -463,4 +468,41 @@ async fn host_output_never_contains_secret_values() {
     let _ = child.wait();
     assert!(resp.contains("the key is") && !resp.contains(secret), "{resp}");
     assert!(!rest.contains(secret) && !err.contains(secret) && !line.contains(secret));
+}
+
+/// Managed mode: the host reports the Manager's definition digest, its tools,
+/// and runs tasks of one conversation key in one conversation.
+#[tokio::test]
+async fn managed_task_identity_and_health() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = dir.path().join("b");
+    let server = agen_testkit::bin_path("agen-testkit", "mcp-test-server");
+    write_bundle(
+        &b,
+        Some(json!({"mcpServers": {"t": {"command": server.to_str().unwrap()}}})),
+        json!({"responses": [{"text": "ok"}], "cycle": true}),
+    );
+    let store = store_url(dir.path());
+    let s = serve_with_env(&b, &store, &[], &[("AGEN_DEFINITION_DIGEST", "sha256:from-manager")]);
+
+    let (_, h) = call(&s.base, "Health", json!({})).await;
+    assert!(h["tools"].as_array().unwrap().contains(&json!("t.echo")), "{h}");
+    assert_eq!(h["toolServers"][0]["name"], "t");
+    assert_eq!(h["toolServers"][0]["state"], "connected");
+    assert!(h["toolServers"][0]["toolCount"].as_u64().unwrap() > 3);
+
+    let task = |id: &str| json!({"task": {"id": id, "input": "hi", "conversationKey": "api:chat", "labels": {"project": "apollo"}, "attempts": 2}});
+    let (st, a) = call(&s.base, "RunTask", task("t1")).await;
+    assert_eq!(st, 200, "{a}");
+    let (_, b2) = call(&s.base, "RunTask", task("t2")).await;
+    assert_eq!(a["run"]["conversationId"], b2["run"]["conversationId"]);
+
+    let st = Store::open(&store).await.unwrap();
+    let run = st.get_run(a["run"]["id"].as_str().unwrap()).await.unwrap();
+    assert_eq!(run.definition_digest, "sha256:from-manager");
+    assert_eq!(run.labels["project"], "apollo");
+    let spans = st.trace(&run.trace_id).await.unwrap();
+    let root = spans.iter().find(|s| s.name == "agen.run").unwrap();
+    assert_eq!(root.attributes["agen.task.attempt"], 2);
+    assert_eq!(root.attributes["agen.conversation.key"], "api:chat");
 }

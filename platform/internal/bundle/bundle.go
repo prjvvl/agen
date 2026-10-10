@@ -67,6 +67,12 @@ func compiled() (map[string]*jsonschema.Schema, error) {
 	return schemas, compileErr
 }
 
+// Schema returns the JSON Schema text for a bundle file kind ("config", ...).
+func Schema(name string) (string, error) {
+	b, err := schemaFS.ReadFile("schemas/" + name + ".schema.json")
+	return string(b), err
+}
+
 // Scale is the deployment scale policy from config.json.
 type Scale struct {
 	Min                    int    `json:"min"`
@@ -88,13 +94,26 @@ func (s Scale) IdleSeconds() int {
 	return int(d.Seconds())
 }
 
-// Trigger from config.json.
+// Trigger from config.json. Raw is the whole entry (its fields are the
+// agen.v1.Trigger JSON names), with Name filled in when it was left out.
 type Trigger struct {
-	Type     string `json:"type"`
-	Name     string `json:"name,omitempty"`
-	Schedule string `json:"schedule,omitempty"`
-	Input    string `json:"input,omitempty"`
-	CatchUp  bool   `json:"catchUp,omitempty"`
+	Type     string          `json:"type"`
+	Name     string          `json:"name,omitempty"`
+	Schedule string          `json:"schedule,omitempty"`
+	Raw      json.RawMessage `json:"-"`
+}
+
+// Delegate is a deployment the agent may call (config.json delegates).
+type Delegate struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	URL       string `json:"url,omitempty"`
+}
+
+// Notify is config.json permissions.notify.
+type Notify struct {
+	URL    string `json:"url"`
+	Secret string `json:"secret,omitempty"`
 }
 
 // Bundle is a validated upload.
@@ -107,6 +126,15 @@ type Bundle struct {
 	Limits   json.RawMessage
 	Triggers []Trigger
 	Files    map[string][]byte
+
+	// What the agent can use, for warnings about likely mistakes.
+	Provider        string
+	ToolServers     []string
+	Delegates       []Delegate
+	Skills          int
+	PermissionRules []string
+	ToolSettings    []string
+	Notify          *Notify
 }
 
 // Error lists every problem found.
@@ -163,12 +191,24 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 		return m
 	}
 	plugin := check("plugin.json", "plugin", true)
-	check("mcp.json", "mcp", false)
-	check("x-agen/harness.json", "harness", true)
+	mcp := check("mcp.json", "mcp", false)
+	harness := check("x-agen/harness.json", "harness", true)
 	config := check("x-agen/config.json", "config", false)
 	check("x-agen/secrets.json", "secrets", false)
 
 	b := &Bundle{Files: clean, Kind: "pool", Scale: Scale{Min: 0, Max: 1}, Budget: json.RawMessage("{}"), Limits: json.RawMessage("{}")}
+	b.Provider, _ = harness["provider"].(string)
+	if servers, ok := mcp["mcpServers"].(map[string]any); ok {
+		for name := range servers {
+			b.ToolServers = append(b.ToolServers, name)
+		}
+		sort.Strings(b.ToolServers)
+	}
+	for p := range clean {
+		if strings.HasPrefix(p, "skills/") && strings.HasSuffix(p, "/SKILL.md") {
+			b.Skills++
+		}
+	}
 	if md, ok := clean["x-agen/agent.md"]; !ok {
 		add("x-agen/agent.md: required file is missing")
 	} else if m := frontmatter.FindSubmatch(md); m == nil {
@@ -201,13 +241,36 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 	if config != nil {
 		raw, _ := json.Marshal(config)
 		var c struct {
-			Kind     string          `json:"kind"`
-			Scale    *Scale          `json:"scale"`
-			Budget   json.RawMessage `json:"budget"`
-			Limits   json.RawMessage `json:"limits"`
-			Triggers []Trigger       `json:"triggers"`
+			Kind        string            `json:"kind"`
+			Scale       *Scale            `json:"scale"`
+			Budget      json.RawMessage   `json:"budget"`
+			Limits      json.RawMessage   `json:"limits"`
+			Triggers    []json.RawMessage `json:"triggers"`
+			Permissions struct {
+				Rules []struct {
+					Tool string `json:"tool"`
+				} `json:"rules"`
+				Notify *Notify `json:"notify"`
+			} `json:"permissions"`
+			Delegates []Delegate                 `json:"delegates"`
+			Tools     map[string]json.RawMessage `json:"tools"`
 		}
 		_ = json.Unmarshal(raw, &c)
+		for _, r := range c.Permissions.Rules {
+			b.PermissionRules = append(b.PermissionRules, r.Tool)
+		}
+		b.Notify = c.Permissions.Notify
+		b.Delegates = c.Delegates
+		for k := range c.Tools {
+			b.ToolSettings = append(b.ToolSettings, k)
+		}
+		sort.Strings(b.ToolSettings)
+		for _, r := range c.Triggers {
+			var t Trigger
+			_ = json.Unmarshal(r, &t)
+			t.Raw = r
+			b.Triggers = append(b.Triggers, t)
+		}
 		if c.Kind != "" {
 			b.Kind = c.Kind
 		}
@@ -223,7 +286,6 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 		if len(c.Limits) > 0 {
 			b.Limits = c.Limits
 		}
-		b.Triggers = c.Triggers
 		seen := map[string]bool{}
 		for i, t := range b.Triggers {
 			if t.Name == "" {

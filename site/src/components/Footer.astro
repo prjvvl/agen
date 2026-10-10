@@ -1,0 +1,31 @@
+---
+import { siteConfig } from "../site.config";
+
+const year = new Date().getFullYear();
+const socialLinks = Object.entries(siteConfig.social).filter(([, url]) => url);
+---
+
+<footer class="border-t border-border bg-surface">
+  <div class="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-8 md:flex-row md:items-center md:justify-between">
+    <p class="text-sm text-fg-muted">
+      &copy; {year} {siteConfig.name}, MIT licensed. Built with <a
+        href="https://github.com/prjvvl/trestle"
+        class="hover:text-fg underline underline-offset-2"
+        rel="noopener noreferrer"
+        target="_blank"
+      >Trestle</a>.
+    </p>
+
+    {
+      socialLinks.length > 0 && (
+        <div class="flex gap-4">
+          {socialLinks.map(([platform, url]) => (
+            <a href={url} class="text-sm text-fg-muted hover:text-fg" rel="me noopener noreferrer" target="_blank">
+              {platform}
+            </a>
+          ))}
+        </div>
+      )
+    }
+  </div>
+</footer>

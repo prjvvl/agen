@@ -127,8 +127,8 @@ func (s *server) handle(r *http.Request, req rpcRequest) any {
 			"protocolVersion": ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": "agen", "version": version.Version},
-			"instructions": "Agen fleet control: list, deploy, scale, stop and inspect agent deployments, submit tasks, " +
-				"and decide approvals. Every tool is one Hub API call and needs the same token scopes as the API.",
+			"instructions": "Agen fleet control: deploy, scale and inspect agent deployments, run tasks and decide approvals. " +
+				"Every tool is one Hub API call and needs the same token scopes as the API (who_am_i shows yours).\n\n" + apidesc.Primer,
 		}, nil)
 	case "ping":
 		return response(req.ID, map[string]any{}, nil)

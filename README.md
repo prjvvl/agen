@@ -81,12 +81,13 @@ An agent is a folder (a "bundle"): `plugin.json`, skills, and Agen's own
 settings in `x-agen/`: its prompt, model, scaling, permissions, budget,
 triggers and the agents it may call. See
 [examples/bundles/hello](examples/bundles/hello) and the schemas in
-[spec/bundle](spec/bundle).
+[spec/bundle](spec/bundle). [Getting started](docs/getting-started.md) goes
+on to an agent with a real model and a real tool.
 
 ## Embed an agent (Python)
 
 ```sh
-pip install ./sdks/python
+pip install ./sdks/python    # builds the native module: needs a Rust toolchain
 ```
 
 ```python
@@ -117,10 +118,18 @@ Runnable versions for each language, which need no API key:
 
 ## Docs
 
-- [docs/deploy.md](docs/deploy.md): run it locally, distributed (Hubs, Nests,
-  Postgres) or on Kubernetes.
-- [docs/security.md](docs/security.md): operate it securely.
-- [docs/architecture.md](docs/architecture.md): the design.
+The docs are at [prjvvl.github.io/agen](https://prjvvl.github.io/agen/):
+
+- [Getting started](docs/getting-started.md) and [Concepts](docs/concepts.md).
+- Guides: [tools](docs/guides/tools.md), [connecting agents](docs/guides/agents.md),
+  [permissions and approvals](docs/guides/permissions.md),
+  [budgets](docs/guides/budgets.md), [triggers](docs/guides/triggers.md),
+  [memory](docs/guides/memory.md), [MCP clients](docs/guides/mcp.md),
+  [running a fleet](docs/deploy.md), [security](docs/security.md),
+  [troubleshooting](docs/troubleshooting.md).
+- Reference: [bundle](docs/reference/bundle.md), [CLI](docs/reference/cli.md),
+  [API](docs/reference/api.md), [SDKs](docs/reference/sdks.md),
+  [architecture](docs/architecture.md).
 
 ## Layout
 
@@ -131,6 +140,7 @@ Runnable versions for each language, which need no API key:
 | `sdks/` | Python, Node and Go SDKs |
 | `platform/` | Go: Hub, Nest (Manager + Gateway), CLI; `platform/e2e` runs the distributed and Kubernetes scenarios |
 | `web/` | React UI |
+| `docs/`, `site/` | Documentation, and the website that publishes it ([Trestle](https://github.com/prjvvl/trestle)) |
 | `examples/` | Example bundles and apps |
 | `deploy/` | Docker image, compose cluster, Kubernetes manifests |
 | `scripts/` | Code generation, release, install |

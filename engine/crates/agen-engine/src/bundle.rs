@@ -63,6 +63,8 @@ pub struct Harness {
     pub model: String,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
+    pub parallel_tool_calls: Option<bool>,
+    pub trace_tool_arguments: Option<bool>,
     pub base_url: Option<String>,
     pub api_key_secret: Option<String>,
     pub script: Option<String>,
@@ -143,6 +145,7 @@ pub struct Delegate {
 #[serde(rename_all = "camelCase")]
 pub struct ToolMeta {
     pub side_effect: Option<bool>,
+    pub idempotent: Option<bool>,
 }
 
 /// `x-agen/config.json`. Platform-only sections (scale, triggers, kind) are

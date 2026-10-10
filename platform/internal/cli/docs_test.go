@@ -12,7 +12,9 @@ import (
 )
 
 // docFiles are the user-facing docs whose shell examples must stay true.
-var docFiles = []string{"README.md", "docs/index.md", "docs/deploy.md", "docs/security.md", "examples/go-app/README.md", "examples/node-app/README.md", "examples/python-app/README.md"}
+var docFiles = []string{"README.md", "docs/index.md", "docs/deploy.md", "docs/security.md", "docs/getting-started.md", "docs/troubleshooting.md",
+	"docs/guides/tools.md", "docs/guides/agents.md", "docs/guides/permissions.md", "docs/guides/budgets.md", "docs/guides/triggers.md",
+	"docs/guides/memory.md", "docs/guides/mcp.md", "examples/go-app/README.md", "examples/node-app/README.md", "examples/python-app/README.md"}
 
 // shellLines returns the lines of ```sh blocks in a Markdown file, joined
 // across trailing-backslash continuations, without comments.

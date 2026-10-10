@@ -1,0 +1,94 @@
+---
+import { Menu, X } from "@lucide/astro";
+import { siteConfig } from "../site.config";
+import { withBase } from "../lib/url";
+import ThemeToggle from "./ThemeToggle.astro";
+---
+
+<header
+  class="sticky top-0 z-10 border-b border-border bg-surface/90 backdrop-blur"
+  style="padding-top: env(safe-area-inset-top)"
+>
+  <div
+    class="mx-auto flex max-w-5xl items-center justify-between py-3"
+    style="padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right))"
+  >
+    <a href={withBase("/")} class="font-display text-lg font-semibold text-fg">{siteConfig.name}</a>
+
+    <nav class="hidden items-center gap-6 md:flex">
+      {
+        siteConfig.nav.map((item) => (
+          <a href={item.href.startsWith("/") ? withBase(item.href) : item.href} class="text-sm text-fg-muted hover:text-fg">
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="flex items-center gap-1">
+      <ThemeToggle />
+
+      <button
+        id="nav-toggle"
+        type="button"
+        class="inline-flex min-h-11 min-w-11 items-center justify-center text-fg md:hidden"
+        aria-label="Toggle navigation menu"
+        aria-expanded="false"
+        aria-controls="nav-menu-mobile"
+      >
+        <Menu id="nav-icon-open" class="size-6" aria-hidden="true" />
+        <X id="nav-icon-close" class="hidden size-6" aria-hidden="true" />
+      </button>
+    </div>
+  </div>
+
+  <!-- Animated via max-height, measured to the content's real scrollHeight
+       in the script below rather than a fixed class, so a longer nav list
+       never gets silently clipped and the transition never looks like it
+       stops early. -->
+  <nav
+    id="nav-menu-mobile"
+    class="max-h-0 overflow-hidden opacity-0 transition-all duration-300 ease-out md:hidden"
+    inert
+  >
+    <div class="flex flex-col gap-1 border-t border-border px-4 py-3">
+      {
+        siteConfig.nav.map((item) => (
+          <a
+            href={item.href.startsWith("/") ? withBase(item.href) : item.href}
+            class="flex min-h-11 items-center rounded px-2 text-sm text-fg-muted hover:bg-bg hover:text-fg"
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </div>
+  </nav>
+</header>
+
+<script>
+  // Delegated on `document`, not bound directly to #nav-toggle, so this
+  // keeps working after Astro's ClientRouter swaps the page body.
+  document.addEventListener("click", (event) => {
+    const toggle = (event.target as HTMLElement)?.closest("#nav-toggle");
+    if (!toggle) return;
+
+    const menu = document.getElementById("nav-menu-mobile");
+    const iconOpen = document.getElementById("nav-icon-open");
+    const iconClose = document.getElementById("nav-icon-close");
+    const expanded = toggle.getAttribute("aria-expanded") === "true";
+
+    toggle.setAttribute("aria-expanded", String(!expanded));
+    if (menu) {
+      menu.style.maxHeight = expanded ? "0px" : `${menu.scrollHeight}px`;
+    }
+    menu?.classList.toggle("opacity-0", expanded);
+    menu?.classList.toggle("opacity-100", !expanded);
+    // Collapsing the height hides the menu visually, but the links stay
+    // keyboard-focusable and screen-reader-visible unless removed from the
+    // accessibility tree explicitly.
+    menu?.toggleAttribute("inert", expanded);
+    iconOpen?.classList.toggle("hidden", !expanded);
+    iconClose?.classList.toggle("hidden", expanded);
+  });
+</script>

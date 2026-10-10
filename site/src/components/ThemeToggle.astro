@@ -1,0 +1,71 @@
+---
+import { Sun, Moon } from "@lucide/astro";
+---
+
+<button
+  id="theme-toggle"
+  type="button"
+  class="inline-flex min-h-11 min-w-11 items-center justify-center text-fg-muted hover:text-fg"
+  aria-label="Toggle color theme"
+>
+  <Sun id="theme-icon-light" class="hidden size-5" aria-hidden="true" />
+  <Moon id="theme-icon-dark" class="hidden size-5" aria-hidden="true" />
+</button>
+
+<script>
+  // Not is:inline: Astro's ClientRouter only dedupes an inline script's
+  // re-execution starting from the first client-side navigation (its
+  // dedup cache is empty on the initial page load), so a script that
+  // registers a document-level listener runs twice from the second
+  // navigation onward, adding a duplicate listener that makes this toggle
+  // silently undo its own click. A processed script becomes a real module,
+  // which the browser's module cache only ever executes once.
+  (function () {
+    function storedTheme() {
+      const value = localStorage.getItem("theme");
+      return value === "light" || value === "dark" ? value : null;
+    }
+
+    function resolvedTheme() {
+      return storedTheme() ?? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    }
+
+    function showIcon(theme: "light" | "dark") {
+      document.getElementById("theme-icon-light")?.classList.toggle("hidden", theme !== "light");
+      document.getElementById("theme-icon-dark")?.classList.toggle("hidden", theme !== "dark");
+    }
+
+    // Only touches the DOM attribute if there's an explicit stored choice.
+    // Without one, CSS alone (dark by default, light if the system prefers
+    // it) handles everything, same as before any toggle happens.
+    function applyStoredTheme() {
+      const stored = storedTheme();
+      if (stored) {
+        document.documentElement.dataset.theme = stored;
+      } else {
+        delete document.documentElement.dataset.theme;
+      }
+    }
+
+    applyStoredTheme();
+    showIcon(resolvedTheme());
+
+    document.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement)?.closest("#theme-toggle");
+      if (!button) return;
+
+      const next = resolvedTheme() === "dark" ? "light" : "dark";
+      localStorage.setItem("theme", next);
+      document.documentElement.dataset.theme = next;
+      showIcon(next);
+    });
+
+    // Astro's ClientRouter resets html's own attributes on every
+    // client-side navigation, so an explicit choice needs reapplying here,
+    // not just the icon.
+    document.addEventListener("astro:after-swap", () => {
+      applyStoredTheme();
+      showIcon(resolvedTheme());
+    });
+  })();
+</script>
