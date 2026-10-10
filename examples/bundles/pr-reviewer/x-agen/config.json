@@ -1,0 +1,56 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "10m"
+  },
+  "budget": {
+    "maxTokensPerRun": 80000,
+    "maxUsdPerDay": 2
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "github.get_*",
+        "action": "allow"
+      },
+      {
+        "tool": "github.list_*",
+        "action": "allow"
+      },
+      {
+        "tool": "github.search_*",
+        "action": "allow"
+      },
+      {
+        "tool": "github.add_issue_comment",
+        "action": "ask"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "webhook",
+      "name": "github",
+      "input": "A GitHub pull_request event:",
+      "auth": {
+        "type": "hmac",
+        "header": "X-Hub-Signature-256",
+        "algorithm": "sha256",
+        "prefix": "sha256=",
+        "secret": "GITHUB_WEBHOOK_SECRET"
+      },
+      "idempotencyKey": {
+        "header": "X-GitHub-Delivery"
+      },
+      "conversationKey": {
+        "field": "pull_request.html_url"
+      },
+      "labels": {
+        "source": "github"
+      }
+    }
+  ]
+}

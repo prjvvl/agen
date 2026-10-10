@@ -99,6 +99,11 @@ const (
 	HubServiceListRunsProcedure = "/agen.v1.HubService/ListRuns"
 	// HubServiceGetTraceProcedure is the fully-qualified name of the HubService's GetTrace RPC.
 	HubServiceGetTraceProcedure = "/agen.v1.HubService/GetTrace"
+	// HubServiceGetTranscriptProcedure is the fully-qualified name of the HubService's GetTranscript
+	// RPC.
+	HubServiceGetTranscriptProcedure = "/agen.v1.HubService/GetTranscript"
+	// HubServiceGetMetricsProcedure is the fully-qualified name of the HubService's GetMetrics RPC.
+	HubServiceGetMetricsProcedure = "/agen.v1.HubService/GetMetrics"
 	// HubServiceGetLogsProcedure is the fully-qualified name of the HubService's GetLogs RPC.
 	HubServiceGetLogsProcedure = "/agen.v1.HubService/GetLogs"
 	// HubServiceCreateJoinTokenProcedure is the fully-qualified name of the HubService's
@@ -120,6 +125,18 @@ const (
 	// HubServiceGetBundleGuideProcedure is the fully-qualified name of the HubService's GetBundleGuide
 	// RPC.
 	HubServiceGetBundleGuideProcedure = "/agen.v1.HubService/GetBundleGuide"
+	// HubServiceListTemplatesProcedure is the fully-qualified name of the HubService's ListTemplates
+	// RPC.
+	HubServiceListTemplatesProcedure = "/agen.v1.HubService/ListTemplates"
+	// HubServiceSetNotificationTargetProcedure is the fully-qualified name of the HubService's
+	// SetNotificationTarget RPC.
+	HubServiceSetNotificationTargetProcedure = "/agen.v1.HubService/SetNotificationTarget"
+	// HubServiceListNotificationTargetsProcedure is the fully-qualified name of the HubService's
+	// ListNotificationTargets RPC.
+	HubServiceListNotificationTargetsProcedure = "/agen.v1.HubService/ListNotificationTargets"
+	// HubServiceDeleteNotificationTargetProcedure is the fully-qualified name of the HubService's
+	// DeleteNotificationTarget RPC.
+	HubServiceDeleteNotificationTargetProcedure = "/agen.v1.HubService/DeleteNotificationTarget"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -172,10 +189,14 @@ type HubServiceClient interface {
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 	// Delete a platform secret.
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error)
-	// Runs (one per task or A2A call), newest first, with usage and cost.
+	// Runs (one per task or A2A call), newest first, with usage and cost. Filter by status, labels and time; roots_only lists traces.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
 	// The spans of a trace: model calls, tool calls and delegations across agents.
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
+	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
+	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
+	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
 	// A single-use token for enrolling a Nest (agen nest run --join-token).
@@ -193,6 +214,14 @@ type HubServiceClient interface {
 	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
 	// How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
 	GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error)
+	// Ready-made agent bundles to start from.
+	ListTemplates(context.Context, *connect.Request[v1.ListTemplatesRequest]) (*connect.Response[v1.ListTemplatesResponse], error)
+	// Add or replace a namespace's notification target: a URL the Hub POSTs events to, signed with a secret it returns once.
+	SetNotificationTarget(context.Context, *connect.Request[v1.SetNotificationTargetRequest]) (*connect.Response[v1.SetNotificationTargetResponse], error)
+	// Notification targets (never their secrets).
+	ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error)
+	// Remove a notification target.
+	DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -362,6 +391,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetTrace")),
 			connect.WithClientOptions(opts...),
 		),
+		getTranscript: connect.NewClient[v1.GetTranscriptRequest, v1.GetTranscriptResponse](
+			httpClient,
+			baseURL+HubServiceGetTranscriptProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetTranscript")),
+			connect.WithClientOptions(opts...),
+		),
+		getMetrics: connect.NewClient[v1.GetMetricsRequest, v1.GetMetricsResponse](
+			httpClient,
+			baseURL+HubServiceGetMetricsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetMetrics")),
+			connect.WithClientOptions(opts...),
+		),
 		getLogs: connect.NewClient[v1.GetLogsRequest, v1.GetLogsResponse](
 			httpClient,
 			baseURL+HubServiceGetLogsProcedure,
@@ -410,45 +451,75 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetBundleGuide")),
 			connect.WithClientOptions(opts...),
 		),
+		listTemplates: connect.NewClient[v1.ListTemplatesRequest, v1.ListTemplatesResponse](
+			httpClient,
+			baseURL+HubServiceListTemplatesProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListTemplates")),
+			connect.WithClientOptions(opts...),
+		),
+		setNotificationTarget: connect.NewClient[v1.SetNotificationTargetRequest, v1.SetNotificationTargetResponse](
+			httpClient,
+			baseURL+HubServiceSetNotificationTargetProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("SetNotificationTarget")),
+			connect.WithClientOptions(opts...),
+		),
+		listNotificationTargets: connect.NewClient[v1.ListNotificationTargetsRequest, v1.ListNotificationTargetsResponse](
+			httpClient,
+			baseURL+HubServiceListNotificationTargetsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListNotificationTargets")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteNotificationTarget: connect.NewClient[v1.DeleteNotificationTargetRequest, v1.DeleteNotificationTargetResponse](
+			httpClient,
+			baseURL+HubServiceDeleteNotificationTargetProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("DeleteNotificationTarget")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // hubServiceClient implements HubServiceClient.
 type hubServiceClient struct {
-	createDeployment    *connect.Client[v1.CreateDeploymentRequest, v1.CreateDeploymentResponse]
-	updateDeployment    *connect.Client[v1.UpdateDeploymentRequest, v1.UpdateDeploymentResponse]
-	getDeployment       *connect.Client[v1.GetDeploymentRequest, v1.GetDeploymentResponse]
-	listDeployments     *connect.Client[v1.ListDeploymentsRequest, v1.ListDeploymentsResponse]
-	scaleDeployment     *connect.Client[v1.ScaleDeploymentRequest, v1.ScaleDeploymentResponse]
-	deleteDeployment    *connect.Client[v1.DeleteDeploymentRequest, v1.DeleteDeploymentResponse]
-	pauseDeployment     *connect.Client[v1.PauseDeploymentRequest, v1.PauseDeploymentResponse]
-	listInstances       *connect.Client[v1.ListInstancesRequest, v1.ListInstancesResponse]
-	listNests           *connect.Client[v1.ListNestsRequest, v1.ListNestsResponse]
-	submitTask          *connect.Client[v1.SubmitTaskRequest, v1.SubmitTaskResponse]
-	getTask             *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
-	listTasks           *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
-	cancelTask          *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
-	resolve             *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
-	requestWake         *connect.Client[v1.RequestWakeRequest, v1.RequestWakeResponse]
-	listApprovals       *connect.Client[v1.ListApprovalsRequest, v1.ListApprovalsResponse]
-	decideApproval      *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
-	listDefinitions     *connect.Client[v1.ListDefinitionsRequest, v1.ListDefinitionsResponse]
-	getDefinition       *connect.Client[v1.GetDefinitionRequest, v1.GetDefinitionResponse]
-	listTriggerEvents   *connect.Client[v1.ListTriggerEventsRequest, v1.ListTriggerEventsResponse]
-	createWebhookSecret *connect.Client[v1.CreateWebhookSecretRequest, v1.CreateWebhookSecretResponse]
-	setSecret           *connect.Client[v1.SetSecretRequest, v1.SetSecretResponse]
-	listSecrets         *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
-	deleteSecret        *connect.Client[v1.DeleteSecretRequest, v1.DeleteSecretResponse]
-	listRuns            *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	getTrace            *connect.Client[v1.GetTraceRequest, v1.GetTraceResponse]
-	getLogs             *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
-	createJoinToken     *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
-	createApiToken      *connect.Client[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse]
-	listApiTokens       *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
-	revokeApiToken      *connect.Client[v1.RevokeApiTokenRequest, v1.RevokeApiTokenResponse]
-	revokeNest          *connect.Client[v1.RevokeNestRequest, v1.RevokeNestResponse]
-	whoAmI              *connect.Client[v1.WhoAmIRequest, v1.WhoAmIResponse]
-	getBundleGuide      *connect.Client[v1.GetBundleGuideRequest, v1.GetBundleGuideResponse]
+	createDeployment         *connect.Client[v1.CreateDeploymentRequest, v1.CreateDeploymentResponse]
+	updateDeployment         *connect.Client[v1.UpdateDeploymentRequest, v1.UpdateDeploymentResponse]
+	getDeployment            *connect.Client[v1.GetDeploymentRequest, v1.GetDeploymentResponse]
+	listDeployments          *connect.Client[v1.ListDeploymentsRequest, v1.ListDeploymentsResponse]
+	scaleDeployment          *connect.Client[v1.ScaleDeploymentRequest, v1.ScaleDeploymentResponse]
+	deleteDeployment         *connect.Client[v1.DeleteDeploymentRequest, v1.DeleteDeploymentResponse]
+	pauseDeployment          *connect.Client[v1.PauseDeploymentRequest, v1.PauseDeploymentResponse]
+	listInstances            *connect.Client[v1.ListInstancesRequest, v1.ListInstancesResponse]
+	listNests                *connect.Client[v1.ListNestsRequest, v1.ListNestsResponse]
+	submitTask               *connect.Client[v1.SubmitTaskRequest, v1.SubmitTaskResponse]
+	getTask                  *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
+	listTasks                *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
+	cancelTask               *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
+	resolve                  *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
+	requestWake              *connect.Client[v1.RequestWakeRequest, v1.RequestWakeResponse]
+	listApprovals            *connect.Client[v1.ListApprovalsRequest, v1.ListApprovalsResponse]
+	decideApproval           *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
+	listDefinitions          *connect.Client[v1.ListDefinitionsRequest, v1.ListDefinitionsResponse]
+	getDefinition            *connect.Client[v1.GetDefinitionRequest, v1.GetDefinitionResponse]
+	listTriggerEvents        *connect.Client[v1.ListTriggerEventsRequest, v1.ListTriggerEventsResponse]
+	createWebhookSecret      *connect.Client[v1.CreateWebhookSecretRequest, v1.CreateWebhookSecretResponse]
+	setSecret                *connect.Client[v1.SetSecretRequest, v1.SetSecretResponse]
+	listSecrets              *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
+	deleteSecret             *connect.Client[v1.DeleteSecretRequest, v1.DeleteSecretResponse]
+	listRuns                 *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	getTrace                 *connect.Client[v1.GetTraceRequest, v1.GetTraceResponse]
+	getTranscript            *connect.Client[v1.GetTranscriptRequest, v1.GetTranscriptResponse]
+	getMetrics               *connect.Client[v1.GetMetricsRequest, v1.GetMetricsResponse]
+	getLogs                  *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
+	createJoinToken          *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
+	createApiToken           *connect.Client[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse]
+	listApiTokens            *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
+	revokeApiToken           *connect.Client[v1.RevokeApiTokenRequest, v1.RevokeApiTokenResponse]
+	revokeNest               *connect.Client[v1.RevokeNestRequest, v1.RevokeNestResponse]
+	whoAmI                   *connect.Client[v1.WhoAmIRequest, v1.WhoAmIResponse]
+	getBundleGuide           *connect.Client[v1.GetBundleGuideRequest, v1.GetBundleGuideResponse]
+	listTemplates            *connect.Client[v1.ListTemplatesRequest, v1.ListTemplatesResponse]
+	setNotificationTarget    *connect.Client[v1.SetNotificationTargetRequest, v1.SetNotificationTargetResponse]
+	listNotificationTargets  *connect.Client[v1.ListNotificationTargetsRequest, v1.ListNotificationTargetsResponse]
+	deleteNotificationTarget *connect.Client[v1.DeleteNotificationTargetRequest, v1.DeleteNotificationTargetResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -581,6 +652,16 @@ func (c *hubServiceClient) GetTrace(ctx context.Context, req *connect.Request[v1
 	return c.getTrace.CallUnary(ctx, req)
 }
 
+// GetTranscript calls agen.v1.HubService.GetTranscript.
+func (c *hubServiceClient) GetTranscript(ctx context.Context, req *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error) {
+	return c.getTranscript.CallUnary(ctx, req)
+}
+
+// GetMetrics calls agen.v1.HubService.GetMetrics.
+func (c *hubServiceClient) GetMetrics(ctx context.Context, req *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error) {
+	return c.getMetrics.CallUnary(ctx, req)
+}
+
 // GetLogs calls agen.v1.HubService.GetLogs.
 func (c *hubServiceClient) GetLogs(ctx context.Context, req *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return c.getLogs.CallUnary(ctx, req)
@@ -619,6 +700,26 @@ func (c *hubServiceClient) WhoAmI(ctx context.Context, req *connect.Request[v1.W
 // GetBundleGuide calls agen.v1.HubService.GetBundleGuide.
 func (c *hubServiceClient) GetBundleGuide(ctx context.Context, req *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error) {
 	return c.getBundleGuide.CallUnary(ctx, req)
+}
+
+// ListTemplates calls agen.v1.HubService.ListTemplates.
+func (c *hubServiceClient) ListTemplates(ctx context.Context, req *connect.Request[v1.ListTemplatesRequest]) (*connect.Response[v1.ListTemplatesResponse], error) {
+	return c.listTemplates.CallUnary(ctx, req)
+}
+
+// SetNotificationTarget calls agen.v1.HubService.SetNotificationTarget.
+func (c *hubServiceClient) SetNotificationTarget(ctx context.Context, req *connect.Request[v1.SetNotificationTargetRequest]) (*connect.Response[v1.SetNotificationTargetResponse], error) {
+	return c.setNotificationTarget.CallUnary(ctx, req)
+}
+
+// ListNotificationTargets calls agen.v1.HubService.ListNotificationTargets.
+func (c *hubServiceClient) ListNotificationTargets(ctx context.Context, req *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error) {
+	return c.listNotificationTargets.CallUnary(ctx, req)
+}
+
+// DeleteNotificationTarget calls agen.v1.HubService.DeleteNotificationTarget.
+func (c *hubServiceClient) DeleteNotificationTarget(ctx context.Context, req *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error) {
+	return c.deleteNotificationTarget.CallUnary(ctx, req)
 }
 
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
@@ -671,10 +772,14 @@ type HubServiceHandler interface {
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 	// Delete a platform secret.
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error)
-	// Runs (one per task or A2A call), newest first, with usage and cost.
+	// Runs (one per task or A2A call), newest first, with usage and cost. Filter by status, labels and time; roots_only lists traces.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
 	// The spans of a trace: model calls, tool calls and delegations across agents.
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
+	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
+	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
+	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
 	// A single-use token for enrolling a Nest (agen nest run --join-token).
@@ -692,6 +797,14 @@ type HubServiceHandler interface {
 	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
 	// How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
 	GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error)
+	// Ready-made agent bundles to start from.
+	ListTemplates(context.Context, *connect.Request[v1.ListTemplatesRequest]) (*connect.Response[v1.ListTemplatesResponse], error)
+	// Add or replace a namespace's notification target: a URL the Hub POSTs events to, signed with a secret it returns once.
+	SetNotificationTarget(context.Context, *connect.Request[v1.SetNotificationTargetRequest]) (*connect.Response[v1.SetNotificationTargetResponse], error)
+	// Notification targets (never their secrets).
+	ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error)
+	// Remove a notification target.
+	DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -857,6 +970,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("GetTrace")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceGetTranscriptHandler := connect.NewUnaryHandler(
+		HubServiceGetTranscriptProcedure,
+		svc.GetTranscript,
+		connect.WithSchema(hubServiceMethods.ByName("GetTranscript")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceGetMetricsHandler := connect.NewUnaryHandler(
+		HubServiceGetMetricsProcedure,
+		svc.GetMetrics,
+		connect.WithSchema(hubServiceMethods.ByName("GetMetrics")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceGetLogsHandler := connect.NewUnaryHandler(
 		HubServiceGetLogsProcedure,
 		svc.GetLogs,
@@ -903,6 +1028,30 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		HubServiceGetBundleGuideProcedure,
 		svc.GetBundleGuide,
 		connect.WithSchema(hubServiceMethods.ByName("GetBundleGuide")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListTemplatesHandler := connect.NewUnaryHandler(
+		HubServiceListTemplatesProcedure,
+		svc.ListTemplates,
+		connect.WithSchema(hubServiceMethods.ByName("ListTemplates")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceSetNotificationTargetHandler := connect.NewUnaryHandler(
+		HubServiceSetNotificationTargetProcedure,
+		svc.SetNotificationTarget,
+		connect.WithSchema(hubServiceMethods.ByName("SetNotificationTarget")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListNotificationTargetsHandler := connect.NewUnaryHandler(
+		HubServiceListNotificationTargetsProcedure,
+		svc.ListNotificationTargets,
+		connect.WithSchema(hubServiceMethods.ByName("ListNotificationTargets")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceDeleteNotificationTargetHandler := connect.NewUnaryHandler(
+		HubServiceDeleteNotificationTargetProcedure,
+		svc.DeleteNotificationTarget,
+		connect.WithSchema(hubServiceMethods.ByName("DeleteNotificationTarget")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -959,6 +1108,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceListRunsHandler.ServeHTTP(w, r)
 		case HubServiceGetTraceProcedure:
 			hubServiceGetTraceHandler.ServeHTTP(w, r)
+		case HubServiceGetTranscriptProcedure:
+			hubServiceGetTranscriptHandler.ServeHTTP(w, r)
+		case HubServiceGetMetricsProcedure:
+			hubServiceGetMetricsHandler.ServeHTTP(w, r)
 		case HubServiceGetLogsProcedure:
 			hubServiceGetLogsHandler.ServeHTTP(w, r)
 		case HubServiceCreateJoinTokenProcedure:
@@ -975,6 +1128,14 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceWhoAmIHandler.ServeHTTP(w, r)
 		case HubServiceGetBundleGuideProcedure:
 			hubServiceGetBundleGuideHandler.ServeHTTP(w, r)
+		case HubServiceListTemplatesProcedure:
+			hubServiceListTemplatesHandler.ServeHTTP(w, r)
+		case HubServiceSetNotificationTargetProcedure:
+			hubServiceSetNotificationTargetHandler.ServeHTTP(w, r)
+		case HubServiceListNotificationTargetsProcedure:
+			hubServiceListNotificationTargetsHandler.ServeHTTP(w, r)
+		case HubServiceDeleteNotificationTargetProcedure:
+			hubServiceDeleteNotificationTargetHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1088,6 +1249,14 @@ func (UnimplementedHubServiceHandler) GetTrace(context.Context, *connect.Request
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetTrace is not implemented"))
 }
 
+func (UnimplementedHubServiceHandler) GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetTranscript is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetMetrics is not implemented"))
+}
+
 func (UnimplementedHubServiceHandler) GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetLogs is not implemented"))
 }
@@ -1118,4 +1287,20 @@ func (UnimplementedHubServiceHandler) WhoAmI(context.Context, *connect.Request[v
 
 func (UnimplementedHubServiceHandler) GetBundleGuide(context.Context, *connect.Request[v1.GetBundleGuideRequest]) (*connect.Response[v1.GetBundleGuideResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetBundleGuide is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListTemplates(context.Context, *connect.Request[v1.ListTemplatesRequest]) (*connect.Response[v1.ListTemplatesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListTemplates is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) SetNotificationTarget(context.Context, *connect.Request[v1.SetNotificationTargetRequest]) (*connect.Response[v1.SetNotificationTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.SetNotificationTarget is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListNotificationTargets is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.DeleteNotificationTarget is not implemented"))
 }

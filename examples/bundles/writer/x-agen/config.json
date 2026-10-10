@@ -1,0 +1,15 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "5m"
+  },
+  "budget": {
+    "maxTokensPerRun": 30000,
+    "maxUsdPerDay": 0.5
+  },
+  "permissions": {
+    "default": "deny"
+  }
+}

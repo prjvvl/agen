@@ -1,0 +1,32 @@
+{
+  "kind": "singleton",
+  "budget": {
+    "maxTokensPerRun": 40000,
+    "maxUsdPerDay": 0.5
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "agen.list_*",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_*",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.who_am_i",
+        "action": "allow"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "cron",
+      "name": "check",
+      "schedule": "*/30 * * * *",
+      "input": "Check the fleet for new failures."
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "support-triage",
+  "version": "0.1.0",
+  "description": "Classifies incoming support messages and drafts a first reply"
+}

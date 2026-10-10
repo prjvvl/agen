@@ -52,6 +52,8 @@ message Limits {
   int32 max_fan_out = 2;
   // Max delegated calls across the whole tree under one root run.
   int32 max_total_delegations = 3;
+  // Max queued tasks; more are refused (RESOURCE_EXHAUSTED).
+  int32 max_queued_tasks = 4;
 }
 
 message Trigger {
@@ -277,6 +279,8 @@ message Task {
   // Free-form labels, copied to the task's runs, its tool calls and the
   // tasks it delegates.
   map<string, string> labels = 23;
+  // The approval the task's run waits for, while it waits.
+  string pending_approval_id = 24;
 }
 
 enum ApprovalState {
@@ -345,6 +349,8 @@ message ApiToken {
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp expires_at = 6;
   bool revoked = 7;
+  // Acts for whoever submitted the task it works on (see CreateApiToken).
+  bool on_behalf = 8;
 }
 
 message Run {
@@ -365,4 +371,11 @@ message Run {
   string definition_digest = 15;
   string task_id = 16;
   map<string, string> labels = 17;
+  string error = 18;
+  // Model turns taken.
+  int64 steps = 19;
+  // With ListRuns roots_only: usage and run count of the whole run tree
+  // (this run and every run it delegated to).
+  Usage tree_usage = 20;
+  int32 tree_runs = 21;
 }

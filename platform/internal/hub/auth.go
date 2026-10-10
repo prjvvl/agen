@@ -34,6 +34,10 @@ type Principal struct {
 	Namespaces []string // empty = all
 	// NestID is set for a Nest's own token (NestService only).
 	NestID string
+	// OnBehalf marks a token that acts for the submitter of a task; once
+	// resolved for a call, ActingFor names the token it acted through.
+	OnBehalf  bool
+	ActingFor string
 }
 
 // Can reports whether the principal holds scope (directly or implied).
@@ -92,7 +96,7 @@ func (a *Auth) Authenticate(ctx context.Context, secret string) (Principal, erro
 	if err != nil {
 		return Principal{}, errors.New("invalid or revoked token")
 	}
-	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces}
+	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces, OnBehalf: t.OnBehalf}
 	for _, s := range t.Scopes {
 		p.Scopes[s] = true
 	}
@@ -118,7 +122,8 @@ func procedureScope(procedure string) string {
 	name := procedure[strings.LastIndex(procedure, "/")+1:]
 	switch name {
 	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "Resolve",
-		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide":
+		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide",
+		"GetTranscript", "GetMetrics", "ListTemplates":
 		return ScopeViewer
 	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "RequestWake",
 		"CreateWebhookSecret":
@@ -137,6 +142,11 @@ func (a *Auth) Interceptor() connect.UnaryInterceptorFunc {
 			p, err := a.Authenticate(ctx, bearer(req.Header()))
 			if err != nil {
 				return nil, connect.NewError(connect.CodeUnauthenticated, err)
+			}
+			if p.OnBehalf {
+				if p, err = a.actFor(ctx, p, req.Header().Get(TaskHeader)); err != nil {
+					return nil, connect.NewError(connect.CodePermissionDenied, err)
+				}
 			}
 			if need := procedureScope(req.Spec().Procedure); !p.Can(need) {
 				return nil, connect.NewError(connect.CodePermissionDenied, scopeError(req.Spec().Procedure, need, p))
@@ -158,6 +168,64 @@ func scopeError(procedure, need string, p Principal) error {
 	}
 	return fmt.Errorf("%s requires the %s scope; this token has: %s (create one with: agen token create --scope %s)",
 		procedure[strings.LastIndex(procedure, "/")+1:], need, held, need)
+}
+
+// TaskHeader names the task an on-behalf token works for. The MCP endpoint
+// sets it from the call's _meta "agen/taskId", which the engine fills in.
+const TaskHeader = "X-Agen-Task"
+
+// actFor resolves an on-behalf token to the principal it acts for: the
+// submitter of the unfinished task it works on, limited to the scopes and
+// namespaces both hold. Admin powers are never passed on.
+func (a *Auth) actFor(ctx context.Context, tok Principal, taskID string) (Principal, error) {
+	if taskID == "" {
+		return Principal{}, errors.New("this token acts for the person whose task an agent works on, so it only works from an agent's MCP calls (they name the task in _meta agen/taskId)")
+	}
+	t, err := a.Store.GetTask(ctx, taskID)
+	if err != nil || t.Terminal() {
+		return Principal{}, fmt.Errorf("task %s is not running", taskID)
+	}
+	if !tok.AllowsNamespace(t.Namespace) {
+		return Principal{}, fmt.Errorf("task %s is in namespace %s, which this token may not use", taskID, t.Namespace)
+	}
+	var user Principal
+	switch id := t.SubmittedBy; {
+	case id == "admin":
+		user = Principal{ID: "admin", Scopes: map[string]bool{ScopeAdmin: true}}
+	case strings.HasPrefix(id, "token:"):
+		ut, err := a.Store.GetAPIToken(ctx, strings.TrimPrefix(id, "token:"))
+		if err != nil || ut.Revoked || (ut.ExpiresMs > 0 && ut.ExpiresMs < store.NowMs()) || ut.OnBehalf {
+			return Principal{}, fmt.Errorf("the token that submitted task %s is no longer valid", taskID)
+		}
+		user = Principal{ID: id, Name: ut.Name, Scopes: map[string]bool{}, Namespaces: ut.Namespaces}
+		for _, s := range ut.Scopes {
+			user.Scopes[s] = true
+		}
+	default:
+		return Principal{}, fmt.Errorf("task %s was not submitted by a person (%s), so there is nobody to act for", taskID, id)
+	}
+	out := Principal{ID: user.ID, Name: user.Name, Scopes: map[string]bool{}, ActingFor: tok.ID}
+	for _, s := range []string{ScopeViewer, ScopeOperator, ScopeApprover} {
+		if tok.Can(s) && user.Can(s) {
+			out.Scopes[s] = true
+		}
+	}
+	switch {
+	case len(tok.Namespaces) == 0:
+		out.Namespaces = user.Namespaces
+	case len(user.Namespaces) == 0:
+		out.Namespaces = tok.Namespaces
+	default:
+		for _, ns := range tok.Namespaces {
+			if user.AllowsNamespace(ns) {
+				out.Namespaces = append(out.Namespaces, ns)
+			}
+		}
+		if len(out.Namespaces) == 0 {
+			return Principal{}, errors.New("this token and the person it acts for share no namespace")
+		}
+	}
+	return out, nil
 }
 
 // requireNamespace fails unless the caller may act in ns.

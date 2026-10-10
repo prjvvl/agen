@@ -3,6 +3,7 @@ syntax = "proto3";
 package agen.v1;
 
 import "agen/v1/resources.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
@@ -65,10 +66,14 @@ service HubService {
   // Delete a platform secret.
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
 
-  // Runs (one per task or A2A call), newest first, with usage and cost.
+  // Runs (one per task or A2A call), newest first, with usage and cost. Filter by status, labels and time; roots_only lists traces.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
   // The spans of a trace: model calls, tool calls and delegations across agents.
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  // A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
+  rpc GetTranscript(GetTranscriptRequest) returns (GetTranscriptResponse);
+  // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+  rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
   // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
 
@@ -87,7 +92,62 @@ service HubService {
   rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
   // How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
   rpc GetBundleGuide(GetBundleGuideRequest) returns (GetBundleGuideResponse);
+  // Ready-made agent bundles to start from.
+  rpc ListTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
+
+  // Add or replace a namespace's notification target: a URL the Hub POSTs events to, signed with a secret it returns once.
+  rpc SetNotificationTarget(SetNotificationTargetRequest) returns (SetNotificationTargetResponse);
+  // Notification targets (never their secrets).
+  rpc ListNotificationTargets(ListNotificationTargetsRequest) returns (ListNotificationTargetsResponse);
+  // Remove a notification target.
+  rpc DeleteNotificationTarget(DeleteNotificationTargetRequest) returns (DeleteNotificationTargetResponse);
 }
+
+message ListTemplatesRequest {}
+message Template {
+  string name = 1;
+  string title = 2;
+  string description = 3;
+  // e.g. "starter", "operations", "engineering".
+  string category = 4;
+  // Secrets the template needs (names from x-agen/secrets.json).
+  repeated string secrets = 5;
+  // Bundle files: path -> text.
+  map<string, string> files = 6;
+}
+message ListTemplatesResponse {
+  repeated Template templates = 1;
+}
+
+message NotificationTarget {
+  string namespace = 1;
+  string name = 2;
+  string url = 3;
+  // Event types to send: approval.pending, task.failed, budget.exhausted.
+  // Empty means all.
+  repeated string events = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+message SetNotificationTargetRequest {
+  NotificationTarget target = 1;
+}
+message SetNotificationTargetResponse {
+  NotificationTarget target = 1;
+  // Shown once. Each POST body is signed with it:
+  // X-Agen-Signature: sha256=<hex HMAC-SHA256>.
+  string secret = 2;
+}
+message ListNotificationTargetsRequest {
+  string namespace = 1;
+}
+message ListNotificationTargetsResponse {
+  repeated NotificationTarget targets = 1;
+}
+message DeleteNotificationTargetRequest {
+  string namespace = 1;
+  string name = 2;
+}
+message DeleteNotificationTargetResponse {}
 
 message WhoAmIRequest {}
 message WhoAmIResponse {
@@ -291,9 +351,91 @@ message ListRunsRequest {
   string namespace = 1;
   string deployment = 2;
   int32 limit = 3;
+  // running, waiting_approval, succeeded, failed or cancelled.
+  string status = 4;
+  // Only runs that started a trace (not delegated runs), with the usage of
+  // their whole run tree.
+  bool roots_only = 5;
+  // Runs carrying all of these labels.
+  map<string, string> labels = 6;
+  // Runs started at or after this time.
+  google.protobuf.Timestamp since = 7;
+  // next_page_token of the previous page.
+  string page_token = 8;
+  string task_id = 9;
 }
 message ListRunsResponse {
   repeated Run runs = 1;
+  // Pass as page_token for the next page; empty on the last page.
+  string next_page_token = 2;
+}
+
+message GetTranscriptRequest {
+  string run_id = 1;
+  // Also the earlier messages of the conversation the run continued.
+  bool include_history = 2;
+}
+message ToolCallMessage {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Value arguments = 3;
+}
+message TranscriptMessage {
+  // Position in the conversation (spans name it as agen.message.seq).
+  int64 seq = 1;
+  string run_id = 2;
+  // user, assistant or tool.
+  string role = 3;
+  string content = 4;
+  repeated ToolCallMessage tool_calls = 5;
+  // For role tool: the call this is the result of.
+  string tool_call_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+message GetTranscriptResponse {
+  Run run = 1;
+  repeated TranscriptMessage messages = 2;
+  // The agent's instructions (x-agen/agent.md body) of the run's bundle.
+  string system_prompt = 3;
+}
+
+message GetMetricsRequest {
+  string namespace = 1;
+  // Window length (default 86400, at most 30 days).
+  int32 window_seconds = 2;
+  // Number of time buckets per deployment (default 24, at most 200).
+  int32 buckets = 3;
+}
+message MetricsBucket {
+  int32 runs = 1;
+  int32 failed = 2;
+  double cost_usd = 3;
+}
+message DeploymentMetrics {
+  DeploymentRef ref = 1;
+  int32 runs = 2;
+  int32 failed = 3;
+  int32 cancelled = 4;
+  // Runs not finished yet.
+  int32 active = 5;
+  int64 p50_ms = 6;
+  int64 p95_ms = 7;
+  Usage usage = 8;
+  // Oldest first, each bucket_seconds long.
+  repeated MetricsBucket buckets = 9;
+}
+message CallEdge {
+  DeploymentRef from = 1;
+  DeploymentRef to = 2;
+  int32 calls = 3;
+  int32 failed = 4;
+}
+message GetMetricsResponse {
+  repeated DeploymentMetrics deployments = 1;
+  // Delegated calls between deployments in the window.
+  repeated CallEdge edges = 2;
+  google.protobuf.Timestamp since = 3;
+  int32 bucket_seconds = 4;
 }
 
 message GetTraceRequest {
@@ -386,6 +528,11 @@ message CreateApiTokenRequest {
   repeated string scopes = 2;
   repeated string namespaces = 3;
   int32 ttl_seconds = 4;
+  // For an agent that works for people (the assistant): each MCP call must
+  // name the task it serves (_meta agen/taskId, which Agen sets), and runs
+  // with the scopes and namespaces that both this token and the task's
+  // submitter hold. It can never decide approvals.
+  bool on_behalf = 5;
 }
 message CreateApiTokenResponse {
   ApiToken token = 1;

@@ -21,7 +21,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use crate::bundle::{Action, Budget, Bundle, Limits, Permissions, Skill};
+use crate::bundle::{default_limits, Action, Budget, Bundle, Limits, Permissions, Skill};
 use crate::permissions;
 use crate::provider::{self, Message, ModelProvider, ModelRequest, ProviderError, Role, ToolCall, Usage};
 use crate::secrets::{PlatformSecrets, Redactor, Secrets, StreamRedactor};
@@ -95,6 +95,12 @@ pub struct AgentConfig {
     pub parallel_tool_calls: bool,
     /// Record tool call arguments (redacted) on tool spans.
     pub trace_tool_arguments: bool,
+    /// Wall-clock time a run may take, not counting approval waits.
+    pub max_run_duration: Duration,
+    /// How long one model request may take.
+    pub model_request_timeout: Duration,
+    /// How long one tool call may take (not `call_agent`).
+    pub tool_timeout: Duration,
 }
 
 impl AgentConfig {
@@ -121,6 +127,9 @@ impl AgentConfig {
             approval_timeout: Duration::from_secs(3600),
             parallel_tool_calls: true,
             trace_tool_arguments: false,
+            max_run_duration: default_limits::MAX_RUN_DURATION,
+            model_request_timeout: default_limits::MODEL_REQUEST_TIMEOUT,
+            tool_timeout: default_limits::TOOL_TIMEOUT,
         }
     }
 }
@@ -295,6 +304,30 @@ pub struct BundleOptions {
 struct Live {
     rec: RunRecord,
     epoch: i64,
+    started: std::time::Instant,
+    /// Time spent waiting for approvals, which does not count towards
+    /// `max_run_duration`.
+    approval_wait_ms: std::sync::atomic::AtomicU64,
+    /// Calls made so far per tool and arguments.
+    calls: Mutex<BTreeMap<String, u32>>,
+}
+
+impl Live {
+    fn new(rec: RunRecord, epoch: i64) -> Self {
+        Self {
+            rec,
+            epoch,
+            started: std::time::Instant::now(),
+            approval_wait_ms: Default::default(),
+            calls: Default::default(),
+        }
+    }
+
+    /// Time the run has worked, excluding approval waits.
+    fn worked(&self) -> Duration {
+        let waited = self.approval_wait_ms.load(std::sync::atomic::Ordering::SeqCst);
+        self.started.elapsed().saturating_sub(Duration::from_millis(waited))
+    }
 }
 
 impl Agent {
@@ -323,17 +356,36 @@ impl Agent {
         let mut cfg = AgentConfig::new(bundle.name(), &bundle.system_prompt, &bundle.harness.model);
         cfg.skills = bundle.skills.clone();
         cfg.temperature = bundle.harness.temperature;
-        cfg.max_output_tokens = bundle.harness.max_output_tokens;
+        cfg.max_output_tokens = Some(
+            bundle
+                .harness
+                .max_output_tokens
+                .unwrap_or(default_limits::MAX_OUTPUT_TOKENS),
+        );
         cfg.parallel_tool_calls = bundle.harness.parallel_tool_calls.unwrap_or(true);
         cfg.trace_tool_arguments = bundle.harness.trace_tool_arguments.unwrap_or(false);
         cfg.max_turns = bundle.agent.max_turns.unwrap_or(16);
         cfg.permissions = bundle.config.permissions.clone();
         if let Some(t) = bundle.config.permissions.approval_timeout.as_deref() {
-            cfg.approval_timeout = crate::bundle::parse_duration(t)
-                .ok_or_else(|| AgentError::Config(format!("invalid permissions.approvalTimeout {t:?}")))?;
+            cfg.approval_timeout = duration_setting("permissions.approvalTimeout", t)?;
+            if cfg.approval_timeout > default_limits::MAX_APPROVAL_TIMEOUT {
+                return Err(AgentError::Config(format!(
+                    "permissions.approvalTimeout {t:?} is longer than the maximum of 168h"
+                )));
+            }
         }
         cfg.budget = bundle.config.budget.clone();
         cfg.limits = bundle.config.limits.clone();
+        let limits = &bundle.config.limits;
+        if let Some(t) = limits.max_run_duration.as_deref() {
+            cfg.max_run_duration = duration_setting("limits.maxRunDuration", t)?;
+        }
+        if let Some(t) = limits.model_request_timeout.as_deref() {
+            cfg.model_request_timeout = duration_setting("limits.modelRequestTimeout", t)?;
+        }
+        if let Some(t) = limits.tool_timeout.as_deref() {
+            cfg.tool_timeout = duration_setting("limits.toolTimeout", t)?;
+        }
         let namespace = opts.namespace.unwrap_or_else(|| "default".into());
         cfg.namespace = namespace.clone();
         cfg.deployment = opts.deployment.unwrap_or_else(|| bundle.name().into());
@@ -528,7 +580,7 @@ impl Agent {
         self.store
             .checkpoint(&run_id, epoch, &conversation_id, Some(&first), None)
             .await?;
-        self.drive(Live { rec, epoch }, &parent, "agen.run", opts).await
+        self.drive(Live::new(rec, epoch), &parent, "agen.run", opts).await
     }
 
     /// Take ownership of an unfinished run and continue it from its last
@@ -554,7 +606,8 @@ impl Agent {
             self.store.insert_span(&old).await?;
             parent.span_id = old.span_id;
         }
-        self.drive(Live { rec, epoch }, &parent, "agen.run.resume", &opts).await
+        self.drive(Live::new(rec, epoch), &parent, "agen.run.resume", &opts)
+            .await
     }
 
     async fn drive(
@@ -744,6 +797,13 @@ impl Agent {
             if live.rec.step >= self.cfg.max_turns as i64 {
                 return Ok(Outcome::Failed(format!("max_turns ({}) exceeded", self.cfg.max_turns)));
             }
+            let max = self.cfg.max_run_duration;
+            if !max.is_zero() && live.worked() > max {
+                return Ok(Outcome::Failed(format!(
+                    "max_run_duration ({}s) exceeded",
+                    max.as_secs()
+                )));
+            }
             if let Some(e) = self.budget_exceeded(&live.rec.usage) {
                 return Ok(Outcome::Failed(e));
             }
@@ -779,7 +839,9 @@ impl Agent {
             span.set("gen_ai.usage.output_tokens", resp.usage.output_tokens);
             span.set("gen_ai.response.tool_calls", resp.tool_calls.len() as u64);
             span.set("gen_ai.response.finish_reasons", resp.finish_reason.clone());
-            tracer.end(span, "ok").await;
+            if resp.usage.cost_usd > 0.0 {
+                span.set("agen.usage.cost_usd", resp.usage.cost_usd);
+            }
             if resp.finish_reason == "length" {
                 self.log(
                     "warn",
@@ -791,7 +853,8 @@ impl Agent {
             live.rec.usage.add(resp.usage);
             live.rec.step += 1;
             let assistant = self.redact_message(&Message::assistant(resp.text, resp.tool_calls));
-            self.store
+            let stored = self
+                .store
                 .checkpoint(
                     &live.rec.id,
                     live.epoch,
@@ -799,7 +862,14 @@ impl Agent {
                     Some(&assistant),
                     Some((live.rec.step, RunStatus::Running, live.rec.usage)),
                 )
-                .await?;
+                .await;
+            // The reply's place in the conversation, so a trace viewer can
+            // show what this call sent and received.
+            if let Ok(Some(seq)) = &stored {
+                span.set("agen.message.seq", *seq);
+            }
+            tracer.end(span, if stored.is_ok() { "ok" } else { "error" }).await;
+            stored?;
         }
     }
 
@@ -846,8 +916,20 @@ impl Agent {
             }
         };
         let mut attempt: u32 = 0;
+        let limit = self.cfg.model_request_timeout;
         loop {
-            let result = self.provider.complete(req, &sink).await;
+            let result = if limit.is_zero() {
+                self.provider.complete(req, &sink).await
+            } else {
+                tokio::time::timeout(limit, self.provider.complete(req, &sink))
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(ProviderError::Request(format!(
+                            "no complete response within {}s (limits.modelRequestTimeout)",
+                            limit.as_secs()
+                        )))
+                    })
+            };
             let wait = match &result {
                 Err(ProviderError::Retryable(_)) if attempt < 5 => Some(backoff(attempt)),
                 Err(ProviderError::RetryAfter(_, secs)) if attempt < 5 => Some(
@@ -1006,6 +1088,26 @@ impl Agent {
                 "error",
             ));
         }
+        let max = self.cfg.limits.identical_tool_calls();
+        if max > 0 {
+            let key = format!(
+                "{}
+{}",
+                call.name,
+                args_hash(&call.arguments)
+            );
+            let mut calls = live.calls.lock().unwrap();
+            let n = calls.entry(key).or_default();
+            *n += 1;
+            if *n > max {
+                return Ok((
+                    format!(
+                        "error: this exact call (same tool and arguments) was already made {max} times in this run and was not repeated; change the arguments or finish without it"
+                    ),
+                    "error",
+                ));
+            }
+        }
         let decision = permissions::evaluate(&self.cfg.permissions, &call.name);
         span.set("agen.permission.action", format!("{decision:?}").to_lowercase());
         match decision {
@@ -1026,10 +1128,13 @@ impl Agent {
                     tool: call.name.clone(),
                     arguments: self.redactor.redact_json(&call.arguments),
                 };
+                let asked = std::time::Instant::now();
                 let d = tokio::select! {
                     d = tokio::time::timeout(self.cfg.approval_timeout, self.approver.decide(req)) => d.unwrap_or(ApprovalDecision::Expired),
                     _ = opts.cancel.cancelled() => ApprovalDecision::Expired,
                 };
+                live.approval_wait_ms
+                    .fetch_add(asked.elapsed().as_millis() as u64, std::sync::atomic::Ordering::SeqCst);
                 self.store
                     .checkpoint(
                         &run.id,
@@ -1123,8 +1228,20 @@ impl Agent {
 
     async fn invoke(&self, tool: &dyn Tool, call: &ToolCall, ctx: ToolContext) -> Invoked {
         let cancel = ctx.cancel.clone();
+        // Delegated runs are bounded by the callee's own limits.
+        let limit = match self.cfg.tool_timeout {
+            t if t.is_zero() || call.name == crate::delegate::CALL_AGENT => Duration::MAX,
+            t => t,
+        };
         let r = tokio::select! {
-            r = tool.call(call.arguments.clone(), ctx) => r,
+            r = tokio::time::timeout(limit, tool.call(call.arguments.clone(), ctx)) => match r {
+                Ok(r) => r,
+                Err(_) => return Invoked {
+                    text: format!("error: the tool did not finish within {}s (limits.toolTimeout)", limit.as_secs()),
+                    status: "error",
+                    uncertain: true,
+                },
+            },
             _ = cancel.cancelled() => return Invoked { text: "error: cancelled".into(), status: "cancelled", uncertain: true },
         };
         match r {
@@ -1153,6 +1270,10 @@ enum Outcome {
     Done(String),
     Failed(String),
     Cancelled,
+}
+
+fn duration_setting(name: &str, value: &str) -> Result<Duration, AgentError> {
+    crate::bundle::parse_duration(value).ok_or_else(|| AgentError::Config(format!("invalid {name} {value:?}")))
 }
 
 fn backoff(attempt: u32) -> Duration {

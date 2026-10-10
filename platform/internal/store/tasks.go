@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 )
 
@@ -40,6 +41,9 @@ type Task struct {
 	// prefixed with their source ("api:", "webhook:<trigger>:").
 	ConversationKey string
 	Labels          map[string]string
+	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
+	// deployment has that many queued tasks. Not stored.
+	MaxQueued int
 }
 
 // CheckLabels enforces the limits on task labels: at most 32, keys of 1-63
@@ -110,17 +114,33 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 		labels = []byte("{}")
 	}
 	now := NowMs()
-	_, err = s.db.ExecContext(ctx,
-		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels) "+
-			"VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
-		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-		t.ConversationKey, string(labels))
-	if isUnique(err) && t.IdempotencyKey != "" {
+	maxQueued := t.MaxQueued
+	if maxQueued <= 0 {
+		maxQueued = math.MaxInt32
+	}
+	existing := func() (Task, error) {
 		return scanTask(s.db.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND idempotency_key = $3",
 			t.Namespace, t.Deployment, t.IdempotencyKey))
 	}
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels) "+
+			"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16 "+
+			"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $17",
+		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
+		t.ConversationKey, string(labels), maxQueued)
+	if isUnique(err) && t.IdempotencyKey != "" {
+		return existing()
+	}
 	if err != nil {
 		return t, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if t.IdempotencyKey != "" {
+			if prev, err := existing(); err == nil {
+				return prev, nil
+			}
+		}
+		return t, fmt.Errorf("%w: %s/%s has %d queued tasks (limits.maxQueuedTasks)", ErrQueueFull, t.Namespace, t.Deployment, maxQueued)
 	}
 	return s.GetTask(ctx, t.ID)
 }

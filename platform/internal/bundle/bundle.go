@@ -137,10 +137,21 @@ type Bundle struct {
 	Notify          *Notify
 }
 
+// MaxApprovalTimeout bounds permissions.approvalTimeout.
+const MaxApprovalTimeout = 7 * 24 * time.Hour
+
 // Error lists every problem found.
 type Error struct{ Issues []string }
 
 func (e *Error) Error() string { return "invalid bundle:\n  - " + strings.Join(e.Issues, "\n  - ") }
+
+// SystemPrompt returns the agent's instructions: the body of x-agen/agent.md.
+func SystemPrompt(files map[string][]byte) string {
+	if m := frontmatter.FindSubmatch(files["x-agen/agent.md"]); m != nil {
+		return strings.TrimSpace(string(m[2]))
+	}
+	return ""
+}
 
 var frontmatter = regexp.MustCompile(`(?s)\A\x{feff}?---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n(.*)\z`)
 
@@ -250,7 +261,8 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 				Rules []struct {
 					Tool string `json:"tool"`
 				} `json:"rules"`
-				Notify *Notify `json:"notify"`
+				Notify          *Notify `json:"notify"`
+				ApprovalTimeout string  `json:"approvalTimeout"`
 			} `json:"permissions"`
 			Delegates []Delegate                 `json:"delegates"`
 			Tools     map[string]json.RawMessage `json:"tools"`
@@ -260,6 +272,9 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 			b.PermissionRules = append(b.PermissionRules, r.Tool)
 		}
 		b.Notify = c.Permissions.Notify
+		if d, err := time.ParseDuration(c.Permissions.ApprovalTimeout); err == nil && d > MaxApprovalTimeout {
+			add("x-agen/config.json: permissions.approvalTimeout %s is longer than the maximum of 168h", c.Permissions.ApprovalTimeout)
+		}
 		b.Delegates = c.Delegates
 		for k := range c.Tools {
 			b.ToolSettings = append(b.ToolSettings, k)

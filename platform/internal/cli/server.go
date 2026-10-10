@@ -39,6 +39,9 @@ type hubServer struct {
 	done chan struct{}
 }
 
+// defaultRetention keeps trace data for 30 days.
+const defaultRetention = 30 * 24 * time.Hour
+
 // hubOptions tunes startHub.
 type hubOptions struct {
 	// tlsHosts enables TLS (and Nest mTLS) with a server certificate for
@@ -47,6 +50,8 @@ type hubOptions struct {
 	extra    []func(*http.ServeMux)
 	// nestCertLifetime of Nest certificates (0: pki default).
 	nestCertLifetime time.Duration
+	// retention of spans, log lines and trigger events (0 keeps them).
+	retention time.Duration
 }
 
 func startHub(ctx context.Context, st *store.Store, adminToken, listen string, log *slog.Logger, opt hubOptions) (*hubServer, error) {
@@ -62,6 +67,8 @@ func startHub(ctx context.Context, st *store.Store, adminToken, listen string, l
 	mux.Handle(p, nh)
 	p, wh := h.WebhookHandler()
 	mux.Handle(p, wh)
+	p, eh := h.EventsHandler()
+	mux.Handle(p, eh)
 	// MCP: every HubService RPC as a tool, executed by the same handler.
 	mcpH, err := mcpserver.Handler(hh)
 	if err != nil {
@@ -94,6 +101,7 @@ func startHub(ctx context.Context, st *store.Store, adminToken, listen string, l
 	host, _ := os.Hostname()
 	sched := h.NewScheduler(fmt.Sprintf("%s/%d/%s", host, os.Getpid(), store.NewID()))
 	sched.Log = log
+	sched.Retention = opt.retention
 	hs := &hubServer{URL: scheme + "://" + ln.Addr().String(), Hub: h, done: make(chan struct{})}
 	schedDone := make(chan struct{})
 	go func() { sched.Run(ctx); close(schedDone) }()
@@ -300,6 +308,7 @@ func (e *env) cmdHub(ctx context.Context, args []string) error {
 	var hosts listFlag
 	fs.Var(&hosts, "tls-host", "extra host name or IP for the Hub certificate (repeatable)")
 	nestCertLifetime := fs.Duration("nest-cert-lifetime", 0, "lifetime of Nest client certificates (default 30 days; Nests renew before expiry)")
+	retention := fs.Duration("retention", defaultRetention, "delete spans, log lines and trigger events older than this (0 keeps them)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -335,7 +344,7 @@ func (e *env) cmdHub(ctx context.Context, args []string) error {
 	if *useTLS && os.Getenv("AGEN_HUB_KEK") == "" {
 		e.logger().Warn("AGEN_HUB_KEK is not set: the Hub's CA and call-token keys are stored unencrypted in the Store")
 	}
-	hs, err := startHub(ctx, st, admin, *listen, e.logger(), hubOptions{tlsHosts: tlsHosts, nestCertLifetime: *nestCertLifetime})
+	hs, err := startHub(ctx, st, admin, *listen, e.logger(), hubOptions{tlsHosts: tlsHosts, nestCertLifetime: *nestCertLifetime, retention: *retention})
 	if err != nil {
 		return err
 	}
@@ -543,6 +552,7 @@ func (e *env) cmdUp(ctx context.Context, args []string) error {
 	capacity := fs.Int("capacity", 8, "local nest capacity (0 = unlimited)")
 	hostBin := fs.String("host-bin", "", "agen-host executable")
 	gatewayListen := fs.String("gateway-listen", "127.0.0.1:7071", "local Gateway (A2A) listen address")
+	retention := fs.Duration("retention", defaultRetention, "delete spans, log lines and trigger events older than this (0 keeps them)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -585,7 +595,7 @@ func (e *env) cmdUp(ctx context.Context, args []string) error {
 			cancel()
 		})
 	}
-	hs, err := startHub(ctx, st, cfg.Token, *listen, log, hubOptions{extra: []func(*http.ServeMux){shutdown}})
+	hs, err := startHub(ctx, st, cfg.Token, *listen, log, hubOptions{extra: []func(*http.ServeMux){shutdown}, retention: *retention})
 	if err != nil {
 		return err
 	}

@@ -138,6 +138,9 @@ func (s *server) handle(r *http.Request, req rpcRequest) any {
 		var p struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
+			Meta      struct {
+				TaskID string `json:"agen/taskId"`
+			} `json:"_meta"`
 		}
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return response(req.ID, nil, &rpcError{-32602, "invalid params"})
@@ -146,7 +149,7 @@ func (s *server) handle(r *http.Request, req rpcRequest) any {
 		if !ok {
 			return response(req.ID, nil, &rpcError{-32602, fmt.Sprintf("unknown tool %q", p.Name)})
 		}
-		return response(req.ID, s.call(r, t, p.Arguments), nil)
+		return response(req.ID, s.call(r, t, p.Arguments, p.Meta.TaskID), nil)
 	default:
 		if notification || strings.HasPrefix(req.Method, "notifications/") {
 			return nil
@@ -157,7 +160,7 @@ func (s *server) handle(r *http.Request, req rpcRequest) any {
 
 // call runs a tool through the API handler with the caller's credentials.
 // API errors come back as tool results with isError, as MCP prescribes.
-func (s *server) call(r *http.Request, t apidesc.Tool, args json.RawMessage) map[string]any {
+func (s *server) call(r *http.Request, t apidesc.Tool, args json.RawMessage, taskID string) map[string]any {
 	if len(bytes.TrimSpace(args)) == 0 || string(bytes.TrimSpace(args)) == "null" {
 		args = json.RawMessage("{}")
 	}
@@ -165,6 +168,10 @@ func (s *server) call(r *http.Request, t apidesc.Tool, args json.RawMessage) map
 	req.Header.Set("Content-Type", "application/json")
 	if a := r.Header.Get("Authorization"); a != "" {
 		req.Header.Set("Authorization", a)
+	}
+	// Agen agents name their task, which an on-behalf token acts for.
+	if taskID != "" {
+		req.Header.Set("X-Agen-Task", taskID)
 	}
 	rec := httptest.NewRecorder()
 	s.api.ServeHTTP(rec, req)

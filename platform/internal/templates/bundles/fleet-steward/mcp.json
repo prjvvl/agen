@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "agen": {
+      "url": "${AGEN_HUB_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AGEN_TOKEN}"
+      }
+    }
+  }
+}

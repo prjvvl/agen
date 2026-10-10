@@ -12,6 +12,6 @@ cp -r spec/sql/sqlite spec/sql/postgres platform/internal/store/migrations/
 rm -rf platform/internal/bundle/schemas
 mkdir -p platform/internal/bundle/schemas
 cp spec/bundle/*.schema.json platform/internal/bundle/schemas/
-# Example bundles for `agen init`.
-rm -rf platform/internal/cli/examples
-cp -r examples/bundles platform/internal/cli/examples
+# Template bundles for `agen init` and ListTemplates.
+rm -rf platform/internal/templates/bundles
+cp -r examples/bundles platform/internal/templates/bundles
