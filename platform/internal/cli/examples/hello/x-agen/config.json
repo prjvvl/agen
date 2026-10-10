@@ -1,0 +1,5 @@
+{
+  "kind": "pool",
+  "scale": { "min": 0, "max": 3, "idleTimeout": "5m" },
+  "permissions": { "default": "ask", "rules": [] }
+}

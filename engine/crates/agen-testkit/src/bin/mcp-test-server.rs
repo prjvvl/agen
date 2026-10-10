@@ -9,6 +9,8 @@
 //! - `fail`: returns an MCP tool error
 //! - `whoami` (read-only): returns `$TEST_TOKEN` (for secret env tests)
 //! - `getenv` (read-only): returns an env var, `<unset>` if missing
+//! - `context` (read-only): returns the request's `_meta` as JSON
+//! - `lookup` (idempotent): returns its text
 //! - `die`: exits the server process
 //!
 //! It also writes a line to stderr on start, so stderr handling is exercised.
@@ -18,7 +20,8 @@ use std::sync::Arc;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig};
-use rmcp::{schemars, tool, tool_handler, tool_router, ErrorData, ServerHandler, ServiceExt};
+use rmcp::service::RequestContext;
+use rmcp::{schemars, tool, tool_handler, tool_router, ErrorData, RoleServer, ServerHandler, ServiceExt};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct Text {
@@ -92,6 +95,20 @@ impl TestServer {
     async fn getenv(&self, Parameters(Text { text }): Parameters<Text>) -> Result<CallToolResult, ErrorData> {
         let v = std::env::var(&text).unwrap_or_else(|_| "<unset>".into());
         Ok(CallToolResult::success(vec![ContentBlock::text(v)]))
+    }
+
+    #[tool(description = "Return the request metadata", annotations(read_only_hint = true))]
+    async fn context(&self, ctx: RequestContext<RoleServer>) -> Result<CallToolResult, ErrorData> {
+        let meta = serde_json::to_string(&ctx.meta).map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(meta)]))
+    }
+
+    #[tool(
+        description = "Look something up (safe to repeat)",
+        annotations(idempotent_hint = true)
+    )]
+    async fn lookup(&self, Parameters(Text { text }): Parameters<Text>) -> Result<CallToolResult, ErrorData> {
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
     #[tool(description = "Exit the server process immediately")]

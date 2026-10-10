@@ -159,6 +159,17 @@ writer on SQLite), dispatch to an instance, and report the result. Leases expire
 so tasks held by a dead Nest go back to `queued`. Every lease gets a new
 `lease_id` fencing token; `ExtendLease` and `CompleteTask` must present the
 current one, so a partitioned Nest cannot complete a task that was re-leased.
+A task may carry a **conversation key** (scoped by its source: `api:`,
+`webhook:<trigger>:`; A2A uses `a2a:<caller>:<contextId>`) and **labels**. Tasks
+of one deployment with the same key share a session and so continue one
+conversation (a singleton keeps its one conversation and ignores keys); a task is leased only when no older task with its key is queued
+or in flight, so they run one at a time, in submission order. Labels are
+copied to the task's runs, tool calls and child tasks. When the Hub fails a
+task (lease expired too often) or cancels it, it also ends the task's
+unfinished run and bumps its epoch, so the conversation is not left blocked
+and a host still running it is fenced off. The Hub logs instance starts,
+failures and exits (from Nest reports) and task releases and lease expiries
+on the deployment's log.
 
 **Hub leader**: several Hub replicas can serve the API; exactly one is leader
 and runs the scheduler, autoscaler and triggers. Leadership is a Store row
@@ -180,9 +191,14 @@ missed window once (`redelivered`). Firing is exactly-once: the task's
 idempotency key is `cron:<trigger>:<due>` and events are unique per trigger
 and due time. A webhook caller presents the trigger's secret
 (`CreateWebhookSecret`, `agen webhook-secret`; only a hash is stored) as a
-bearer token; the body (1 MiB max) follows the trigger's `input` as the task
-input, `Idempotency-Key` makes retries return the same task, and rejected
-calls are recorded as `rejected` events.
+bearer token, or, with `auth.type: hmac`, signs the raw body with a platform
+secret the deployment is granted (header, prefix, sha256/sha1, hex/base64
+configurable). The body (1 MiB max) follows the trigger's `input` as the task
+input; the idempotency key (the `Idempotency-Key` header, or the header or
+JSON body field the trigger names) makes redeliveries return the same task;
+an optional conversation key and the trigger's labels go on the task.
+Rejected calls are recorded as `rejected` events; configuration errors are
+logged on the deployment, not returned to the caller.
 
 **Nest failure**: heartbeat missing for `nest_lost_after` → Nest marked `lost`,
 its Assignments are rescheduled, its task leases expire. Singleton sessions
@@ -204,7 +220,7 @@ tasks only up to free slots, mark them running, extend leases while they run
 id. A task the host could not take is released back to the queue at once
 (`ReleaseTask`, attempt not counted). If a host dies mid-task the task is
 released (attempt counted) and re-leased, and its run resumes on another
-instance; a task whose lease expires `max_task_attempts` (default 5) times
+instance; a task whose lease expires 5 times (`Scheduler.MaxTaskAttempts`)
 fails instead of looping. Instances are tied to the Manager's lifetime (Job
 Object on Windows, parent-death signal on Linux); a host that ignores SIGTERM
 is killed after a grace period. Downloaded definitions are checked against
@@ -238,8 +254,12 @@ and wake deployments it is eligible to run (placement labels). Approval
   `message/stream`, `tasks/get`) and
   `/a2a/<ns>/<deployment>/.well-known/agent-card.json`.
 - A2A request metadata carries `traceparent`, `agen.depth`, `agen.root_run_id`,
-  `agen.parent_run_id`, and the request carries the caller's call token
-  (§10). Tasks carry the same lineage fields.
+  `agen.parent_run_id`, optional `agen.labels`, and the request carries the
+  caller's call token (§10). Tasks carry the same lineage fields.
+- A message's `contextId` (generated when absent) is its conversation: messages
+  of one context from one caller continue one conversation, and a Gateway runs
+  them one at a time. Two Gateways may still race; the later message then
+  fails with "conversation already has an unfinished run".
 
 **Delegation** (sub-agents): an agent delegates only to another Deployment,
 either synchronously over A2A (`message/send`/`message/stream`) or
@@ -322,11 +342,34 @@ Agent → Session → Conversation → Run → Span.
   MCP tools unless the server marks them read-only) is written to the
   **effect ledger** before it runs and completed after. On resume, a started but
   unconfirmed effect is not re-run; the run fails the step with
-  `effect_unknown` unless the tool declares an idempotency key.
+  `effect_unknown` unless the tool declares an idempotency key. MCP tools are
+  idempotent (keyed by their arguments) when the server marks them
+  `idempotentHint` or `config.json` `tools.<server>.<tool>.idempotent` says so.
+- The tool calls of one model turn run concurrently (`harness.parallelToolCalls`
+  turns it off), unless one of them needs an approval; results are recorded in
+  call order.
+- Every MCP call carries `_meta` keys `agen/namespace`, `agen/deployment`,
+  `agen/taskId`, `agen/runId`, `agen/rootRunId`, `agen/conversationId`,
+  `agen/conversationKey`, `agen/labels` and the `traceparent`.
+- A run's top-level span is written as `unfinished` when the run starts. On
+  resume after a crash it is closed as `interrupted` and the resumed run's
+  span hangs under it, carrying the task attempt.
+- Each model call's `max_tokens` is the configured `maxOutputTokens` lowered
+  to the remaining `maxTokensPerRun` (without a configured maximum, only once
+  fewer than 8192 tokens remain).
+- In managed mode the Manager passes the definition digest it unpacked
+  (`AGEN_DEFINITION_DIGEST`); hosts do not re-hash the directory, which tool
+  servers may write to. Health reports the loaded tools and each MCP server's
+  state; the Manager forwards them to the Hub's instance view.
 - Permissions: rules evaluated deny → ask → allow, first match wins; default ask.
+  A rule matches a tool by its registered name (`server.tool`) or its wire
+  name (`server_tool`).
   "Ask" creates a durable Approval (embedded mode: callback to the host app).
-  Approval arguments are redacted before they are persisted or shown.
-- Secrets: resolved by name (env, OS keychain, platform secret store). Values
+  Approval arguments are redacted before they are persisted or shown. With
+  `permissions.notify`, the Hub POSTs each new pending approval to that URL,
+  signed with a granted platform secret if one is named.
+- Secrets: resolved by name (env or the platform secret store; the OS keychain
+  is reserved). Values
   are registered with a redactor that scrubs logs, spans, stored messages and
   tool results before they are persisted or sent to a model.
 - Budgets per run (tokens, USD) enforced by the engine; per-day budgets enforced
@@ -520,7 +563,12 @@ MCP transport is stateless streamable HTTP: JSON-RPC over `POST /mcp`
 REST with the caller's `Authorization: Bearer` token, so scopes, namespaces
 and results are identical; API errors come back as tool results with
 `isError` and the API's error body. Tool names are the snake_case RPC names;
-arguments and results use protojson (bytes as base64).
+arguments and results use protojson (bytes as base64; bundles may also be sent
+as text in `bundleText`). The server's `instructions` carry a primer on
+bundles, tools, permissions and work; `GetBundleGuide` returns the bundle
+schemas and an example; `WhoAmI` returns the caller's scopes;
+`CreateDeployment`/`UpdateDeployment` with `validateOnly` check a bundle and
+return warnings without deploying. `GetTask` waits up to 300 s.
 
 ## 12. Storage
 
@@ -543,4 +591,5 @@ deploy/      docker (image), compose (cluster), kube (manifests)
 scripts/     code generation, release, install
 examples/    bundles and sample apps
 docs/        this and user docs
+site/        the docs website (Astro, from Trestle), built from docs/
 ```

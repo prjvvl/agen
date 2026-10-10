@@ -1,0 +1,209 @@
+---
+import { ArrowRight, Boxes, Code, Network, ShieldCheck } from "@lucide/astro";
+import { Code as CodeBlock } from "astro:components";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Hero from "../components/Hero.astro";
+import Button from "../components/Button.astro";
+import Card from "../components/Card.astro";
+import InstallCommand from "../components/InstallCommand.astro";
+import Terminal from "../components/Terminal.astro";
+import GitHubIcon from "../components/GitHubIcon.astro";
+import { allDocs, sidebar } from "../lib/docs";
+import { icons } from "../lib/icons";
+import { withBase } from "../lib/url";
+import { siteConfig } from "../site.config";
+
+const installCommands = [
+  { label: "macOS / Linux", prompt: "$", command: `curl -fsSL ${siteConfig.url}/install.sh | sh` },
+  { label: "Windows", prompt: "PS>", command: `irm ${siteConfig.url}/install.ps1 | iex` },
+];
+
+const features = [
+  {
+    icon: Code,
+    title: "Embed it",
+    href: "/embed/",
+    description: "Run an agent inside your Python, Node.js or Go app with the same engine the fleet uses.",
+  },
+  {
+    icon: Boxes,
+    title: "Run a fleet",
+    href: "/deploy/",
+    description: "Deploy agents that scale to zero, wake on demand and survive crashes, on one machine, many, or Kubernetes.",
+  },
+  {
+    icon: Network,
+    title: "Connect everything",
+    href: "/guides/tools/",
+    description: "MCP servers as tools, agents calling agents over A2A, cron and webhook triggers, and an MCP endpoint for your assistant.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Stay in control",
+    href: "/guides/permissions/",
+    description: "Permissions and approvals, budgets per run and per day, redacted secrets, and a trace of every call.",
+  },
+];
+
+// Taken from docs/embed.md, trimmed to the essentials.
+const embedSample = `from agen import Agent, openrouter, tool
+
+@tool(read_only=True)
+def lookup_order(order_id: str) -> dict:
+    """Look up an order by id."""
+    return {"status": "shipped", "carrier": "UPS"}
+
+agent = Agent("order-desk",
+              instructions="Answer order questions using lookup_order.",
+              model="deepseek/deepseek-v4-flash",
+              provider=openrouter(),
+              tools=[lookup_order])
+
+with agent:
+    print(agent.run("Where is my order A-1001?").output)`;
+
+const groups = sidebar(await allDocs());
+---
+
+<BaseLayout title={siteConfig.name}>
+  <Hero
+    eyebrow="Open source, MIT licensed, in early development"
+    title={`One agent engine. <span class="text-gradient block">Embed it, or run a fleet.</span>`}
+    subtitle="Run agents inside your Python, Node.js or Go app, or deploy them as a fleet that scales to zero, wakes on demand and survives crashes."
+  >
+    <Button href="/getting-started/">Get started <ArrowRight class="size-4" aria-hidden="true" /></Button>
+    <Button href={siteConfig.repo} variant="secondary"><GitHubIcon class="size-4" /> View on GitHub</Button>
+
+    <div slot="after" class="mt-12">
+      <InstallCommand commands={installCommands} />
+      <p class="mt-3 text-sm text-fg-muted">
+        Installs <code class="font-mono text-fg">agen</code> and <code class="font-mono text-fg">agen-host</code>{" "}
+        into <code class="font-mono text-fg">~/.agen/bin</code>.{" "}
+        <a href={withBase("/install/")} class="font-medium text-link underline-offset-4 hover:text-link-hover hover:underline">
+          Install options
+        </a>
+      </p>
+    </div>
+  </Hero>
+
+  <section class="mx-auto max-w-6xl px-4 py-16" aria-labelledby="two-ways">
+    <div class="mx-auto max-w-2xl text-center">
+      <p class="text-sm font-semibold text-link">Two ways to use it</p>
+      <h2 id="two-ways" class="mt-2 text-2xl font-bold tracking-tight text-fg">Same engine, from a script to a fleet</h2>
+    </div>
+
+    <div class="mt-10 grid gap-8 lg:grid-cols-2">
+      <div class="flex min-w-0 flex-col gap-4">
+        <div>
+          <h3 class="flex items-center gap-2 text-lg font-semibold text-fg">
+            <Boxes class="size-5 text-link" aria-hidden="true" /> Run a fleet
+          </h3>
+          <p class="mt-1 text-sm text-fg-muted">
+            A Hub and a Nest on your machine, an example agent deployed and answering in four commands. Then the same on
+            many machines or Kubernetes.
+          </p>
+        </div>
+        <Terminal title="zsh" class="flex-1">
+          <pre><code><span class="t-prompt">$</span> agen up
+<span class="t-out">agen is up: hub <span class="t-accent">http://127.0.0.1:7070</span></span>
+<span class="t-out">web UI: http://127.0.0.1:7070/</span>
+
+<span class="t-prompt">$</span> agen init
+<span class="t-out">wrote the hello example to hello</span>
+<span class="t-prompt">$</span> agen deploy hello --replicas 1
+<span class="t-ok">deployed</span><span class="t-out"> default/hello definition 3f1c0d2a7b9e desired 1</span>
+<span class="t-prompt">$</span> agen run hello "hi"
+Hello! Nice to meet you.</code></pre>
+        </Terminal>
+        <a href={withBase("/getting-started/")} class="inline-flex items-center gap-1.5 self-start text-sm font-medium text-link hover:text-link-hover">
+          Getting started <ArrowRight class="size-4" aria-hidden="true" />
+        </a>
+      </div>
+
+      <div class="flex min-w-0 flex-col gap-4">
+        <div>
+          <h3 class="flex items-center gap-2 text-lg font-semibold text-fg">
+            <Code class="size-5 text-link" aria-hidden="true" /> Embed in your app
+          </h3>
+          <p class="mt-1 text-sm text-fg-muted">
+            The SDKs run the engine in your process: tools are plain functions in your language, no Hub or Nest needed.
+            Python, Node.js and Go.
+          </p>
+        </div>
+        <Terminal title="app.py" class="flex-1">
+          <CodeBlock code={embedSample} lang="python" theme="github-dark" />
+        </Terminal>
+        <a href={withBase("/embed/")} class="inline-flex items-center gap-1.5 self-start text-sm font-medium text-link hover:text-link-hover">
+          Embed an agent <ArrowRight class="size-4" aria-hidden="true" />
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-16" aria-labelledby="features">
+    <div class="mx-auto max-w-2xl text-center">
+      <p class="text-sm font-semibold text-link">What you get</p>
+      <h2 id="features" class="mt-2 text-2xl font-bold tracking-tight text-fg">Built for agents that run for real</h2>
+    </div>
+    <div class="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        features.map(({ icon: Icon, title, description, href }) => (
+          <Card title={title} description={description} href={href}>
+            <span slot="icon" class="inline-flex size-10 items-center justify-center rounded-lg bg-brand/15 text-link">
+              <Icon class="size-5" aria-hidden="true" />
+            </span>
+          </Card>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pt-8 pb-24" aria-labelledby="explore">
+    <div class="rounded-card border border-border bg-surface p-6 md:p-10">
+      <h2 id="explore" class="text-xl font-bold tracking-tight text-fg">Explore the docs</h2>
+      <div class="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        {
+          groups.map(({ group, icon, items }) => {
+            const Icon = icons[icon];
+            return (
+              <div>
+                <p class="flex items-center gap-2 font-display text-xs font-semibold tracking-wider text-fg uppercase">
+                  <Icon class="size-4 text-link" aria-hidden="true" />
+                  {group}
+                </p>
+                <ul class="mt-3 flex flex-col gap-2 text-sm">
+                  {items.map((item) => (
+                    <li>
+                      <a href={withBase(`/${item.id}/`)} class="text-fg-muted hover:text-link">
+                        {item.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .t-prompt {
+    color: var(--color-code-muted);
+    user-select: none;
+  }
+
+  .t-out {
+    color: var(--color-code-muted);
+  }
+
+  .t-ok {
+    color: var(--color-code-ok);
+  }
+
+  .t-accent {
+    color: var(--color-code-accent);
+  }
+</style>

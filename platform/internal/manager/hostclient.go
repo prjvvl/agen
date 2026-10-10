@@ -37,6 +37,12 @@ type HostHealth struct {
 	RunningTasks int      `json:"runningTasks"`
 	Draining     bool     `json:"draining"`
 	Problems     []string `json:"problems"`
+	Tools        []string `json:"tools"`
+	ToolServers  []struct {
+		Name      string `json:"name"`
+		State     string `json:"state"`
+		ToolCount int    `json:"toolCount"`
+	} `json:"toolServers"`
 }
 
 // HostTask is the task part of a RunTask request.
@@ -54,7 +60,11 @@ type HostTask struct {
 	RequestedBy string `json:"requestedBy,omitempty"`
 	// Caller is the verified agent caller ("agent:<ns>/<dep>"); the host
 	// checks the lineage claims against the Store.
-	Caller string `json:"caller,omitempty"`
+	Caller          string            `json:"caller,omitempty"`
+	ConversationKey string            `json:"conversationKey,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	// Attempts counts the tries at this task, this one included.
+	Attempts int `json:"attempts,omitempty"`
 }
 
 // HostRunResult is RunTask's response.

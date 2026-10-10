@@ -261,13 +261,72 @@ type Instance struct {
 	Message          string
 	StartedMs        int64
 	LastSeenMs       int64
+	Tools            InstanceTools
 }
 
-const instanceCols = "id, namespace, deployment, nest_id, definition_digest, state, endpoint, running_tasks, message, started_ms, last_seen_ms"
+// InstanceTools is what an instance reported loading.
+type InstanceTools struct {
+	Tools   []string     `json:"tools,omitempty"`
+	Servers []ToolServer `json:"servers,omitempty"`
+}
 
-// ReportInstances replaces a nest's instance set with what it reports.
+// ToolServer is the state of one of an instance's tool servers.
+type ToolServer struct {
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	ToolCount int    `json:"toolCount"`
+}
+
+const instanceCols = "id, namespace, deployment, nest_id, definition_digest, state, endpoint, running_tasks, message, started_ms, last_seen_ms, tools"
+
+// ReportInstances replaces a nest's instance set with what it reports, and
+// logs instances that started, failed or went away.
 func (s *Store) ReportInstances(ctx context.Context, nestID string, list []Instance) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
+		before := map[string]Instance{}
+		rows, err := tx.QueryContext(ctx, "SELECT id, namespace, deployment, state, message FROM instances WHERE nest_id = $1", nestID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var in Instance
+			if err := rows.Scan(&in.ID, &in.Namespace, &in.Deployment, &in.State, &in.Message); err != nil {
+				rows.Close()
+				return err
+			}
+			before[in.ID] = in
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, in := range list {
+			prev, known := before[in.ID]
+			delete(before, in.ID)
+			msg, level := "", "info"
+			switch {
+			case !known:
+				msg = "instance " + in.ID + " started on nest " + nestID
+			case (in.State == "failed" || in.State == "stopped") && prev.State != in.State:
+				msg = "instance " + in.ID + " " + in.State
+				if in.State == "failed" {
+					level = "error"
+				}
+				if in.Message != "" {
+					msg += ": " + in.Message
+				}
+			default:
+				continue
+			}
+			if err := appendLog(ctx, tx, in.ID, in.Namespace, in.Deployment, level, msg); err != nil {
+				return err
+			}
+		}
+		for _, gone := range before {
+			if err := appendLog(ctx, tx, gone.ID, gone.Namespace, gone.Deployment, "info", "instance "+gone.ID+" exited (no longer reported by nest "+nestID+")"); err != nil {
+				return err
+			}
+		}
 		ids := make([]any, 0, len(list)+1)
 		ids = append(ids, nestID)
 		ph := []string{}
@@ -278,12 +337,16 @@ func (s *Store) ReportInstances(ctx context.Context, nestID string, list []Insta
 			if in.StartedMs == 0 {
 				in.StartedMs = now
 			}
-			if _, err := tx.ExecContext(ctx, "INSERT INTO instances ("+instanceCols+") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "+
+			tools, err := json.Marshal(in.Tools)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, "INSERT INTO instances ("+instanceCols+") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "+
 				"ON CONFLICT (id) DO UPDATE SET state = excluded.state, endpoint = excluded.endpoint, running_tasks = excluded.running_tasks, "+
-				"message = excluded.message, definition_digest = excluded.definition_digest, last_seen_ms = excluded.last_seen_ms "+
+				"message = excluded.message, definition_digest = excluded.definition_digest, last_seen_ms = excluded.last_seen_ms, tools = excluded.tools "+
 				// A nest can only update its own instances.
 				"WHERE instances.nest_id = excluded.nest_id",
-				in.ID, in.Namespace, in.Deployment, nestID, in.DefinitionDigest, in.State, in.Endpoint, in.RunningTasks, in.Message, in.StartedMs, now); err != nil {
+				in.ID, in.Namespace, in.Deployment, nestID, in.DefinitionDigest, in.State, in.Endpoint, in.RunningTasks, in.Message, in.StartedMs, now, string(tools)); err != nil {
 				return err
 			}
 		}
@@ -291,7 +354,7 @@ func (s *Store) ReportInstances(ctx context.Context, nestID string, list []Insta
 		if len(ph) > 0 {
 			q += " AND id NOT IN (" + strings.Join(ph, ", ") + ")"
 		}
-		_, err := tx.ExecContext(ctx, q, ids...)
+		_, err = tx.ExecContext(ctx, q, ids...)
 		return err
 	})
 }
@@ -307,12 +370,28 @@ func (s *Store) ListInstances(ctx context.Context, ns, deployment, nestID string
 	var out []Instance
 	for rows.Next() {
 		var in Instance
-		if err := rows.Scan(&in.ID, &in.Namespace, &in.Deployment, &in.NestID, &in.DefinitionDigest, &in.State, &in.Endpoint, &in.RunningTasks, &in.Message, &in.StartedMs, &in.LastSeenMs); err != nil {
+		var tools string
+		if err := rows.Scan(&in.ID, &in.Namespace, &in.Deployment, &in.NestID, &in.DefinitionDigest, &in.State, &in.Endpoint, &in.RunningTasks, &in.Message, &in.StartedMs, &in.LastSeenMs, &tools); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(tools), &in.Tools)
 		out = append(out, in)
 	}
 	return out, rows.Err()
+}
+
+// AppendLog writes a platform log line for a deployment; GetLogs shows it
+// with the instances' own lines.
+func (s *Store) AppendLog(ctx context.Context, instanceID, ns, deployment, level, msg string) error {
+	return appendLog(ctx, s.db, instanceID, ns, deployment, level, msg)
+}
+
+func appendLog(ctx context.Context, q interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, instanceID, ns, deployment, level, msg string) error {
+	_, err := q.ExecContext(ctx, "INSERT INTO logs (instance_id, namespace, deployment, time_ms, level, message) VALUES ($1, $2, $3, $4, $5, $6)",
+		instanceID, ns, deployment, NowMs(), level, msg)
+	return err
 }
 
 // DeleteInstancesOfNest forgets every instance of a (lost) nest.

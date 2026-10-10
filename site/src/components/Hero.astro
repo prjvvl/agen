@@ -1,0 +1,52 @@
+---
+interface Props {
+  title: string;
+  subtitle?: string;
+  /** A short line above the title, e.g. a release or status note. */
+  eyebrow?: string;
+}
+
+const { title, subtitle, eyebrow } = Astro.props;
+---
+
+<section class="relative overflow-hidden px-4 pt-16 pb-12 text-center md:pt-24 md:pb-16">
+  <div
+    class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_70%_60%_at_50%_0%,color-mix(in_srgb,var(--color-brand)_22%,transparent),transparent_70%)]"
+    aria-hidden="true"
+  >
+  </div>
+  <div
+    class="hero-grid pointer-events-none absolute inset-0 -z-10 opacity-60"
+    aria-hidden="true"
+  >
+  </div>
+
+  <div class="mx-auto max-w-4xl">
+    {
+      eyebrow && (
+        <p class="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-surface/70 px-3 py-1 text-xs text-fg-muted backdrop-blur">
+          <span class="size-1.5 rounded-full bg-success" aria-hidden="true" />
+          {eyebrow}
+        </p>
+      )
+    }
+    <h1 class="text-3xl font-bold tracking-tight text-balance text-fg md:text-5xl">
+      <Fragment set:html={title} />
+    </h1>
+    {subtitle && <p class="mx-auto mt-5 max-w-2xl text-lg text-pretty text-fg-muted">{subtitle}</p>}
+    <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+      <slot />
+    </div>
+    <slot name="after" />
+  </div>
+</section>
+
+<style>
+  .hero-grid {
+    background-image:
+      linear-gradient(to right, var(--color-border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 60% 55% at 50% 0%, black, transparent 75%);
+  }
+</style>

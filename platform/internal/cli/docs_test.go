@@ -12,7 +12,9 @@ import (
 )
 
 // docFiles are the user-facing docs whose shell examples must stay true.
-var docFiles = []string{"README.md", "docs/index.md", "docs/deploy.md", "docs/security.md", "examples/go-app/README.md", "examples/node-app/README.md", "examples/python-app/README.md"}
+var docFiles = []string{"README.md", "docs/index.md", "docs/deploy.md", "docs/security.md", "docs/getting-started.md", "docs/troubleshooting.md", "docs/install.md", "docs/embed.md", "docs/development.md",
+	"docs/guides/tools.md", "docs/guides/agents.md", "docs/guides/permissions.md", "docs/guides/budgets.md", "docs/guides/triggers.md",
+	"docs/guides/memory.md", "docs/guides/mcp.md", "examples/go-app/README.md", "examples/node-app/README.md", "examples/python-app/README.md"}
 
 // shellLines returns the lines of ```sh blocks in a Markdown file, joined
 // across trailing-backslash continuations, without comments.
@@ -143,7 +145,7 @@ func TestDocsLocalWalkthrough(t *testing.T) {
 	t.Setenv("AGEN_HOME", home)
 	t.Setenv("AGEN_HUB", "")
 	t.Setenv("AGEN_TOKEN", "")
-	t.Chdir(root) // paths in the docs are relative to the repo root
+	t.Chdir(t.TempDir()) // the walkthrough must not need a clone
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	upDone := make(chan int, 1)

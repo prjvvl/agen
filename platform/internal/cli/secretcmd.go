@@ -19,7 +19,7 @@ import (
 // the command line) and are never shown.
 func (e *env) cmdSecret(ctx context.Context, args []string) error {
 	usage := usageErr("agen secret set NAME --for DEPLOYMENT... [-n NS] (value on stdin) | agen secret ls [-n NS] | agen secret rm NAME [-n NS]")
-	if len(args) == 0 {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return usage
 	}
 	var cf clientFlags

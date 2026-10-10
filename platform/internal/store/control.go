@@ -88,14 +88,22 @@ type Approval struct {
 	DecidedBy   string
 	CreatedMs   int64
 	ExpiresMs   int64
+	// DecidedMs is when it was approved, denied or expired (0 while pending).
+	DecidedMs int64
+	// TaskID is the task of the run that asked ("" if it is not a Hub task).
+	TaskID string
 }
 
 const approvalCols = "id, namespace, deployment, run_id, tool, arguments, state, requested_by, decided_by, created_ms, expires_ms"
 
+// approvalSelect is approvalCols plus derived columns, for reads.
+const approvalSelect = approvalCols + ", decided_ms, COALESCE((SELECT r.task_id FROM runs r WHERE r.id = approvals.run_id), '')"
+
 func scanApproval(r interface{ Scan(...any) error }) (Approval, error) {
 	var a Approval
 	var args string
-	err := r.Scan(&a.ID, &a.Namespace, &a.Deployment, &a.RunID, &a.Tool, &args, &a.State, &a.RequestedBy, &a.DecidedBy, &a.CreatedMs, &a.ExpiresMs)
+	err := r.Scan(&a.ID, &a.Namespace, &a.Deployment, &a.RunID, &a.Tool, &args, &a.State, &a.RequestedBy, &a.DecidedBy, &a.CreatedMs, &a.ExpiresMs,
+		&a.DecidedMs, &a.TaskID)
 	a.Arguments = json.RawMessage(args)
 	return a, err
 }
@@ -141,7 +149,7 @@ func (s *Store) PendingApproval(ctx context.Context, runID, tool string, args js
 		return Approval{}, err
 	}
 	a, err := scanApproval(s.db.QueryRowContext(ctx,
-		"SELECT "+approvalCols+" FROM approvals WHERE run_id = $1 AND tool = $2 AND arguments = $3 AND state = 'pending' ORDER BY created_ms LIMIT 1",
+		"SELECT "+approvalSelect+" FROM approvals WHERE run_id = $1 AND tool = $2 AND arguments = $3 AND state = 'pending' ORDER BY created_ms LIMIT 1",
 		runID, tool, string(args)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
@@ -154,7 +162,7 @@ func (s *Store) GetApproval(ctx context.Context, id string) (Approval, error) {
 	if _, err := s.ExpireApprovals(ctx); err != nil {
 		return Approval{}, err
 	}
-	a, err := scanApproval(s.db.QueryRowContext(ctx, "SELECT "+approvalCols+" FROM approvals WHERE id = $1", id))
+	a, err := scanApproval(s.db.QueryRowContext(ctx, "SELECT "+approvalSelect+" FROM approvals WHERE id = $1", id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
 	}
@@ -166,7 +174,7 @@ func (s *Store) ListApprovals(ctx context.Context, ns, state string) ([]Approval
 	if _, err := s.ExpireApprovals(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT "+approvalCols+" FROM approvals WHERE ($1 = '' OR namespace = $1) AND ($2 = '' OR state = $2) ORDER BY created_ms DESC, id DESC", ns, state)
+	rows, err := s.db.QueryContext(ctx, "SELECT "+approvalSelect+" FROM approvals WHERE ($1 = '' OR namespace = $1) AND ($2 = '' OR state = $2) ORDER BY created_ms DESC, id DESC", ns, state)
 	if err != nil {
 		return nil, err
 	}
@@ -197,8 +205,9 @@ func (s *Store) DecideApproval(ctx context.Context, id string, approve bool, by 
 	if approve {
 		state = "approved"
 	}
-	res, err := s.db.ExecContext(ctx, "UPDATE approvals SET state = $1, decided_by = $2 WHERE id = $3 AND state = 'pending' AND expires_ms >= $4",
-		state, by, id, NowMs())
+	now := NowMs()
+	res, err := s.db.ExecContext(ctx, "UPDATE approvals SET state = $1, decided_by = $2, decided_ms = $3 WHERE id = $4 AND state = 'pending' AND expires_ms >= $3",
+		state, by, now, id)
 	if err != nil {
 		return a, err
 	}
@@ -210,7 +219,7 @@ func (s *Store) DecideApproval(ctx context.Context, id string, approve bool, by 
 
 // ExpireApprovals marks overdue pending approvals expired.
 func (s *Store) ExpireApprovals(ctx context.Context) (int64, error) {
-	res, err := s.db.ExecContext(ctx, "UPDATE approvals SET state = 'expired' WHERE state = 'pending' AND expires_ms < $1", NowMs())
+	res, err := s.db.ExecContext(ctx, "UPDATE approvals SET state = 'expired', decided_ms = $1 WHERE state = 'pending' AND expires_ms < $1", NowMs())
 	if err != nil {
 		return 0, err
 	}

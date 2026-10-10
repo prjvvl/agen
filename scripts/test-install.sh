@@ -13,7 +13,7 @@ sh "$here/install.sh" "$archive" >/dev/null
 agen="$AGEN_INSTALL_DIR/agen"
 "$agen" up --listen 127.0.0.1:7395 --gateway-listen 127.0.0.1:0 >/dev/null 2>&1 &
 for _ in $(seq 1 100); do [ -f "$AGEN_HOME/local.json" ] && break; sleep 0.3; done; sleep 2
-"$agen" deploy "$here/../examples/bundles/hello" --replicas 2 >/dev/null
+(cd "$base" && "$agen" init >/dev/null && "$agen" deploy hello --replicas 2 >/dev/null)
 [ "$("$agen" run hello hi)" = "Hello! Nice to meet you." ]
 sleep 3
 [ "$(pgrep -f "$AGEN_INSTALL_DIR/agen" | wc -l)" -ge 3 ] || { echo "expected agen + 2 hosts"; exit 1; }

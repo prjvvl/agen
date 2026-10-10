@@ -35,7 +35,7 @@ print(result.output, result.usage)
 ## Develop
 
 ```sh
-python -m venv .venv && .venv/Scripts/pip install maturin pytest   # bin/ on Unix
-.venv/Scripts/maturin develop
-.venv/Scripts/python -m pytest tests
+python -m venv .venv && .venv/bin/pip install maturin pytest   # Windows: .venv\Scripts
+.venv/bin/maturin develop
+.venv/bin/python -m pytest tests
 ```

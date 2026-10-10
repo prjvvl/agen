@@ -292,6 +292,7 @@ async fn resume_reuses_completed_effect_without_calling_tool() {
         started_ms: now_ms(),
         ended_ms: None,
         requested_by: String::new(),
+        labels: Default::default(),
     };
     let epoch = s.create_run(&run, "crashed-owner").await.unwrap();
     s.append_message(&conv, &run.id, &Message::user("pay")).await.unwrap();
