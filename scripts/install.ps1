@@ -38,6 +38,7 @@ if ($Uninstall) {
     [Environment]::SetEnvironmentVariable("Path", (($userPath | Where-Object { $_ -ne $dir }) -join ';'), "User")
   }
   if ($Purge) { Remove-AgenHome }
+  $global:LASTEXITCODE = 0
   "agen uninstalled"; return
 }
 if (-not $Archive) {

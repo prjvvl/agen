@@ -82,6 +82,6 @@ Instructions for AI coding agents working on Agen's docs site, built on
   `global.css`: duplicate the rule once under
   `@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) ... }`
   and once under `:root[data-theme="light"] ...`.
-- **Before finishing a change**, run `npm run check` (type-check) and
-  `npm run build` — both must pass with zero errors. The CI workflow runs the
-  same two commands on every PR.
+- **Before finishing a change**, run `npm run check` (type-check),
+  `npm run build` and `npm run check-links`: all must pass. The Pages
+  workflow runs the same three on every PR.

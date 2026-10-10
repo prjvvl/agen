@@ -1,31 +1,41 @@
 ---
 import { siteConfig } from "../site.config";
+import { withBase } from "../lib/url";
+import GitHubIcon from "./GitHubIcon.astro";
 
 const year = new Date().getFullYear();
-const socialLinks = Object.entries(siteConfig.social).filter(([, url]) => url);
 ---
 
-<footer class="border-t border-border bg-surface">
-  <div class="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-8 md:flex-row md:items-center md:justify-between">
-    <p class="text-sm text-fg-muted">
-      &copy; {year} {siteConfig.name}, MIT licensed. Built with <a
-        href="https://github.com/prjvvl/trestle"
-        class="hover:text-fg underline underline-offset-2"
-        rel="noopener noreferrer"
-        target="_blank"
-      >Trestle</a>.
+<footer class="border-t border-border">
+  <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 md:flex-row md:items-center md:justify-between">
+    <p class="flex items-center gap-2 text-sm text-fg-muted">
+      <img src={withBase("/favicon.svg")} alt="" width="20" height="20" class="size-5" />
+      <span>
+        &copy; {year} {siteConfig.name}, MIT licensed. Built with <a
+          href="https://github.com/prjvvl/trestle"
+          class="underline underline-offset-2 hover:text-fg"
+          rel="noopener noreferrer"
+          target="_blank">Trestle</a
+        >.
+      </span>
     </p>
 
-    {
-      socialLinks.length > 0 && (
-        <div class="flex gap-4">
-          {socialLinks.map(([platform, url]) => (
-            <a href={url} class="text-sm text-fg-muted hover:text-fg" rel="me noopener noreferrer" target="_blank">
-              {platform}
-            </a>
-          ))}
-        </div>
-      )
-    }
+    <div class="flex items-center gap-5 text-sm text-fg-muted">
+      <a href={`${siteConfig.repo}/blob/main/CHANGELOG.md`} class="hover:text-fg" rel="noopener noreferrer">Changelog</a>
+      <a href={`${siteConfig.repo}/releases`} class="hover:text-fg" rel="noopener noreferrer">Releases</a>
+      {
+        siteConfig.social.github && (
+          <a
+            href={siteConfig.social.github}
+            class="inline-flex items-center gap-1.5 hover:text-fg"
+            rel="me noopener noreferrer"
+            target="_blank"
+          >
+            <GitHubIcon class="size-4" />
+            GitHub
+          </a>
+        )
+      }
+    </div>
   </div>
 </footer>

@@ -1,5 +1,6 @@
 import { getCollection, type CollectionEntry } from "astro:content";
 import { siteConfig } from "../site.config";
+import type { IconName } from "./icons";
 
 export type Doc = CollectionEntry<"docs">;
 
@@ -36,13 +37,15 @@ export async function allDocs(): Promise<Doc[]> {
 
 export interface SidebarGroup {
   group: string;
+  icon: IconName;
   items: { id: string; title: string }[];
 }
 
 export function sidebar(docs: Doc[]): SidebarGroup[] {
   const byId = new Map(docs.map((d) => [d.id, d]));
-  return siteConfig.sidebar.map(({ group, pages }) => ({
+  return siteConfig.sidebar.map(({ group, icon, pages }) => ({
     group,
+    icon,
     items: pages.flatMap((id) => {
       const doc = byId.get(id);
       return doc ? [{ id, title: docTitle(doc) }] : [];

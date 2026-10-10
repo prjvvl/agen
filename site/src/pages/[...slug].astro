@@ -12,7 +12,7 @@ export async function getStaticPaths() {
 }
 
 const { doc, groups } = Astro.props as { doc: Doc; groups: ReturnType<typeof sidebar> };
-const { Content } = await render(doc);
+const { Content, headings } = await render(doc);
 const { prev, next } = neighbours(groups, doc.id);
 ---
 
@@ -22,6 +22,7 @@ const { prev, next } = neighbours(groups, doc.id);
   id={doc.id}
   sourcePath={`docs/${doc.id}.md`}
   groups={groups}
+  headings={headings}
   prev={prev}
   next={next}
 >

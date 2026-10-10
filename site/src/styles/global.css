@@ -41,6 +41,26 @@
   --color-border-hover: hsl(222 25% 28%);
   --color-fg: hsl(210 40% 96%);
   --color-fg-muted: hsl(215 16% 65%);
+  --color-fg-soft: hsl(214 22% 80%);
+
+  /* Links in prose: a light tint of the brand on the dark default, so they
+     read clearly (about 7:1) instead of the brand's dark button shade. */
+  --color-link: hsl(232 92% 78%);
+  --color-link-hover: hsl(232 100% 88%);
+
+  /* Code blocks stay dark in both themes (Shiki's github-dark colors). */
+  --color-code-bg: hsl(224 42% 8%);
+  --color-code-border: hsl(222 30% 16%);
+  --color-code-fg: hsl(210 30% 88%);
+  --color-code-muted: hsl(215 18% 62%);
+  --color-code-ok: hsl(152 55% 60%);
+  --color-code-accent: hsl(232 92% 78%);
+
+  /* Scrollbar thumbs: low contrast against bg, firmer on hover. */
+  --color-scrollbar: hsl(222 22% 24%);
+  --color-scrollbar-hover: hsl(222 18% 34%);
+  --color-code-scrollbar: hsl(222 22% 26%);
+  --color-code-scrollbar-hover: hsl(222 18% 38%);
 
   --radius-card: 0.75rem;
 
@@ -80,6 +100,13 @@
     --color-border-hover: hsl(220 15% 78%);
     --color-fg: hsl(222 47% 11%);
     --color-fg-muted: hsl(220 9% 40%);
+    --color-fg-soft: hsl(220 16% 24%);
+    --color-link: var(--color-brand-600);
+    --color-link-hover: var(--color-brand-800);
+    --color-code-bg: hsl(224 36% 13%);
+    --color-code-border: hsl(224 36% 13%);
+    --color-scrollbar: hsl(220 14% 80%);
+    --color-scrollbar-hover: hsl(220 12% 66%);
   }
 }
 
@@ -100,6 +127,13 @@
   --color-border-hover: hsl(220 15% 78%);
   --color-fg: hsl(222 47% 11%);
   --color-fg-muted: hsl(220 9% 40%);
+  --color-fg-soft: hsl(220 16% 24%);
+  --color-link: var(--color-brand-600);
+  --color-link-hover: var(--color-brand-800);
+  --color-code-bg: hsl(224 36% 13%);
+  --color-code-border: hsl(224 36% 13%);
+  --color-scrollbar: hsl(220 14% 80%);
+  --color-scrollbar-hover: hsl(220 12% 66%);
 }
 
 /* Reserves the scrollbar's width permanently, so a page that crosses the
@@ -107,6 +141,66 @@
    the scrollbar appears. No effect on macOS/iOS overlay scrollbars. */
 html {
   scrollbar-gutter: stable;
+}
+
+/* Scrollbars: thin, low-contrast thumbs from the tokens, on a transparent
+   track, in both themes. `scrollbar-color` covers Firefox and current
+   Chromium; the ::-webkit-scrollbar rules cover Safari and older Chromium
+   (which ignore them once scrollbar-color is set). Code surfaces stay dark
+   in both themes, so they get their own thumb colors. */
+html,
+.scroll-thin,
+.prose :where(table) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar) transparent;
+}
+
+.prose pre,
+.code-surface,
+.code-surface pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-code-scrollbar) transparent;
+}
+
+.scroll-thin:hover,
+.prose :where(table):hover {
+  scrollbar-color: var(--color-scrollbar-hover) transparent;
+}
+
+.prose pre:hover,
+.code-surface pre:hover {
+  scrollbar-color: var(--color-code-scrollbar-hover) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar);
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-hover);
+}
+
+.prose pre::-webkit-scrollbar-thumb,
+.code-surface ::-webkit-scrollbar-thumb {
+  background-color: var(--color-code-scrollbar);
+}
+
+.prose pre::-webkit-scrollbar-thumb:hover,
+.code-surface ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-code-scrollbar-hover);
 }
 
 body {
@@ -127,22 +221,88 @@ h4 {
    logic as everything else rather than a second mechanism that only
    knows about the OS setting. */
 .prose {
-  --tw-prose-body: var(--color-fg-muted);
+  --tw-prose-body: var(--color-fg-soft);
   --tw-prose-headings: var(--color-fg);
   --tw-prose-lead: var(--color-fg-muted);
-  --tw-prose-links: var(--color-brand);
+  --tw-prose-links: var(--color-link);
   --tw-prose-bold: var(--color-fg);
   --tw-prose-counters: var(--color-fg-muted);
-  --tw-prose-bullets: var(--color-border);
+  --tw-prose-bullets: var(--color-fg-muted);
   --tw-prose-hr: var(--color-border);
   --tw-prose-quotes: var(--color-fg);
-  --tw-prose-quote-borders: var(--color-border);
+  --tw-prose-quote-borders: var(--color-brand);
   --tw-prose-captions: var(--color-fg-muted);
   --tw-prose-code: var(--color-fg);
-  --tw-prose-pre-code: var(--color-fg);
-  --tw-prose-pre-bg: var(--color-surface);
+  --tw-prose-pre-code: var(--color-code-fg);
+  --tw-prose-pre-bg: var(--color-code-bg);
   --tw-prose-th-borders: var(--color-border);
   --tw-prose-td-borders: var(--color-border);
+  line-height: 1.75;
+}
+
+.prose :where(h1) {
+  font-size: var(--text-3xl);
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6em;
+}
+
+.prose :where(h2) {
+  font-size: var(--text-xl);
+  letter-spacing: -0.01em;
+  margin-top: 2.25em;
+  padding-top: 1.25em;
+  border-top: 1px solid var(--color-border);
+}
+
+.prose :where(h1 + h2, h1 + p + h2) {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.prose :where(h3) {
+  font-size: var(--text-lg);
+}
+
+.prose :where(h2, h3, h4)[id] {
+  scroll-margin-top: 5.5rem;
+}
+
+/* Links: a readable tint, underlined so they're distinguishable without
+   color alone; the underline firms up on hover. */
+.prose :where(a):not(:where(.heading-anchor)) {
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--color-link) 45%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.prose :where(a):not(:where(.heading-anchor)):hover {
+  color: var(--color-link-hover);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+
+.prose :where(a code) {
+  color: inherit;
+}
+
+/* Heading anchors (added by DocsLayout's script): appear on hover/focus. */
+.heading-anchor {
+  margin-left: 0.4em;
+  color: var(--color-fg-muted);
+  font-weight: 400;
+  text-decoration: none;
+  opacity: 0;
+}
+
+:where(h2, h3, h4):hover .heading-anchor,
+.heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  color: var(--color-link);
 }
 
 /* Inline code reads as code from its background, not from added backticks;
@@ -155,26 +315,69 @@ h4 {
 .prose :where(code):not(:where(pre *)) {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 0.3em;
-  padding: 0.1em 0.35em;
+  border-radius: 0.375em;
+  padding: 0.125em 0.375em;
+  font-size: 0.85em;
   font-weight: 500;
+  overflow-wrap: break-word;
+}
+
+/* Code blocks: one dark surface in both themes, overriding Shiki's inline
+   background so blocks match the site rather than GitHub's grey. */
+.prose pre,
+.code-surface {
+  background-color: var(--color-code-bg) !important;
+  border: 1px solid var(--color-code-border);
+  border-radius: var(--radius-card);
+  font-size: 0.85em;
+  line-height: 1.7;
+  padding: 1rem 1.25rem;
 }
 
 .code-block {
   position: relative;
 }
 
+
+
+.code-block[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 0.55rem;
+  right: 0.85rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-code-muted);
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.code-block:hover::before,
+.code-block:focus-within::before {
+  opacity: 0;
+}
+
 .copy-code {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  padding: 0.15rem 0.5rem;
+  top: 0.45rem;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
-  color: var(--color-fg-muted);
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 0.3em;
+  color: var(--color-code-muted);
+  background-color: color-mix(in srgb, var(--color-code-fg) 8%, var(--color-code-bg));
+  border: 1px solid color-mix(in srgb, var(--color-code-fg) 16%, var(--color-code-bg));
+  border-radius: 0.375rem;
+  cursor: pointer;
   opacity: 0;
+}
+
+.copy-code svg {
+  width: 0.85rem;
+  height: 0.85rem;
 }
 
 .code-block:hover .copy-code,
@@ -186,15 +389,86 @@ h4 {
   .copy-code {
     opacity: 1;
   }
+
+  .code-block[data-lang]::before {
+    display: none;
+  }
 }
 
 .copy-code:hover {
-  color: var(--color-fg);
+  color: var(--color-code-fg);
+  border-color: color-mix(in srgb, var(--color-code-fg) 30%, var(--color-code-bg));
 }
 
+/* Tables: a bordered, rounded box sized to its content, scrolling sideways
+   on narrow screens instead of overflowing the page. */
 .prose :where(table) {
   display: block;
   overflow-x: auto;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875em;
+}
+
+.prose :where(thead) {
+  background-color: var(--color-surface);
+}
+
+.prose :where(thead th) {
+  padding: 0.6em 1em;
+  font-weight: 600;
+  color: var(--color-fg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.prose :where(tbody td) {
+  padding: 0.6em 1em;
+  vertical-align: top;
+}
+
+.prose :where(tbody tr) {
+  border-bottom-color: var(--color-border);
+}
+
+.prose :where(tbody tr:last-child) {
+  border-bottom: 0;
+}
+
+.prose :where(thead th:first-child, tbody td:first-child) {
+  padding-left: 1em;
+}
+
+.prose :where(thead th:last-child, tbody td:last-child) {
+  padding-right: 1em;
+}
+
+.prose :where(blockquote) {
+  font-style: normal;
+  font-weight: 400;
+  background-color: var(--color-surface);
+  border-left-width: 3px;
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  padding: 0.75em 1.25em;
+}
+
+.prose :where(blockquote p:first-of-type)::before,
+.prose :where(blockquote p:last-of-type)::after {
+  content: none;
+}
+
+.prose :where(li)::marker {
+  color: var(--color-fg-muted);
+}
+
+.text-gradient {
+  background-image: linear-gradient(90deg, var(--color-link), var(--color-info));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 :focus-visible {

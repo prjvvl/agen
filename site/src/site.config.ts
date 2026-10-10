@@ -19,20 +19,27 @@ export const siteConfig = {
     github: "https://github.com/prjvvl/agen",
   },
 
+  /** Header links. `icon` names an entry in src/lib/icons.ts; `match` lists
+   *  the route prefixes that mark the item as the current section. */
   nav: [
-    { label: "Install", href: "/install/" },
-    { label: "Get started", href: "/getting-started/" },
-    { label: "Guides", href: "/guides/tools/" },
-    { label: "Reference", href: "/reference/bundle/" },
-    { label: "GitHub", href: "https://github.com/prjvvl/agen" },
+    { label: "Install", href: "/install/", icon: "install", match: ["/install/"] },
+    { label: "Get started", href: "/getting-started/", icon: "start", match: ["/getting-started/", "/embed/"] },
+    {
+      label: "Guides",
+      href: "/guides/tools/",
+      icon: "guides",
+      match: ["/guides/", "/deploy/", "/troubleshooting/"],
+    },
+    { label: "Reference", href: "/reference/bundle/", icon: "reference", match: ["/reference/"] },
   ],
 
   /** The docs sidebar. Pages are files in the repository's docs/ directory,
    *  addressed by their path without `.md`. */
   sidebar: [
-    { group: "Start here", pages: ["install", "getting-started", "embed"] },
+    { group: "Start here", icon: "start", pages: ["install", "getting-started", "embed"] },
     {
       group: "How-to guides",
+      icon: "guides",
       pages: [
         "guides/tools",
         "guides/agents",
@@ -45,7 +52,7 @@ export const siteConfig = {
         "troubleshooting",
       ],
     },
-    { group: "Reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks"] },
-    { group: "Explanation", pages: ["concepts", "architecture", "security", "development"] },
+    { group: "Reference", icon: "reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks"] },
+    { group: "Explanation", icon: "explanation", pages: ["concepts", "architecture", "security", "development"] },
   ],
 } as const;

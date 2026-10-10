@@ -1,6 +1,8 @@
 ---
+import { ArrowLeft, ArrowRight, ChevronDown, SquarePen, TextAlignStart } from "@lucide/astro";
 import BaseLayout from "./BaseLayout.astro";
 import { withBase } from "../lib/url";
+import { icons } from "../lib/icons";
 import { siteConfig } from "../site.config";
 import type { SidebarGroup } from "../lib/docs";
 
@@ -10,78 +12,236 @@ interface Props {
   id: string;
   sourcePath: string;
   groups: SidebarGroup[];
+  headings?: { depth: number; slug: string; text: string }[];
   prev?: { id: string; title: string };
   next?: { id: string; title: string };
 }
 
-const { title, description, id, sourcePath, groups, prev, next } = Astro.props;
+const { title, description, id, sourcePath, groups, headings = [], prev, next } = Astro.props;
 const href = (page: string) => withBase(`/${page}/`);
+// "On this page" only earns its column on pages with a few sections.
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const showToc = toc.filter((h) => h.depth === 2).length >= 3;
+const currentGroup = groups.find((g) => g.items.some((item) => item.id === id));
 ---
 
 <BaseLayout title={title} description={description}>
-  <div class="mx-auto flex max-w-6xl gap-10 px-4 py-10">
-    <aside class="hidden w-56 shrink-0 md:block">
-      <nav class="sticky top-20 flex flex-col gap-6 text-sm" aria-label="Documentation">
+  <div class="mx-auto flex max-w-7xl gap-10 px-4 lg:gap-12">
+    <aside class="hidden w-60 shrink-0 md:block">
+      <nav
+        class="sidebar scroll-thin sticky top-16 flex max-h-[calc(100dvh-4rem)] flex-col gap-7 overflow-y-auto py-10 pr-2 text-sm"
+        aria-label="Documentation"
+      >
         {
-          groups.map(({ group, items }) => (
-            <div>
-              <p class="font-display font-semibold text-fg">{group}</p>
-              <ul class="mt-2 flex flex-col gap-1 border-l border-border">
-                {items.map((item) => (
-                  <li>
-                    <a
-                      href={href(item.id)}
-                      aria-current={item.id === id ? "page" : undefined}
-                      class:list={[
-                        "-ml-px block border-l py-1 pl-3",
-                        item.id === id
-                          ? "border-brand font-medium text-fg"
-                          : "border-transparent text-fg-muted hover:border-border hover:text-fg",
-                      ]}
-                    >
-                      {item.title}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
+          groups.map(({ group, icon, items }) => {
+            const Icon = icons[icon];
+            return (
+              <div>
+                <p class="flex items-center gap-2 px-3 font-display text-xs font-semibold tracking-wider text-fg uppercase">
+                  <Icon class="size-3.5 text-link" aria-hidden="true" />
+                  {group}
+                </p>
+                <ul class="mt-2 flex flex-col gap-0.5">
+                  {items.map((item) => (
+                    <li>
+                      <a
+                        href={href(item.id)}
+                        aria-current={item.id === id ? "page" : undefined}
+                        class:list={[
+                          "block rounded-md px-3 py-1.5 leading-snug",
+                          item.id === id
+                            ? "bg-brand/15 font-medium text-link"
+                            : "text-fg-muted hover:bg-surface hover:text-fg",
+                        ]}
+                      >
+                        {item.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })
         }
       </nav>
     </aside>
 
-    <article class="min-w-0 flex-1">
-      <details class="mb-6 rounded-card border border-border px-4 py-2 text-sm md:hidden">
-        <summary class="cursor-pointer font-medium text-fg">All pages</summary>
-        <div class="mt-3 flex flex-col gap-4 pb-2">
+    <article class="min-w-0 flex-1 py-10">
+      <details class="group mb-8 rounded-card border border-border bg-surface text-sm md:hidden">
+        <summary class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-4 font-medium text-fg">
+          <span class="truncate">
+            <span class="text-fg-muted">{currentGroup?.group ?? "Docs"} /</span>{" "}
+            {title}
+          </span>
+          <ChevronDown class="size-4 shrink-0 text-fg-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <div class="flex flex-col gap-5 border-t border-border px-2 py-4">
           {
-            groups.map(({ group, items }) => (
-              <div>
-                <p class="font-semibold text-fg">{group}</p>
-                {items.map((item) => (
-                  <a href={href(item.id)} class="block py-1 text-fg-muted hover:text-fg">
-                    {item.title}
-                  </a>
-                ))}
-              </div>
-            ))
+            groups.map(({ group, icon, items }) => {
+              const Icon = icons[icon];
+              return (
+                <div>
+                  <p class="flex items-center gap-2 px-2 text-xs font-semibold tracking-wider text-fg uppercase">
+                    <Icon class="size-3.5 text-link" aria-hidden="true" />
+                    {group}
+                  </p>
+                  <div class="mt-1 flex flex-col">
+                    {items.map((item) => (
+                      <a
+                        href={href(item.id)}
+                        aria-current={item.id === id ? "page" : undefined}
+                        class:list={[
+                          "flex min-h-10 items-center rounded-md px-2",
+                          item.id === id ? "bg-brand/15 font-medium text-link" : "text-fg-muted hover:text-fg",
+                        ]}
+                      >
+                        {item.title}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
           }
         </div>
       </details>
 
-      <div class="prose max-w-none">
+      {currentGroup && <p class="mb-3 text-sm font-medium text-link">{currentGroup.group}</p>}
+
+      <div class="prose max-w-3xl">
         <slot />
       </div>
 
-      <footer class="mt-12 flex flex-col gap-6 border-t border-border pt-6 text-sm">
-        <div class="flex justify-between gap-4">
-          {prev ? <a href={href(prev.id)} class="text-fg-muted hover:text-fg">&larr; {prev.title}</a> : <span />}
-          {next && <a href={href(next.id)} class="text-right text-fg-muted hover:text-fg">{next.title} &rarr;</a>}
+      <footer class="mt-16 flex max-w-3xl flex-col gap-8">
+        <div class="grid gap-4 sm:grid-cols-2">
+          {
+            prev ? (
+              <a href={href(prev.id)} class="hover-elevate group/link rounded-card border border-border p-4">
+                <span class="flex items-center gap-1.5 text-xs text-fg-muted">
+                  <ArrowLeft class="size-3.5" aria-hidden="true" />
+                  Previous
+                </span>
+                <span class="mt-1 block font-medium text-fg group-hover/link:text-link">{prev.title}</span>
+              </a>
+            ) : (
+              <span class="hidden sm:block" />
+            )
+          }
+          {
+            next && (
+              <a href={href(next.id)} class="hover-elevate group/link rounded-card border border-border p-4 text-right">
+                <span class="flex items-center justify-end gap-1.5 text-xs text-fg-muted">
+                  Next
+                  <ArrowRight class="size-3.5" aria-hidden="true" />
+                </span>
+                <span class="mt-1 block font-medium text-fg group-hover/link:text-link">{next.title}</span>
+              </a>
+            )
+          }
         </div>
-        <a href={`${siteConfig.repo}/blob/main/${sourcePath}`} class="text-fg-muted hover:text-fg" rel="noopener noreferrer">
+        <a
+          href={`${siteConfig.repo}/blob/main/${sourcePath}`}
+          class="inline-flex items-center gap-2 self-start text-sm text-fg-muted hover:text-fg"
+          rel="noopener noreferrer"
+        >
+          <SquarePen class="size-4" aria-hidden="true" />
           Edit this page on GitHub
         </a>
       </footer>
     </article>
+
+    {
+      showToc && (
+        <aside class="hidden w-52 shrink-0 xl:block">
+          <nav class="toc-nav scroll-thin sticky top-16 max-h-[calc(100dvh-4rem)] overflow-y-auto py-10 text-sm" aria-label="On this page">
+            <p class="flex items-center gap-2 font-display text-xs font-semibold tracking-wider text-fg uppercase">
+              <TextAlignStart class="size-3.5 text-link" aria-hidden="true" />
+              On this page
+            </p>
+            <ul class="toc mt-3 flex flex-col border-l border-border">
+              {toc.map((h) => (
+                <li>
+                  <a
+                    href={`#${h.slug}`}
+                    data-toc={h.slug}
+                    class:list={[
+                      "-ml-px block border-l border-transparent py-1 leading-snug text-fg-muted hover:text-fg",
+                      h.depth === 3 ? "pl-6 text-xs" : "pl-3",
+                    ]}
+                  >
+                    {h.text}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </aside>
+      )
+    }
   </div>
 </BaseLayout>
+
+<style>
+  .toc a[aria-current="true"] {
+    border-color: var(--color-link);
+    color: var(--color-link);
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+</style>
+
+<script>
+  // Heading anchors and the "On this page" highlight. Re-run after
+  // ClientRouter swaps pages.
+  let observer: IntersectionObserver | undefined;
+
+  document.addEventListener("astro:page-load", () => {
+    const headings = [...document.querySelectorAll<HTMLElement>(".prose :is(h2, h3, h4)[id]")];
+    for (const h of headings) {
+      if (h.querySelector(".heading-anchor")) continue;
+      const a = document.createElement("a");
+      a.className = "heading-anchor";
+      a.href = `#${h.id}`;
+      a.textContent = "#";
+      a.setAttribute("aria-label", `Link to "${h.textContent?.trim()}"`);
+      h.append(a);
+    }
+
+    observer?.disconnect();
+    const links = new Map(
+      [...document.querySelectorAll<HTMLAnchorElement>("[data-toc]")].map((a) => [a.dataset.toc, a]),
+    );
+    if (!links.size) return;
+    const visible = new Set<string>();
+    const tracked = headings.filter((h) => links.has(h.id));
+    const highlight = () => {
+      const active = tracked.find((h) => visible.has(h.id)) ?? tracked.findLast((h) => h.getBoundingClientRect().top < 120) ?? tracked[0];
+      for (const [slug, a] of links) {
+        if (slug !== active?.id) {
+          a.removeAttribute("aria-current");
+          continue;
+        }
+        a.setAttribute("aria-current", "true");
+        // Keep the highlighted entry visible in a long, scrolling TOC
+        // without scrolling the page itself.
+        const nav = a.closest<HTMLElement>(".toc-nav");
+        if (nav && (a.offsetTop < nav.scrollTop || a.offsetTop > nav.scrollTop + nav.clientHeight - 40)) {
+          nav.scrollTop = a.offsetTop - nav.clientHeight / 3;
+        }
+      }
+    };
+    observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) visible.add(e.target.id);
+          else visible.delete(e.target.id);
+        }
+        highlight();
+      },
+      { rootMargin: "-64px 0px -60% 0px" },
+    );
+    for (const h of tracked) observer.observe(h);
+  });
+</script>

@@ -21,6 +21,10 @@ import (
 //
 //	AGEN_UPDATE_DOCS=1 go test ./internal/cli -run TestReferenceDocs
 func TestReferenceDocs(t *testing.T) {
+	// Help output must not depend on a local `agen up` or Hub settings.
+	t.Setenv("AGEN_HOME", t.TempDir())
+	t.Setenv("AGEN_HUB", "")
+	t.Setenv("AGEN_TOKEN", "")
 	root := repoRoot()
 	for rel, want := range map[string]string{
 		"docs/reference/cli.md": cliReference(),
