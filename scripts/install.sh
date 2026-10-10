@@ -93,6 +93,7 @@ case "$src" in
     fi
     src="$tmp/agen.tar.gz" ;;
   *)
+    [ -f "$src" ] || { echo "no such archive: $src" >&2; exit 1; }
     if [ -z "$want" ] && [ -f "$src.sha256" ]; then want="$(cut -d' ' -f1 < "$src.sha256")"; fi ;;
 esac
 if [ -n "$want" ]; then
