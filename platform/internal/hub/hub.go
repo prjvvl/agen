@@ -423,6 +423,7 @@ const MaxTaskWait = 5 * time.Minute
 func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRequest]) (*connect.Response[agenv1.GetTaskResponse], error) {
 	wait := min(time.Duration(req.Msg.WaitSeconds)*time.Second, MaxTaskWait)
 	deadline := time.Now().Add(wait)
+	first, waiting := true, ""
 	for {
 		t, err := h.Store.GetTask(ctx, req.Msg.Id)
 		if err != nil {
@@ -439,8 +440,13 @@ func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRe
 			}
 			out.PendingApprovalId = pending[t.ID]
 		}
-		// A task waiting for an approval returns early: someone has to act.
-		if t.Terminal() || out.PendingApprovalId != "" || time.Now().After(deadline) {
+		// A task that starts waiting for an approval during the wait returns
+		// early: someone has to act. (One already waiting keeps waiting, so
+		// a client that polls does not spin.)
+		if first {
+			waiting, first = out.PendingApprovalId, false
+		}
+		if t.Terminal() || (out.PendingApprovalId != "" && out.PendingApprovalId != waiting) || time.Now().After(deadline) {
 			return connect.NewResponse(&agenv1.GetTaskResponse{Task: out}), nil
 		}
 		select {

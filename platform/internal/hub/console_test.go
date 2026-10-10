@@ -174,7 +174,8 @@ func TestQueueCapRefusesTasks(t *testing.T) {
 	}
 }
 
-// A task waiting for an approval shows it, and GetTask returns early.
+// A task waiting for an approval shows it, and GetTask returns early when
+// the wait begins.
 func TestGetTaskReturnsWhileWaitingForApproval(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -200,14 +201,23 @@ func TestGetTaskReturnsWhileWaitingForApproval(t *testing.T) {
 		now, task.Msg.Task.Id); err != nil {
 		t.Fatal(err)
 	}
-	a, err := e.store.CreateApproval(ctx, store.Approval{ID: store.NewID(), Namespace: "default", Deployment: "hello", RunID: "r1", Tool: "files.write", Arguments: []byte("{}")}, time.Hour.Milliseconds())
-	if err != nil {
-		t.Fatal(err)
-	}
+	created := make(chan store.Approval, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		a, _ := e.store.CreateApproval(ctx, store.Approval{ID: store.NewID(), Namespace: "default", Deployment: "hello", RunID: "r1", Tool: "files.write", Arguments: []byte("{}")}, time.Hour.Milliseconds())
+		created <- a
+	}()
 	start := time.Now()
 	got, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: task.Msg.Task.Id, WaitSeconds: 30}))
-	if err != nil || got.Msg.Task.PendingApprovalId != a.ID || time.Since(start) > 5*time.Second {
+	a := <-created
+	if err != nil || got.Msg.Task.PendingApprovalId == "" || got.Msg.Task.PendingApprovalId != a.ID || time.Since(start) > 5*time.Second {
 		t.Fatalf("get task: %v %v after %v", got, err, time.Since(start))
+	}
+	// Already waiting: a new call waits as usual (and still shows the approval).
+	start = time.Now()
+	got, err = c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: task.Msg.Task.Id, WaitSeconds: 1}))
+	if err != nil || got.Msg.Task.PendingApprovalId != a.ID || time.Since(start) < 900*time.Millisecond {
+		t.Fatalf("second wait: %v %v after %v", got, err, time.Since(start))
 	}
 	list, err := c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{}))
 	if err != nil || list.Msg.Tasks[0].PendingApprovalId != a.ID {

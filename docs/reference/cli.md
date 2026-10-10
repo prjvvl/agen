@@ -17,7 +17,7 @@ Platform:
   agen store host-role            create the least-privilege Postgres role for Nests
 
 Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local config from agen up):
-  agen init [dir]                 write an example bundle to start from (--example hello|researcher)
+  agen init [dir]                 write a template bundle to start from (--template NAME; --list)
   agen deploy <bundle-dir>        create or update a deployment (--validate: check only)
   agen scale <name> <n>           set desired instances
   agen ps [--all]                 deployments (--all: every instance on every nest)
@@ -28,13 +28,16 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen run <name> <input>         submit a task and wait for its result
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
+  agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
+  agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
   agen resolve <name>             A2A endpoints of a deployment and a call token
   agen nests                      enrolled nests
   agen approvals | approve <id> | deny <id>
+  agen notify set|ls|rm           where the Hub POSTs a namespace's events
   agen join-token                 one-time token for 'agen nest run'
   agen token create --scope S     API token
   agen whoami                     the current token's identity and scopes
@@ -53,6 +56,8 @@ Usage of up:
     	agen-host executable
   -listen string
     	Hub listen address (default "127.0.0.1:7070")
+  -retention duration
+    	delete spans, log lines and trigger events older than this (0 keeps them) (default 720h0m0s)
   -store string
     	store URL (default: sqlite in AGEN_HOME)
 ```
@@ -87,6 +92,8 @@ Usage of hub serve:
     	listen address (default "127.0.0.1:7070")
   -nest-cert-lifetime duration
     	lifetime of Nest client certificates (default 30 days; Nests renew before expiry)
+  -retention duration
+    	delete spans, log lines and trigger events older than this (0 keeps them) (default 720h0m0s)
   -store string
     	store URL (sqlite:<path> or postgres://...)
   -tls
@@ -172,7 +179,11 @@ usage: agen store host-role --store postgres://<admin>@host/db [--role agen_host
 ```text
 Usage of init:
   -example string
-    	example to start from: hello, researcher (default "hello")
+    	same as --template
+  -list
+    	list the templates
+  -template string
+    	template to start from: hello, researcher, writer, editor, support-triage, pr-reviewer, fleet-steward, cost-watchdog, approval-triage, assistant (default "hello")
 ```
 
 ## agen deploy
@@ -363,6 +374,30 @@ Usage of tasks:
     	API token
 ```
 
+## agen runs
+
+```text
+Usage of runs:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -label value
+    	only runs with this key=value label (repeatable)
+  -limit int
+    	runs (default 20)
+  -n string
+    	namespace (default "default")
+  -roots
+    	only runs that started a trace, with the usage of the runs they delegated to
+  -status string
+    	running, waiting_approval, succeeded, failed or cancelled
+  -token string
+    	API token
+```
+
 ## agen trace
 
 ```text
@@ -375,6 +410,26 @@ Usage of trace:
     	print the API response as JSON
   -n string
     	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen transcript
+
+```text
+Usage of transcript:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -history
+    	also the earlier messages of the conversation
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -system
+    	also the system prompt
   -token string
     	API token
 ```
@@ -469,6 +524,12 @@ Usage of approvals:
     	API token
 ```
 
+## agen notify
+
+```text
+no Hub configured: run 'agen up', or pass --hub and --token (AGEN_HUB / AGEN_TOKEN)
+```
+
 ## agen join-token
 
 ```text
@@ -503,6 +564,8 @@ Usage of token create:
     	token name
   -namespace value
     	limit to namespace (repeatable)
+  -on-behalf
+    	for an agent that works for people: it acts for whoever submitted its task (see the assistant template)
   -scope value
     	scope (repeatable)
   -token string
