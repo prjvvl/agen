@@ -1,12 +1,15 @@
-# Installs agen + agen-host into $env:AGEN_INSTALL_DIR (default ~\.agen\bin)
-# from a release zip (path or URL), or removes them:
-#   .\install.ps1 <archive.zip|URL> [-Sha256 HEX]
-#   .\install.ps1 -Uninstall [-Purge]
-# The archive is checked against -Sha256, or else <archive>.sha256 next to it
-# (required for URLs).
+# Installs agen + agen-host into $env:AGEN_INSTALL_DIR (default ~\.agen\bin):
+#   irm https://prjvvl.github.io/agen/install.ps1 | iex       # latest release
+#   $env:AGEN_VERSION = "v0.1.1"; irm .../install.ps1 | iex   # a given release
+#   .\install.ps1 <archive.zip|URL> [-Sha256 HEX]              # a given archive
+#   .\install.ps1 -Uninstall [-Purge]   # -Purge also deletes ~\.agen data
+# Archives are checked against -Sha256, or else <archive>.sha256 next to them
+# (required for URLs). Unless AGEN_NO_MODIFY_PATH=1, the install directory is
+# added to your user PATH.
 param([string]$Archive, [string]$Sha256, [switch]$Uninstall, [switch]$Purge)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$repo = "https://github.com/prjvvl/agen"
 $dir = if ($env:AGEN_INSTALL_DIR) { $env:AGEN_INSTALL_DIR } else { Join-Path $HOME ".agen\bin" }
 $agenHome = if ($env:AGEN_HOME) { $env:AGEN_HOME } else { Join-Path $HOME ".agen" }
 
@@ -23,19 +26,33 @@ function Remove-AgenHome {
   Remove-Item -Recurse -Force $full
 }
 
+function Get-UserPath { @([Environment]::GetEnvironmentVariable("Path", "User") -split ';' | Where-Object { $_ }) }
+
 if ($Uninstall) {
   $agen = Join-Path $dir "agen.exe"
-  if (Test-Path $agen) { try { & $agen down | Out-Null } catch {} }
+  if (Test-Path $agen) { try { & $agen down 2>$null | Out-Null } catch {} }
   Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "agen.exe"), (Join-Path $dir "agen-host.exe")
   if ((Test-Path $dir) -and -not (Get-ChildItem $dir)) { Remove-Item $dir }
+  $userPath = Get-UserPath
+  if ($userPath -contains $dir) {
+    [Environment]::SetEnvironmentVariable("Path", (($userPath | Where-Object { $_ -ne $dir }) -join ';'), "User")
+  }
   if ($Purge) { Remove-AgenHome }
-  "agen uninstalled"; exit 0
+  $global:LASTEXITCODE = 0
+  "agen uninstalled"; return
 }
-if (-not $Archive) { throw "usage: install.ps1 <archive.zip|URL> [-Sha256 HEX] | -Uninstall [-Purge]" }
+if (-not $Archive) {
+  $version = $env:AGEN_VERSION
+  if (-not $version) { $version = (Invoke-RestMethod "https://api.github.com/repos/prjvvl/agen/releases/latest").tag_name }
+  if ($version -notmatch '^v') { throw "could not determine the latest release (got '$version')" }
+  if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "no Windows arm64 build yet; installing the amd64 build, which runs under emulation" }
+  $Archive = "$repo/releases/download/$version/agen_${version}_windows_amd64.zip"
+}
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("agen-" + [guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
   if ($Archive -match '^https?://') {
+    "downloading $Archive"
     $zip = Join-Path $tmp "agen.zip"
     Invoke-WebRequest -UseBasicParsing $Archive -OutFile $zip
     if (-not $Sha256) {
@@ -57,5 +74,16 @@ try {
   $pkg = Get-ChildItem $tmp -Directory -Filter "agen_*" | Select-Object -First 1
   Copy-Item (Join-Path $pkg.FullName "agen.exe"), (Join-Path $pkg.FullName "agen-host.exe") $dir -Force
   "installed $(& (Join-Path $dir 'agen.exe') version) to $dir"
-  if (($env:PATH -split ';') -notcontains $dir) { "add $dir to PATH, then run: agen up" }
+  if (($env:PATH -split ';') -notcontains $dir) {
+    if ($env:AGEN_NO_MODIFY_PATH -ne "1") {
+      if ((Get-UserPath) -notcontains $dir) {
+        [Environment]::SetEnvironmentVariable("Path", ((@(Get-UserPath) + $dir) -join ';'), "User")
+      }
+      $env:PATH = "$env:PATH;$dir"
+      "added $dir to your user PATH (new terminals pick it up)"
+    } else {
+      "add $dir to PATH"
+    }
+  }
+  "next: agen up"
 } finally { Remove-Item -Recurse -Force $tmp }

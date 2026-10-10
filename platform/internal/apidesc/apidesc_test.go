@@ -56,7 +56,7 @@ func TestSchemaMatchesProtoJSONNames(t *testing.T) {
 		}
 	}
 	// Generated Go types and the embedded descriptors describe the same message.
-	if (&agenv1.SubmitTaskRequest{}).ProtoReflect().Descriptor().Fields().Len() != 3 {
+	if (&agenv1.SubmitTaskRequest{}).ProtoReflect().Descriptor().Fields().Len() != 5 {
 		t.Fatal("SubmitTaskRequest drifted from embedded descriptors")
 	}
 }

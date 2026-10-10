@@ -39,7 +39,14 @@ impl ToolError {
 /// What a tool sees when called.
 #[derive(Clone, Default)]
 pub struct ToolContext {
+    pub namespace: String,
+    pub deployment: String,
+    pub task_id: String,
     pub run_id: String,
+    pub conversation_id: String,
+    /// The caller's key for the conversation ("" when none was given).
+    pub conversation_key: String,
+    pub labels: BTreeMap<String, String>,
     pub call_id: String,
     /// The run step (model turn) the call belongs to.
     pub step: i64,

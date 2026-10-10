@@ -28,7 +28,8 @@ try {
   $deadline = (Get-Date).AddSeconds(30)
   while (-not (Test-Path (Join-Path $env:AGEN_HOME "local.json")) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
   Start-Sleep 2
-  & $agen deploy (Join-Path $PSScriptRoot "..\examples\bundles\hello") --replicas 2 | Out-Null
+  Push-Location $base
+  try { & $agen init | Out-Null; & $agen deploy hello --replicas 2 | Out-Null } finally { Pop-Location }
   $out = & $agen run hello "hi"
   if ($out -ne "Hello! Nice to meet you.") { throw "run: $out" }
   Start-Sleep 3

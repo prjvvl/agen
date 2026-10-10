@@ -5,8 +5,12 @@
 //!   or Job Object (Windows), so the whole tree is killed on drop.
 //! - Streamable HTTP servers are reached by URL with optional headers.
 //! - `${NAME}` in `env` values and headers is replaced with the secret `NAME`.
-//! - Tools are side-effecting unless the server marks them `readOnlyHint`;
-//!   `x-agen/config.json` `tools.<server>.<tool>.sideEffect` overrides.
+//! - Tools are side-effecting unless the server marks them `readOnlyHint`, and
+//!   safe to retry after an interruption if it marks them `idempotentHint`;
+//!   `x-agen/config.json` `tools.<server>.<tool>` `sideEffect` / `idempotent`
+//!   override.
+//! - Every call carries the task, run and conversation it belongs to, and the
+//!   task's labels, in `_meta` (`agen/…` keys) plus the W3C `traceparent`.
 //! - Every call has a timeout and honours run cancellation.
 //! - Server stderr is redacted and forwarded to the agent's log.
 
@@ -142,11 +146,16 @@ pub async fn connect(
             .map_err(|e| McpError::Connect(name.clone(), format!("list tools: {e}")))?;
         for t in listed {
             let qualified = format!("{name}.{}", t.name);
-            let read_only = t.annotations.as_ref().and_then(|a| a.read_only_hint).unwrap_or(false);
-            let side_effect = tool_meta
+            let hints = t.annotations.as_ref();
+            let meta = tool_meta
                 .get(&qualified)
+                .or_else(|| tool_meta.get(&crate::provider::openai::wire_name(&qualified)));
+            let side_effect = meta
                 .and_then(|m| m.side_effect)
-                .unwrap_or(!read_only);
+                .unwrap_or(!hints.and_then(|a| a.read_only_hint).unwrap_or(false));
+            let idempotent = meta
+                .and_then(|m| m.idempotent)
+                .unwrap_or(hints.and_then(|a| a.idempotent_hint).unwrap_or(false));
             tools.push(Arc::new(McpTool {
                 spec: ToolSpec {
                     name: qualified,
@@ -155,6 +164,7 @@ pub async fn connect(
                 },
                 remote_name: t.name.to_string(),
                 side_effect,
+                idempotent,
                 peer: service.peer().clone(),
                 timeout: opts.call_timeout,
             }));
@@ -185,6 +195,8 @@ async fn connect_one(
                 cmd.env(key, v);
             }
         }
+        // Python on Windows otherwise reads and writes stdio in the ANSI code page.
+        cmd.env("PYTHONUTF8", "1").env("PYTHONIOENCODING", "utf-8");
         for (k, v) in &cfg.env {
             cmd.env(k, expand(name, v, secrets)?);
         }
@@ -266,6 +278,7 @@ struct McpTool {
     spec: ToolSpec,
     remote_name: String,
     side_effect: bool,
+    idempotent: bool,
     peer: Peer<RoleClient>,
     timeout: Duration,
 }
@@ -280,8 +293,13 @@ impl Tool for McpTool {
         self.side_effect
     }
 
+    fn idempotency_key(&self, args: &Value) -> Option<String> {
+        self.idempotent.then(|| crate::agent::args_hash(args))
+    }
+
     async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError> {
         let mut params = CallToolRequestParams::new(self.remote_name.clone());
+        params.meta = Some(rmcp::model::RequestMetaObject(rmcp::model::MetaObject(call_meta(&ctx))));
         match args {
             Value::Object(map) => params = params.with_arguments(map),
             Value::Null => {}
@@ -312,6 +330,34 @@ impl Tool for McpTool {
         }
         Ok(text)
     }
+}
+
+fn call_meta(ctx: &ToolContext) -> serde_json::Map<String, Value> {
+    let mut m = serde_json::Map::new();
+    let mut put = |k: &str, v: &str| {
+        if !v.is_empty() {
+            m.insert(k.into(), Value::String(v.into()));
+        }
+    };
+    put("agen/namespace", &ctx.namespace);
+    put("agen/deployment", &ctx.deployment);
+    put("agen/taskId", &ctx.task_id);
+    put("agen/runId", &ctx.run_id);
+    put(
+        "agen/rootRunId",
+        if ctx.root_run_id.is_empty() {
+            &ctx.run_id
+        } else {
+            &ctx.root_run_id
+        },
+    );
+    put("agen/conversationId", &ctx.conversation_id);
+    put("agen/conversationKey", &ctx.conversation_key);
+    put("traceparent", &ctx.traceparent);
+    if !ctx.labels.is_empty() {
+        m.insert("agen/labels".into(), serde_json::json!(ctx.labels));
+    }
+    m
 }
 
 fn content_kind(block: &ContentBlock) -> String {

@@ -79,12 +79,13 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	fs := e.flags("deploy", &cf)
 	name := fs.String("name", "", "deployment name (default: bundle name)")
 	replicas := fs.Int("replicas", -1, "desired instances after deploying")
+	validate := fs.Bool("validate", false, "check the bundle and print warnings without deploying")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen deploy <bundle-dir> [--name N] [--replicas N] [-n NS]")
+		return usageErr("agen deploy <bundle-dir> [--name N] [--replicas N] [--validate] [-n NS]")
 	}
 	files, err := readBundle(pos[0])
 	if err != nil {
@@ -94,11 +95,26 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *validate {
+		r, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Namespace: cf.namespace, Name: *name, BundleFiles: files, ValidateOnly: true}))
+		if err != nil {
+			return err
+		}
+		if cf.json {
+			return e.printJSON(r.Msg)
+		}
+		for _, w := range r.Msg.Warnings {
+			fmt.Fprintln(e.stdout, "warning: "+w)
+		}
+		fmt.Fprintln(e.stdout, "bundle is valid")
+		return nil
+	}
 	created, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Namespace: cf.namespace, Name: *name, BundleFiles: files}))
 	var d *agenv1.Deployment
+	var warnings []string
 	switch {
 	case err == nil:
-		d = created.Msg.Deployment
+		d, warnings = created.Msg.Deployment, created.Msg.Warnings
 	case connect.CodeOf(err) == connect.CodeAlreadyExists:
 		n := *name
 		if n == "" {
@@ -111,9 +127,12 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		d = u.Msg.Deployment
+		d, warnings = u.Msg.Deployment, u.Msg.Warnings
 	default:
 		return err
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(e.stderr, "warning: "+w)
 	}
 	if *replicas >= 0 {
 		s, err := c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref(cf, d.Name), Desired: int32(*replicas)}))
@@ -186,7 +205,11 @@ func (e *env) cmdStart(ctx context.Context, args []string) error { return e.paus
 
 func (e *env) pause(ctx context.Context, args []string, paused bool) error {
 	var cf clientFlags
-	pos, err := parse(e.flags("stop", &cf), args)
+	name := "start"
+	if paused {
+		name = "stop"
+	}
+	pos, err := parse(e.flags(name, &cf), args)
 	if err != nil {
 		return err
 	}
@@ -268,14 +291,14 @@ func (e *env) cmdPs(ctx context.Context, args []string) error {
 			}
 		}
 		w := e.table()
-		fmt.Fprintln(w, "INSTANCE\tDEPLOYMENT\tNEST\tSTATE\tTASKS\tDEFINITION\tENDPOINT")
+		fmt.Fprintln(w, "INSTANCE\tDEPLOYMENT\tNEST\tSTATE\tTASKS\tTOOLS\tDEFINITION\tENDPOINT")
 		for _, in := range r.Msg.Instances {
 			nest := nests[in.NestId]
 			if nest == "" {
 				nest = in.NestId
 			}
-			fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\t%s\n", in.Id, in.Namespace, in.Deployment, nest,
-				stateName(in.State, "INSTANCE_STATE_"), in.RunningTasks, shortDigest(in.DefinitionDigest), in.Endpoint)
+			fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\t%s\t%s\n", in.Id, in.Namespace, in.Deployment, nest,
+				stateName(in.State, "INSTANCE_STATE_"), in.RunningTasks, toolSummary(in), shortDigest(in.DefinitionDigest), in.Endpoint)
 		}
 		return w.Flush()
 	}
@@ -367,18 +390,22 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	noWait := fs.Bool("no-wait", false, "print the task id and return")
 	timeout := fs.Duration("timeout", 10*time.Minute, "how long to wait for the result")
 	key := fs.String("idempotency-key", "", "resubmitting the same key returns the same task")
+	conversation := fs.String("conversation", "", "continue the conversation of earlier tasks with this key")
+	labels := labelFlag{}
+	fs.Var(labels, "label", "label the task, key=value (repeatable)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--no-wait] [--timeout D]")
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
-	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key}))
+	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
+		ConversationKey: *conversation, Labels: labels}))
 	if err != nil {
 		return err
 	}
@@ -447,6 +474,60 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	return w.Flush()
 }
 
+// labelFlag collects repeated --label key=value flags.
+type labelFlag map[string]string
+
+func (l labelFlag) String() string { return "" }
+
+func (l labelFlag) Set(v string) error {
+	k, val, ok := strings.Cut(v, "=")
+	if !ok || k == "" {
+		return fmt.Errorf("label %q: want key=value", v)
+	}
+	l[k] = val
+	return nil
+}
+
+// toolSummary is "<n> tools" plus any tool server that is not connected.
+func toolSummary(in *agenv1.Instance) string {
+	s := fmt.Sprintf("%d", len(in.Tools))
+	for _, ts := range in.ToolServers {
+		if ts.State != "connected" {
+			s += " (" + ts.Name + " " + ts.State + ")"
+		}
+	}
+	return s
+}
+
+func (e *env) cmdWhoami(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("whoami", &cf)
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.WhoAmI(ctx, connect.NewRequest(&agenv1.WhoAmIRequest{}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	who := r.Msg.Id
+	if r.Msg.Name != "" {
+		who = r.Msg.Name + " (" + r.Msg.Id + ")"
+	}
+	ns := "all"
+	if len(r.Msg.Namespaces) > 0 {
+		ns = strings.Join(r.Msg.Namespaces, ", ")
+	}
+	fmt.Fprintf(e.stdout, "%s\nscopes: %s\nnamespaces: %s\n", who, strings.Join(r.Msg.Scopes, ", "), ns)
+	return nil
+}
+
 func (e *env) cmdNests(ctx context.Context, args []string) error {
 	var cf clientFlags
 	if len(args) > 0 && args[0] == "revoke" {
@@ -513,11 +594,15 @@ func (e *env) cmdApprovals(ctx context.Context, args []string) error {
 		return e.printJSON(r.Msg)
 	}
 	w := e.table()
-	fmt.Fprintln(w, "APPROVAL\tDEPLOYMENT\tTOOL\tSTATE\tARGUMENTS\tEXPIRES")
+	fmt.Fprintln(w, "APPROVAL\tDEPLOYMENT\tTOOL\tSTATE\tREQUESTED BY\tTASK\tARGUMENTS\tCREATED\tEXPIRES")
 	for _, a := range r.Msg.Approvals {
 		args, _ := a.Arguments.MarshalJSON()
-		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%s\n", a.Id, a.Namespace, a.Deployment, a.Tool, stateName(a.State, "APPROVAL_STATE_"), args,
-			a.ExpiresAt.AsTime().Local().Format(time.RFC3339))
+		state := stateName(a.State, "APPROVAL_STATE_")
+		if a.DecidedByName != "" {
+			state += " by " + a.DecidedByName
+		}
+		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Id, a.Namespace, a.Deployment, a.Tool, state, a.RequestedByName, a.TaskId, args,
+			a.CreatedAt.AsTime().Local().Format(time.RFC3339), a.ExpiresAt.AsTime().Local().Format(time.RFC3339))
 	}
 	return w.Flush()
 }

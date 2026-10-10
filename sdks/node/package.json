@@ -1,6 +1,6 @@
 {
   "name": "agen-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Embed the Agen agent engine in Node.js",
   "license": "MIT",
   "main": "index.js",

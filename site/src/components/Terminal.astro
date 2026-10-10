@@ -1,0 +1,46 @@
+---
+interface Props {
+  /** Shown in the title bar, e.g. a shell or a file name. */
+  title: string;
+  class?: string;
+}
+
+const { title, class: className } = Astro.props;
+---
+
+<figure class:list={["code-surface terminal m-0 flex flex-col overflow-hidden p-0! text-left", className]}>
+  <figcaption class="flex items-center gap-2 border-b border-code-border px-4 py-2.5">
+    <span class="flex gap-1.5" aria-hidden="true">
+      <span class="dot size-2.5 rounded-full"></span>
+      <span class="dot size-2.5 rounded-full"></span>
+      <span class="dot size-2.5 rounded-full"></span>
+    </span>
+    <span class="ml-2 font-mono text-xs">{title}</span>
+  </figcaption>
+  <div class="terminal-body flex-1 overflow-x-auto">
+    <slot />
+  </div>
+</figure>
+
+<style>
+  .terminal {
+    color: var(--color-code-fg);
+  }
+
+  figcaption {
+    color: var(--color-code-muted);
+  }
+
+  .dot {
+    background-color: var(--color-code-border);
+    background-color: color-mix(in srgb, var(--color-code-fg) 18%, var(--color-code-bg));
+  }
+
+  .terminal-body :global(pre) {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    font-size: 0.78rem;
+    line-height: 1.75;
+    background-color: transparent !important;
+  }
+</style>

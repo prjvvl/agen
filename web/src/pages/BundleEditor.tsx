@@ -53,7 +53,7 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
     name: "",
     description: "",
     instructions: "You are a helpful assistant.",
-    provider: "fake",
+    provider: "openrouter",
     model: "deepseek/deepseek-v4-flash",
     reply: "Hello from a new agent.",
     kind: "pool",
@@ -212,8 +212,8 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
         <label>
           Model
           <select value={form.provider} onChange={set("provider")} aria-label="Model provider">
-            <option value="fake">Scripted (no model, for testing)</option>
             <option value="openrouter">OpenRouter</option>
+            <option value="fake">Scripted test replies (never calls a model)</option>
           </select>
         </label>
         {form.provider === "fake" ? (

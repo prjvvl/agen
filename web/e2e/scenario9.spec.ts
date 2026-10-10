@@ -13,6 +13,7 @@ test("scenario 9: autoscale burst through the UI", async ({ page }) => {
   await page.getByLabel("Name", { exact: true }).fill("burst");
   await page.getByLabel("Max instances").fill("5");
   await page.getByLabel("Idle timeout").fill("2s");
+  await page.getByLabel("Model provider").selectOption("fake");
   await page.getByLabel("Scripted reply").fill("done");
   await page.getByLabel("Reply delay").fill("200");
   await page.getByRole("button", { name: "Create agent" }).click();

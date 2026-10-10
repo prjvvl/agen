@@ -47,6 +47,8 @@ test("create an agent from the form, run a task, open its trace", async ({ page 
   await page.getByRole("link", { name: "New agent" }).click();
   await page.getByLabel("Name", { exact: true }).fill("greeter");
   await page.getByLabel("Description").fill("Says hello");
+  await expect(page.getByLabel("Model provider")).toHaveValue("openrouter");
+  await page.getByLabel("Model provider").selectOption("fake");
   await page.getByLabel("Scripted reply").fill("Hello from the UI agent.");
   await page.getByRole("button", { name: "Create agent" }).click();
   await expect(page.getByRole("heading", { name: /default\/greeter/ })).toBeVisible();

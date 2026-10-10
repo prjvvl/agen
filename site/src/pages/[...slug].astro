@@ -1,0 +1,30 @@
+---
+import { render } from "astro:content";
+import DocsLayout from "../layouts/DocsLayout.astro";
+import { allDocs, docDescription, docTitle, neighbours, sidebar, type Doc } from "../lib/docs";
+
+export async function getStaticPaths() {
+  const docs = await allDocs();
+  const groups = sidebar(docs);
+  return docs
+    .filter((doc) => doc.id !== "index")
+    .map((doc) => ({ params: { slug: doc.id }, props: { doc, groups } }));
+}
+
+const { doc, groups } = Astro.props as { doc: Doc; groups: ReturnType<typeof sidebar> };
+const { Content, headings } = await render(doc);
+const { prev, next } = neighbours(groups, doc.id);
+---
+
+<DocsLayout
+  title={docTitle(doc)}
+  description={docDescription(doc)}
+  id={doc.id}
+  sourcePath={`docs/${doc.id}.md`}
+  groups={groups}
+  headings={headings}
+  prev={prev}
+  next={next}
+>
+  <Content />
+</DocsLayout>

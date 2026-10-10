@@ -70,8 +70,44 @@ type Gateway struct {
 	// saturatedAt throttles scale-up requests per deployment.
 	saturatedAt map[[2]string]time.Time
 	// wokeAt throttles wake requests per deployment while calls wait.
-	wokeAt   map[[2]string]time.Time
-	maxTasks int
+	wokeAt map[[2]string]time.Time
+	// conversations serialises the calls of one A2A context on this Gateway.
+	conversations map[string]*conversationLock
+	maxTasks      int
+}
+
+type conversationLock struct {
+	ch    chan struct{}
+	users int
+}
+
+// lockConversation waits until no other call of the conversation runs here.
+func (g *Gateway) lockConversation(ctx context.Context, key string) (func(), error) {
+	g.mu.Lock()
+	if g.conversations == nil {
+		g.conversations = map[string]*conversationLock{}
+	}
+	l := g.conversations[key]
+	if l == nil {
+		l = &conversationLock{ch: make(chan struct{}, 1)}
+		g.conversations[key] = l
+	}
+	l.users++
+	g.mu.Unlock()
+	done := func() {
+		g.mu.Lock()
+		if l.users--; l.users == 0 {
+			delete(g.conversations, key)
+		}
+		g.mu.Unlock()
+	}
+	select {
+	case l.ch <- struct{}{}:
+		return func() { <-l.ch; done() }, nil
+	case <-ctx.Done():
+		done()
+		return nil, ctx.Err()
+	}
 }
 
 // New returns a Gateway over a Manager.
@@ -348,6 +384,23 @@ func metaString(p sendParams, key string) string {
 	return s
 }
 
+// metaLabels reads the optional "agen.labels" object of string values.
+func metaLabels(p sendParams) (map[string]string, error) {
+	raw, ok := meta(p, "agen.labels").(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("label %q must be a string", k)
+		}
+		out[k] = s
+	}
+	return out, store.CheckLabels(out)
+}
+
 func metaInt(p sendParams, key string) int {
 	switch v := meta(p, key).(type) {
 	case float64:
@@ -441,8 +494,15 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 	if who.ok {
 		task.Metadata["agen.caller"] = who.claims.Sub
 	}
+	labels, lerr := metaLabels(p)
+	if lerr != nil {
+		return nil, errf(codeInvalidParams, http.StatusBadRequest, "metadata agen.labels: %v", lerr)
+	}
+	// A context continues one conversation, per caller: another caller using
+	// the same context id gets a conversation of its own.
+	conversationKey := "a2a:" + who.sub() + ":" + contextID
 	host := manager.HostTask{ID: taskID, Input: strings.Join(text, "\n"), ParentRunID: parentRun,
-		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth}
+		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth, ConversationKey: conversationKey, Labels: labels}
 	// A person (user token) asking directly: the run is theirs, so they
 	// cannot approve its asks. The signed token itself is recorded, so the
 	// Hub can check it (a host cannot forge a requester). Agent calls
@@ -456,11 +516,18 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 		host.Caller = who.claims.Sub
 	}
 
+	unlock, cerr := g.lockConversation(ctx, conversationKey)
+	if cerr != nil {
+		return nil, errf(codeUnavailable, http.StatusServiceUnavailable, "request cancelled while an earlier message of context %s was running", contextID)
+	}
+	defer unlock()
+
 	// An instance can die mid-call: the same task id resumes its run on
 	// another instance.
 	var res manager.HostRunResult
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
+		host.Attempts = attempt + 1
 		slot, rerr := g.acquire(ctx, ns, dep)
 		if rerr != nil {
 			return nil, rerr

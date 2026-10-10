@@ -4,30 +4,16 @@ Local and distributed fleets use the **same two binaries** (`agen`,
 `agen-host`) and the **same commands**; only the configuration differs
 (where the Store is, whether the Hub uses TLS, how many Nests join).
 
-## Install
-
-From a release archive, downloaded from
-[GitHub Releases](https://github.com/prjvvl/agen/releases) or built with
-`scripts/release.sh`:
-
-```sh
-sh scripts/install.sh dist/agen_<version>_<os>_<arch>.tar.gz # Linux/macOS
-.\scripts\install.ps1 dist\agen_<version>_windows_amd64.zip # Windows
-```
-
-Both put `agen` and `agen-host` in `~/.agen/bin`. Uninstall with
-`install.sh --uninstall [--purge]` / `install.ps1 -Uninstall [-Purge]`
-(`--purge` also deletes `~/.agen`: the local store and credentials; it
-refuses a directory that does not look like an Agen home). Archives come
-with a `.sha256` file, which the installers check (required when installing
-from a URL, or pass `--sha256` / `-Sha256`). Agen
-registers no OS services; `agen down` stops everything it started.
+Install Agen on every machine that runs a Hub or a Nest, and on clients:
+see [Install](install.md). Agen registers no OS services; run Hubs and Nests
+under your service manager (systemd, or the StatefulSets in `deploy/kube`).
 
 ## Local: one process
 
 ```sh
 agen up # Hub + scheduler + one Nest, SQLite in ~/.agen; keeps running, so use a second terminal for the rest
-agen deploy examples/bundles/hello --replicas 1
+agen init # writes the hello example to ./hello
+agen deploy hello --replicas 1
 agen run hello "hi"
 agen ps --all # deployments and instances
 agen ui # sign-in link for the web UI
@@ -60,7 +46,7 @@ agen nest run --hub https://hub.example:7070 --join-token <token> --ca-hash sha2
 
 # Clients: the same fleet commands, pointed at the Hub
 export AGEN_HUB=https://hub.example:7070 AGEN_TOKEN=... AGEN_CA_HASH=sha256:<hash>
-agen deploy examples/bundles/hello --replicas 3
+agen deploy hello --replicas 3 # a bundle directory, e.g. from agen init
 agen ps --all
 ```
 
@@ -123,7 +109,7 @@ kubectl -n agen-nests create secret generic agen-join --from-literal=token=<join
 # Optional: variables every agent instance gets, e.g. a provider key.
 kubectl -n agen-nests create secret generic agen-host-env --from-literal=OPENROUTER_API_KEY=<key>
 kubectl apply -f deploy/kube/nest.yaml
-agen deploy examples/bundles/hello --hub https://127.0.0.1:17444 --token <admin token> --ca-hash sha256:<hash>
+agen deploy hello --hub https://127.0.0.1:17444 --token <admin token> --ca-hash sha256:<hash>
 ```
 
 On a host whose Docker uses cgroup v1 (older WSL2 kernels), recent kubelets

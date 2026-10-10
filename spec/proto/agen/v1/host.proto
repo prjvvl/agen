@@ -56,6 +56,8 @@ message HealthResponse {
   bool ready = 2;
   int32 running_tasks = 3;
   bool draining = 4;
+  repeated string tools = 5;
+  repeated ToolServer tool_servers = 6;
 }
 
 message RunTaskRequest {

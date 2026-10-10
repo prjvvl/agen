@@ -51,6 +51,10 @@ header nav a.active {
   color: var(--text);
   font-weight: 600;
 }
+header a.link {
+  text-decoration: none;
+  color: var(--muted);
+}
 .brand {
   font-weight: 700;
   text-decoration: none;
