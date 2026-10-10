@@ -32,8 +32,9 @@ expired (`approvalTimeout`, default 1 h).
 `spec/bundle/` and in `GetBundleGuide`.
 
 **The agent says it has no tools, or never uses them.**
-- `agen ps --all` shows the tool count per instance; 0 means `mcp.json` is
-  missing or its servers failed to start (the instance logs say why).
+- `agen ps --all` shows the tool count per instance; 0 means the bundle has
+  no `mcp.json` servers. A server that fails to start fails the whole
+  instance, and `agen logs` says why.
 - `--validate` warns about an agent with no tools and about permission rules
   that name servers the bundle does not have.
 - `permissions.default` is `ask` when unset: every call waits for an approval
@@ -73,8 +74,7 @@ which.
 
 **A task was retried.** If an instance dies mid-task, the task is released and
 the next attempt resumes the same run on another instance (logged as
-`returned to the queue` / `requeued`). After `max_task_attempts` (default 5)
-expired leases it fails instead.
+`returned to the queue` / `requeued`). After 5 expired leases it fails instead.
 
 **`webhook is misconfigured`.** The trigger's settings are wrong (for example
 its signing secret is not set); the reason is in `agen logs <name>`.

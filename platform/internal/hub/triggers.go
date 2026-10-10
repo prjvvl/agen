@@ -272,9 +272,17 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 			return
 		}
 		t := webhookTrigger(d, trig)
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-		if err != nil {
-			reply(http.StatusRequestEntityTooLarge, map[string]string{"error": "body too large (max 1 MiB)"})
+		var body []byte
+		readBody := func() bool {
+			if body, err = io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20)); err != nil {
+				reply(http.StatusRequestEntityTooLarge, map[string]string{"error": "body too large (max 1 MiB)"})
+				return false
+			}
+			return true
+		}
+		// A bearer token is checked before the body is read; a signature needs it.
+		hmacAuth := t.GetAuth().GetType() == "hmac"
+		if hmacAuth && !readBody() {
 			return
 		}
 		ok, why, err := h.webhookAuthorized(ctx, d, t, r.Header, body)
@@ -292,6 +300,9 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 			reply(http.StatusUnauthorized, map[string]string{"error": why})
 			return
 		}
+		if !hmacAuth && !readBody() {
+			return
+		}
 		input := string(body)
 		if t.Input != "" {
 			input = t.Input + "\n\n" + input
@@ -300,15 +311,13 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		if idem == nil {
 			idem = &agenv1.KeySource{Header: "Idempotency-Key"}
 		}
-		key := ""
-		if k := keyFrom(idem, r.Header, body); k != "" {
-			key = "webhook:" + trig + ":" + k
-		}
-		conversation := scopedKey("webhook:"+trig+":", keyFrom(t.GetConversationKey(), r.Header, body))
-		if len(conversation) > 256 {
-			reply(http.StatusBadRequest, map[string]string{"error": "conversation key is longer than 256 bytes"})
+		k, ck := keyFrom(idem, r.Header, body), keyFrom(t.GetConversationKey(), r.Header, body)
+		if len(k) > 256 || len(ck) > 256 {
+			reply(http.StatusBadRequest, map[string]string{"error": "idempotency and conversation keys may be at most 256 bytes"})
 			return
 		}
+		key := scopedKey("webhook:"+trig+":", k)
+		conversation := scopedKey("webhook:"+trig+":", ck)
 		task, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: input, Source: "webhook:" + trig,
 			IdempotencyKey: key, SubmittedBy: "trigger:webhook:" + trig, ConversationKey: conversation, Labels: t.Labels})
 		if err != nil {

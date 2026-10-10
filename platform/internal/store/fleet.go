@@ -380,13 +380,12 @@ func (s *Store) ListInstances(ctx context.Context, ns, deployment, nestID string
 	return out, rows.Err()
 }
 
-// AppendLog writes a platform log line for a deployment.
+// AppendLog writes a platform log line for a deployment; GetLogs shows it
+// with the instances' own lines.
 func (s *Store) AppendLog(ctx context.Context, instanceID, ns, deployment, level, msg string) error {
 	return appendLog(ctx, s.db, instanceID, ns, deployment, level, msg)
 }
 
-// appendLog writes a platform log line for a deployment (shown with the
-// instances' own lines by GetLogs).
 func appendLog(ctx context.Context, q interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }, instanceID, ns, deployment, level, msg string) error {

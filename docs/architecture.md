@@ -162,7 +162,7 @@ current one, so a partitioned Nest cannot complete a task that was re-leased.
 A task may carry a **conversation key** (scoped by its source: `api:`,
 `webhook:<trigger>:`; A2A uses `a2a:<caller>:<contextId>`) and **labels**. Tasks
 of one deployment with the same key share a session and so continue one
-conversation; a task is leased only when no older task with its key is queued
+conversation (a singleton keeps its one conversation and ignores keys); a task is leased only when no older task with its key is queued
 or in flight, so they run one at a time, in submission order. Labels are
 copied to the task's runs, tool calls and child tasks. When the Hub fails a
 task (lease expired too often) or cancels it, it also ends the task's
@@ -220,7 +220,7 @@ tasks only up to free slots, mark them running, extend leases while they run
 id. A task the host could not take is released back to the queue at once
 (`ReleaseTask`, attempt not counted). If a host dies mid-task the task is
 released (attempt counted) and re-leased, and its run resumes on another
-instance; a task whose lease expires `max_task_attempts` (default 5) times
+instance; a task whose lease expires 5 times (`Scheduler.MaxTaskAttempts`)
 fails instead of looping. Instances are tied to the Manager's lifetime (Job
 Object on Windows, parent-death signal on Linux); a host that ignores SIGTERM
 is killed after a grace period. Downloaded definitions are checked against

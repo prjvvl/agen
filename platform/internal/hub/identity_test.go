@@ -193,6 +193,17 @@ func TestConversationKeysLabelsAndLeasingOrder(t *testing.T) {
 	if len(next) != 1 || next[0].ID != a2.Id || next[0].Labels != nil && len(next[0].Labels) != 0 {
 		t.Fatalf("after cancel: %v", next)
 	}
+	// A task that fails ends its run too.
+	if _, err := e.store.DB().ExecContext(ctx, "INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, started_ms, task_id, owner, epoch) "+
+		"VALUES ('r2','s1','c1','default','hello','running','hi',2,$1,'host-1',1)", a2.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.CompleteTask(ctx, a2.Id, next[0].LeaseID, false, "", "store unavailable", "r2", "i1"); err != nil {
+		t.Fatal(err)
+	}
+	if run, err := e.store.GetRun(ctx, "r2"); err != nil || run.Status != "failed" || run.EndedMs == 0 {
+		t.Fatalf("run after a failed task: %+v %v", run, err)
+	}
 }
 
 func TestValidateOnlyGuideAndWhoAmI(t *testing.T) {

@@ -11,8 +11,8 @@ conversation a run joins depends on how it was started.
 |---|---|
 | Task without a conversation key (`agen run`, `SubmitTask`, a trigger) on a `pool` or `task` deployment | A new one for each task. |
 | Task with a **conversation key** | One per key and deployment: every task with the same key continues it. |
-| Any task or call to a `singleton` without a key | The deployment's one long-lived conversation. |
-| A2A `message/send` | One per `contextId` and caller. A message without `contextId` gets a new one, returned in the answer; send it with the next message to continue. |
+| Any task or call to a `singleton` | The deployment's one long-lived conversation (keys and `contextId` are ignored). |
+| A2A `message/send` to a `pool` or `task` deployment | One per `contextId` and caller. A message without `contextId` gets a new one, returned in the answer; send it with the next message to continue. |
 | A delegated call (`call_agent`) | A new one for each call. |
 
 Set the key per task:

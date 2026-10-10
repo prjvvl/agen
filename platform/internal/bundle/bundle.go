@@ -97,10 +97,17 @@ func (s Scale) IdleSeconds() int {
 // Trigger from config.json. Raw is the whole entry (its fields are the
 // agen.v1.Trigger JSON names), with Name filled in when it was left out.
 type Trigger struct {
-	Type     string `json:"type"`
-	Name     string `json:"name,omitempty"`
-	Schedule string `json:"schedule,omitempty"`
-	Raw      json.RawMessage
+	Type     string          `json:"type"`
+	Name     string          `json:"name,omitempty"`
+	Schedule string          `json:"schedule,omitempty"`
+	Raw      json.RawMessage `json:"-"`
+}
+
+// Delegate is a deployment the agent may call (config.json delegates).
+type Delegate struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 // Notify is config.json permissions.notify.
@@ -123,7 +130,7 @@ type Bundle struct {
 	// What the agent can use, for warnings about likely mistakes.
 	Provider        string
 	ToolServers     []string
-	Delegates       []string
+	Delegates       []Delegate
 	Skills          int
 	PermissionRules []string
 	ToolSettings    []string
@@ -245,19 +252,15 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 				} `json:"rules"`
 				Notify *Notify `json:"notify"`
 			} `json:"permissions"`
-			Delegates []struct {
-				Name string `json:"name"`
-			} `json:"delegates"`
-			Tools map[string]json.RawMessage `json:"tools"`
+			Delegates []Delegate                 `json:"delegates"`
+			Tools     map[string]json.RawMessage `json:"tools"`
 		}
 		_ = json.Unmarshal(raw, &c)
 		for _, r := range c.Permissions.Rules {
 			b.PermissionRules = append(b.PermissionRules, r.Tool)
 		}
 		b.Notify = c.Permissions.Notify
-		for _, d := range c.Delegates {
-			b.Delegates = append(b.Delegates, d.Name)
-		}
+		b.Delegates = c.Delegates
 		for k := range c.Tools {
 			b.ToolSettings = append(b.ToolSettings, k)
 		}

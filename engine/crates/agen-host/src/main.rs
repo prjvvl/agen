@@ -106,8 +106,7 @@ fn default_store() -> anyhow::Result<String> {
 
 async fn build_agent(bundle_dir: &Path, common: &Common) -> anyhow::Result<Agent> {
     let mut bundle = Bundle::load(bundle_dir)?;
-    // Managed mode: the definition the Manager unpacked. The directory can
-    // hold files tool servers wrote since, which would change a recomputed digest.
+    // Managed mode: the digest of the definition the Manager unpacked.
     if let Some(d) = std::env::var("AGEN_DEFINITION_DIGEST").ok().filter(|d| !d.is_empty()) {
         bundle.digest = d;
     }

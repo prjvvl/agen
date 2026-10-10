@@ -84,6 +84,8 @@ printf %s "$HOOK_KEY" | agen secret set APPROVAL_HOOK_KEY --for my-agent
 ```
 
 Failed notifications are written to the deployment's logs (`agen logs`).
+The Hub posts to whatever URL the bundle names, including internal
+addresses, so only trusted operators should deploy bundles.
 
 ## Embedded agents
 

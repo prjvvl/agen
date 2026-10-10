@@ -50,7 +50,7 @@ tool server can attribute, scope or audit it:
 | Key | Value |
 |---|---|
 | `agen/namespace`, `agen/deployment` | Where the agent runs. |
-| `agen/taskId` | The task (empty for an A2A call). |
+| `agen/taskId` | The task, or the A2A task for an A2A call. |
 | `agen/runId`, `agen/rootRunId` | This run, and the first run of its delegation tree. |
 | `agen/conversationId`, `agen/conversationKey` | The conversation, and the caller's key for it if any. |
 | `agen/labels` | The task's labels (an object of strings). |

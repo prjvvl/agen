@@ -155,8 +155,11 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// IDs made by one process sort in creation order, also within a millisecond.
 pub fn new_id() -> String {
-    ulid::Ulid::generate().to_string()
+    static GENERATOR: std::sync::Mutex<ulid::Generator> = std::sync::Mutex::new(ulid::Generator::new());
+    let mut g = GENERATOR.lock().unwrap_or_else(|e| e.into_inner());
+    g.generate().unwrap_or_else(|_| ulid::Ulid::generate()).to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

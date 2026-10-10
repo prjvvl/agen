@@ -219,11 +219,19 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, leaseID string, succes
 	if success {
 		state = "succeeded"
 	}
-	res, err := s.db.ExecContext(ctx,
-		"UPDATE tasks SET state = $1, output = $2, error = $3, run_id = $4, instance_id = $5, lease_expires_ms = 0, updated_ms = $6 "+
-			"WHERE id = $7 AND lease_id = $8 AND state IN ('leased', 'running')",
-		state, output, errMsg, runID, instanceID, NowMs(), taskID, leaseID)
-	return fenced(res, err)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		t, err := scanTask(tx.QueryRowContext(ctx,
+			"UPDATE tasks SET state = $1, output = $2, error = $3, run_id = $4, instance_id = $5, lease_expires_ms = 0, updated_ms = $6 "+
+				"WHERE id = $7 AND lease_id = $8 AND state IN ('leased', 'running') RETURNING "+taskCols,
+			state, output, errMsg, runID, instanceID, NowMs(), taskID, leaseID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrFenced
+		}
+		if err != nil || success {
+			return err
+		}
+		return endTaskRun(ctx, tx, t, "failed", errMsg)
+	})
 }
 
 // RequeueExpiredLeases returns tasks whose lease expired to the queue. A task

@@ -177,8 +177,15 @@ func (h *Hub) bundleWarnings(ctx context.Context, ns string, b *bundle.Bundle) [
 		}
 	}
 	for _, d := range b.Delegates {
-		if _, err := h.Store.GetDeployment(ctx, ns, d); err != nil {
-			w = append(w, fmt.Sprintf("x-agen/config.json: delegate %q is not deployed in namespace %s", d, ns))
+		if d.URL != "" {
+			continue
+		}
+		dns := d.Namespace
+		if dns == "" {
+			dns = ns
+		}
+		if _, err := h.Store.GetDeployment(ctx, dns, d.Name); err != nil {
+			w = append(w, fmt.Sprintf("x-agen/config.json: delegate %q is not deployed in namespace %s", d.Name, dns))
 		}
 	}
 	if _, ok := b.Files["x-agen/secrets.json"]; !ok && (b.Provider == "openrouter" || b.Provider == "openai") {

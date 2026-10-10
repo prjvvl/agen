@@ -277,3 +277,22 @@ async fn a_resumed_run_hangs_under_its_interrupted_span() {
     assert_eq!(resumed.attributes["agen.task.attempt"], 2);
     assert_eq!(resumed.status, "ok");
 }
+
+#[tokio::test]
+async fn a_singleton_keeps_one_conversation_whatever_the_key() {
+    let (s, _d) = store().await;
+    let agent = Agent::builder(AgentConfig::new("calc", "x", "fake-1"), s)
+        .provider(Arc::new(FakeProvider::new(vec![say("one")]).cycling()))
+        .build()
+        .unwrap();
+    let opts = |k: &str| RunOptions {
+        singleton: true,
+        conversation_key: k.into(),
+        ..Default::default()
+    };
+    let a = agent.run("first", opts("a2a::ctx-1")).await.unwrap();
+    let b = agent.run("second", opts("a2a::ctx-2")).await.unwrap();
+    let c = agent.run("third", opts("")).await.unwrap();
+    assert_eq!(a.conversation_id, b.conversation_id);
+    assert_eq!(a.conversation_id, c.conversation_id);
+}

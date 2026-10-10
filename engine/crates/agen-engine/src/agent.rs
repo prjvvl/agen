@@ -137,7 +137,8 @@ pub struct RunOptions {
     /// Start a fresh conversation in the session.
     pub new_conversation: bool,
     /// Continue the conversation of earlier runs with the same key (managed
-    /// mode: the task's conversation key). Ignored when `session_id` is set.
+    /// mode: the task's conversation key). Ignored when `session_id` is set,
+    /// and by singletons, which have one conversation.
     pub conversation_key: String,
     /// Copied to the run, its tool calls and the tasks it delegates.
     pub labels: BTreeMap<String, String>,
@@ -464,7 +465,7 @@ impl Agent {
     async fn start_run(&self, input: &str, opts: &RunOptions) -> Result<RunResult, AgentError> {
         let session = match (&opts.session_id, opts.singleton) {
             (Some(id), _) => self.store.get_session(id).await?,
-            (None, _) if !opts.conversation_key.is_empty() => {
+            (None, false) if !opts.conversation_key.is_empty() => {
                 self.store
                     .session_for_key(
                         &self.cfg.name,
