@@ -1,0 +1,115 @@
+---
+import { Check, Copy } from "@lucide/astro";
+
+interface Props {
+  /** One tab per platform; the first is selected by default. */
+  commands: { label: string; prompt: string; command: string }[];
+}
+
+const { commands } = Astro.props;
+---
+
+<div class="install-command code-surface mx-auto max-w-2xl overflow-hidden p-0! text-left" data-install>
+  <div class="flex items-center justify-between gap-2 border-b border-code-border px-2" role="tablist" aria-label="Platform">
+    <div class="flex">
+      {
+        commands.map(({ label }, i) => (
+          <button
+            type="button"
+            role="tab"
+            data-tab={i}
+            aria-selected={i === 0 ? "true" : "false"}
+            class="install-tab relative min-h-10 px-3 text-xs font-medium"
+          >
+            {label}
+          </button>
+        ))
+      }
+    </div>
+    <button type="button" class="install-copy inline-flex min-h-10 items-center gap-1.5 px-2 text-xs" aria-label="Copy install command">
+      <Copy class="copy-icon size-3.5" aria-hidden="true" />
+      <Check class="check-icon hidden size-3.5" aria-hidden="true" />
+      <span class="copy-label">Copy</span>
+    </button>
+  </div>
+  {
+    commands.map(({ prompt, command }, i) => (
+      <pre
+        class="m-0 overflow-x-auto px-4 py-3.5 font-mono text-sm"
+        role="tabpanel"
+        data-panel={i}
+        hidden={i !== 0}><code><span class="select-none install-prompt">{prompt} </span><span data-command>{command}</span></code></pre>
+    ))
+  }
+</div>
+
+<style>
+  .install-command {
+    color: var(--color-code-fg);
+  }
+
+  .install-tab {
+    color: var(--color-code-muted);
+  }
+
+  .install-tab:hover {
+    color: var(--color-code-fg);
+  }
+
+  .install-tab[aria-selected="true"] {
+    color: var(--color-code-fg);
+  }
+
+  .install-tab[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0.75rem;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background-color: var(--color-link);
+  }
+
+  .install-copy {
+    color: var(--color-code-muted);
+  }
+
+  .install-copy:hover {
+    color: var(--color-code-fg);
+  }
+
+  .install-prompt {
+    color: var(--color-code-muted);
+  }
+</style>
+
+<script>
+  // Delegated on document so it survives ClientRouter page swaps.
+  document.addEventListener("click", async (event) => {
+    const target = event.target as HTMLElement;
+    const root = target.closest<HTMLElement>("[data-install]");
+    if (!root) return;
+
+    const tab = target.closest<HTMLElement>("[data-tab]");
+    if (tab) {
+      for (const t of root.querySelectorAll("[data-tab]")) t.setAttribute("aria-selected", String(t === tab));
+      for (const p of root.querySelectorAll<HTMLElement>("[data-panel]")) p.hidden = p.dataset.panel !== tab.dataset.tab;
+      return;
+    }
+
+    const copy = target.closest<HTMLElement>(".install-copy");
+    if (copy) {
+      const command = root.querySelector("[data-panel]:not([hidden]) [data-command]")?.textContent ?? "";
+      await navigator.clipboard.writeText(command);
+      const label = copy.querySelector(".copy-label");
+      copy.querySelector(".copy-icon")?.classList.add("hidden");
+      copy.querySelector(".check-icon")?.classList.remove("hidden");
+      if (label) label.textContent = "Copied";
+      setTimeout(() => {
+        copy.querySelector(".copy-icon")?.classList.remove("hidden");
+        copy.querySelector(".check-icon")?.classList.add("hidden");
+        if (label) label.textContent = "Copy";
+      }, 1500);
+    }
+  });
+</script>

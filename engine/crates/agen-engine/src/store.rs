@@ -4,6 +4,8 @@
 //! (numbered `$N` placeholders, used in order) and the migrations in
 //! `spec/sql/<dialect>/`.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
@@ -12,7 +14,7 @@ use crate::provider::{Message, Usage};
 
 macro_rules! run_cols {
     () => {
-        "id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, output, error, step, input_tokens, output_tokens, cost_usd, trace_id, started_ms, ended_ms, requested_by"
+        "id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, output, error, step, input_tokens, output_tokens, cost_usd, trace_id, started_ms, ended_ms, requested_by, labels"
     };
 }
 
@@ -136,6 +138,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0018_platform_secret_deployments.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0018_platform_secret_deployments.sql"),
     },
+    Migration {
+        version: 19,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0019_work_identity.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0019_work_identity.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -148,8 +155,11 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// IDs made by one process sort in creation order, also within a millisecond.
 pub fn new_id() -> String {
-    ulid::Ulid::generate().to_string()
+    static GENERATOR: std::sync::Mutex<ulid::Generator> = std::sync::Mutex::new(ulid::Generator::new());
+    let mut g = GENERATOR.lock().unwrap_or_else(|e| e.into_inner());
+    g.generate().unwrap_or_else(|_| ulid::Ulid::generate()).to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,6 +194,9 @@ pub struct RunRecord {
     /// Who asked for this run when no Hub task says so: the principal of a
     /// verified A2A call token (set by the Gateway). Used for approvals.
     pub requested_by: String,
+    /// The task's labels, passed on to tool calls and delegated tasks.
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -481,6 +494,33 @@ impl Store {
         self.get_session(&row.get::<String, _>(0)).await
     }
 
+    /// The session for a caller-chosen conversation key, created on first
+    /// use. Safe under concurrency: a unique index admits one per key.
+    pub async fn session_for_key(&self, agent: &str, namespace: &str, deployment: &str, key: &str) -> Result<Session> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms, conversation_key) \
+             VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) ON CONFLICT (namespace, deployment, conversation_key) WHERE conversation_key <> '' DO NOTHING",
+        )
+        .bind(new_id())
+        .bind(agent)
+        .bind(namespace)
+        .bind(deployment)
+        .bind(now)
+        .bind(now)
+        .bind(key)
+        .execute(&self.pool)
+        .await?;
+        let row =
+            sqlx::query("SELECT id FROM sessions WHERE namespace = $1 AND deployment = $2 AND conversation_key = $3")
+                .bind(namespace)
+                .bind(deployment)
+                .bind(key)
+                .fetch_one(&self.pool)
+                .await?;
+        self.get_session(&row.get::<String, _>(0)).await
+    }
+
     pub async fn set_memory(&self, session_id: &str, memory: &serde_json::Value) -> Result<()> {
         sqlx::query("UPDATE sessions SET memory = $1, updated_ms = $2 WHERE id = $3")
             .bind(memory.to_string())
@@ -581,8 +621,8 @@ impl Store {
     /// unfinished run.
     pub async fn create_run(&self, r: &RunRecord, owner: &str) -> Result<i64> {
         sqlx::query(
-            "INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, trace_id, started_ms, owner, epoch, requested_by) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 1, $15)",
+            "INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, trace_id, started_ms, owner, epoch, requested_by, labels) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 1, $15, $16)",
         )
         .bind(&r.id)
         .bind(&r.session_id)
@@ -599,6 +639,7 @@ impl Store {
         .bind(r.started_ms)
         .bind(owner)
         .bind(&r.requested_by)
+        .bind(serde_json::to_string(&r.labels).expect("labels serialize"))
         .execute(&self.pool)
         .await
         .map_err(conflict("conversation already has an unfinished run, or the task already has a run"))?;
@@ -745,7 +786,8 @@ impl Store {
     pub async fn insert_span(&self, s: &SpanRecord) -> Result<()> {
         sqlx::query(
             "INSERT INTO spans (span_id, trace_id, parent_span_id, run_id, name, start_ms, end_ms, status, attributes, seq) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
+             ON CONFLICT (span_id) DO UPDATE SET end_ms = excluded.end_ms, status = excluded.status, attributes = excluded.attributes",
         )
         .bind(&s.span_id)
         .bind(&s.trace_id)
@@ -760,6 +802,32 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// The run's top-level span that a dead owner left `unfinished`, if any.
+    pub async fn unfinished_run_span(&self, run_id: &str) -> Result<Option<SpanRecord>> {
+        let row = sqlx::query(
+            "SELECT span_id, trace_id, parent_span_id, run_id, name, start_ms, end_ms, status, attributes, seq FROM spans \
+             WHERE run_id = $1 AND status = 'unfinished' ORDER BY start_ms, seq LIMIT 1",
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| {
+            Ok(SpanRecord {
+                span_id: r.get(0),
+                trace_id: r.get(1),
+                parent_span_id: r.get(2),
+                run_id: r.get(3),
+                name: r.get(4),
+                start_ms: r.get(5),
+                end_ms: r.get(6),
+                status: r.get(7),
+                attributes: parse_json(&r.get::<String, _>(8))?,
+                seq: r.get(9),
+            })
+        })
+        .transpose()
     }
 
     pub async fn trace(&self, trace_id: &str) -> Result<Vec<SpanRecord>> {
@@ -1047,6 +1115,7 @@ fn run_from_row(r: &AnyRow) -> Result<RunRecord> {
         started_ms: r.get(18),
         ended_ms: r.get(19),
         requested_by: r.get(20),
+        labels: serde_json::from_str(&r.get::<String, _>(21)).map_err(|e| StoreError::Invalid(e.to_string()))?,
     })
 }
 

@@ -1,5 +1,7 @@
 //! Tool permission policy: rules evaluated deny → ask → allow, first match in
-//! that order wins; otherwise the policy default applies.
+//! that order wins; otherwise the policy default applies. A rule may name a
+//! tool as the agent registers it (`server.tool`) or as the model sees it
+//! (`server_tool`).
 
 use crate::bundle::{Action, Permissions};
 
@@ -29,11 +31,12 @@ pub fn glob_match(pattern: &str, name: &str) -> bool {
 }
 
 pub fn evaluate(policy: &Permissions, tool: &str) -> Action {
+    let wire = crate::provider::openai::wire_name(tool);
     for action in [Action::Deny, Action::Ask, Action::Allow] {
         if policy
             .rules
             .iter()
-            .any(|r| r.action == action && glob_match(&r.tool, tool))
+            .any(|r| r.action == action && (glob_match(&r.tool, tool) || glob_match(&r.tool, &wire)))
         {
             return action;
         }
@@ -84,5 +87,17 @@ mod tests {
             rules: vec![],
         };
         assert_eq!(evaluate(&open, "x"), Action::Allow);
+    }
+
+    #[test]
+    fn rules_match_the_name_the_model_sees() {
+        let p = Permissions {
+            approval_timeout: None,
+            default: Action::Allow,
+            rules: vec![rule("exchange_place_order", Action::Deny), rule("bank_*", Action::Ask)],
+        };
+        assert_eq!(evaluate(&p, "exchange.place_order"), Action::Deny);
+        assert_eq!(evaluate(&p, "bank.pay"), Action::Ask);
+        assert_eq!(evaluate(&p, "exchange.get_price"), Action::Allow);
     }
 }

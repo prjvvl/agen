@@ -343,7 +343,8 @@ impl Tool for CallAgent {
                     "traceparent": ctx.traceparent,
                     "agen.depth": depth,
                     "agen.root_run_id": root,
-                    "agen.parent_run_id": ctx.run_id
+                    "agen.parent_run_id": ctx.run_id,
+                    "agen.labels": ctx.labels
                 }
             }
         });

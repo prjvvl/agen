@@ -10,61 +10,103 @@ option go_package = "github.com/prjvvl/agen/platform/gen/agen/v1;agenv1";
 // Client-facing control plane API. Served by the Hub over Connect (gRPC,
 // Connect, JSON) and exposed 1:1 as MCP tools. CLI and UI use only this.
 service HubService {
-  // Deployments
+  // Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
   rpc CreateDeployment(CreateDeploymentRequest) returns (CreateDeploymentResponse);
+  // Roll out a new bundle version and/or change a deployment's scale, budget, limits, triggers or placement.
   rpc UpdateDeployment(UpdateDeploymentRequest) returns (UpdateDeploymentResponse);
+  // A deployment and its instances (with the tools each loaded and their tool servers' state).
   rpc GetDeployment(GetDeploymentRequest) returns (GetDeploymentResponse);
+  // Deployments in a namespace ("" = every namespace the token may see).
   rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  // Set the desired number of instances (within scale.min..max).
   rpc ScaleDeployment(ScaleDeploymentRequest) returns (ScaleDeploymentResponse);
+  // Delete a deployment; its instances stop.
   rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
   // Pause (stop all instances and hold at 0) or resume a deployment.
   rpc PauseDeployment(PauseDeploymentRequest) returns (PauseDeploymentResponse);
 
-  // Fleet view
+  // Every instance on every Nest, with state, running tasks and loaded tools.
   rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  // Enrolled Nests (machines or clusters that run instances).
   rpc ListNests(ListNestsRequest) returns (ListNestsResponse);
 
-  // Work
+  // Queue a task (one agent run) for a deployment. Use conversationKey to continue an earlier conversation.
   rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse);
+  // A task and its result; waitSeconds (up to 300) waits for it to finish.
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  // Recent tasks, newest first.
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  // Cancel a task that has not finished; a running run is stopped.
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
 
-  // Addressing
+  // A2A endpoints of a deployment and a short-lived call token for them.
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // Start a sleeping deployment (scale it to at least 1).
   rpc RequestWake(RequestWakeRequest) returns (RequestWakeResponse);
 
-  // Approvals
+  // Approvals ("ask" permissions) that wait for a decision, or past ones.
   rpc ListApprovals(ListApprovalsRequest) returns (ListApprovalsResponse);
+  // Approve or deny an approval. The principal whose work asked cannot decide it.
   rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
 
-  // Definitions (bundle versions)
+  // Bundle versions (definitions), without their files.
   rpc ListDefinitions(ListDefinitionsRequest) returns (ListDefinitionsResponse);
+  // One bundle version with its files (text files also as textFiles).
   rpc GetDefinition(GetDefinitionRequest) returns (GetDefinitionResponse);
 
-  // Triggers
+  // Trigger firings: fired, missed (Hub down) and rejected (bad credentials).
   rpc ListTriggerEvents(ListTriggerEventsRequest) returns (ListTriggerEventsResponse);
   // Create (or rotate) the secret a webhook trigger's callers must present.
   rpc CreateWebhookSecret(CreateWebhookSecretRequest) returns (CreateWebhookSecretResponse);
-  // Platform secrets (bundle secrets with source "platform"), per namespace.
-  // Values go in and never come back out through this API.
+  // Set a platform secret (bundle secrets with source "platform"), for named deployments. Values never come back out.
   rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
+  // Platform secret names in a namespace (never values).
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  // Delete a platform secret.
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
 
-  // Observability
+  // Runs (one per task or A2A call), newest first, with usage and cost.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  // The spans of a trace: model calls, tool calls and delegations across agents.
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
 
-  // Access
+  // A single-use token for enrolling a Nest (agen nest run --join-token).
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
+  // Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
   rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse);
+  // API tokens (never their secrets).
   rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse);
+  // Revoke an API token.
   rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse);
   // Revokes a Nest's credentials (bearer token and client certificate) and
   // reschedules its instances elsewhere.
   rpc RevokeNest(RevokeNestRequest) returns (RevokeNestResponse);
+  // The caller's identity, scopes and namespaces.
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+  // How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
+  rpc GetBundleGuide(GetBundleGuideRequest) returns (GetBundleGuideResponse);
+}
+
+message WhoAmIRequest {}
+message WhoAmIResponse {
+  // The principal id used in approvals ("admin" or "token:<id>").
+  string id = 1;
+  // The token's name ("" for the admin token).
+  string name = 2;
+  repeated string scopes = 3;
+  // Empty means every namespace.
+  repeated string namespaces = 4;
+}
+
+message GetBundleGuideRequest {}
+message GetBundleGuideResponse {
+  string guide = 1;
+  // Bundle-relative path the schema applies to -> JSON Schema text.
+  map<string, string> schemas = 2;
+  // A complete example bundle: path -> file text.
+  map<string, string> example = 3;
 }
 
 message CreateDeploymentRequest {
@@ -73,6 +115,11 @@ message CreateDeploymentRequest {
   string name = 2;
   // The bundle files. The Hub validates and stores them as a Definition.
   map<string, bytes> bundle_files = 3;
+  // Bundle files as text (merged with bundle_files; easier to write by hand
+  // or from an MCP client than base64).
+  map<string, string> bundle_text = 11;
+  // Check the bundle and settings and return warnings without deploying.
+  bool validate_only = 10;
   // Overrides for values from x-agen/config.json; unset means use the bundle.
   DeploymentKind kind = 6;
   ScalePolicy scale = 4;
@@ -82,7 +129,11 @@ message CreateDeploymentRequest {
   repeated Trigger triggers = 9;
 }
 message CreateDeploymentResponse {
+  // Unset when validate_only.
   Deployment deployment = 1;
+  // Problems that do not stop the deployment but probably are mistakes,
+  // e.g. an agent with no tools.
+  repeated string warnings = 2;
 }
 
 message UpdateDeploymentRequest {
@@ -95,9 +146,12 @@ message UpdateDeploymentRequest {
   // Replaces the trigger set when non-empty.
   repeated Trigger triggers = 6;
   Placement placement = 7;
+  map<string, string> bundle_text = 9;
+  bool validate_only = 8;
 }
 message UpdateDeploymentResponse {
   Deployment deployment = 1;
+  repeated string warnings = 2;
 }
 
 message GetDeploymentRequest {
@@ -157,6 +211,10 @@ message SubmitTaskRequest {
   string input = 2;
   // Optional client key; resubmitting the same key returns the same task.
   string idempotency_key = 3;
+  // Tasks with the same key continue one conversation (and its memory).
+  string conversation_key = 4;
+  // Free-form labels, copied to runs, tool calls and delegated tasks.
+  map<string, string> labels = 5;
 }
 message SubmitTaskResponse {
   Task task = 1;
@@ -164,7 +222,8 @@ message SubmitTaskResponse {
 
 message GetTaskRequest {
   string id = 1;
-  // Wait up to this many seconds for the task to finish.
+  // Wait up to this many seconds (at most 300) for the task to finish; the
+  // task is returned as it is when the wait ends.
   int32 wait_seconds = 2;
 }
 message GetTaskResponse {
@@ -258,6 +317,9 @@ message GetDefinitionRequest {
 }
 message GetDefinitionResponse {
   Definition definition = 1;
+  // The text files of the definition (UTF-8), for clients that do not want
+  // to decode base64.
+  map<string, string> text_files = 2;
 }
 
 message SetSecretRequest {

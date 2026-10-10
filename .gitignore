@@ -27,3 +27,4 @@
 /web/e2e/.bin/
 /web/test-results/
 /web/playwright-report/
+*.stackdump

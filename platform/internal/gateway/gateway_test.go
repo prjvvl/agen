@@ -258,8 +258,9 @@ func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	// The Hub goes away. A direct A2A call to boss still delegates to writer:
 	// Gateway -> boss -> Manager (cached resolve and call token) -> Gateway ->
 	// writer; Gateways verify tokens with their cached Hub key.
-	hubSrv.CloseClientConnections()
+	// Listener first: a connection accepted in between would still reach the Hub.
 	hubSrv.Listener.Close()
+	hubSrv.CloseClientConnections()
 	req, _ := http.NewRequest(http.MethodPost, gwURL+"/a2a/default/boss", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+res.Msg.Token)

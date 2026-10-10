@@ -1,0 +1,37 @@
+---
+import { withBase } from "../lib/url";
+import { buttonVariantClass } from "../lib/styles";
+
+interface Props {
+  /** Omit to render a real <button> instead of a link, needed for form
+   * submits, where `disabled`/`loading` are meaningful. */
+  href?: string;
+  type?: "button" | "submit" | "reset";
+  variant?: "primary" | "secondary";
+  disabled?: boolean;
+  loading?: boolean;
+}
+
+const { href, type = "button", variant = "primary", disabled = false, loading = false } = Astro.props;
+
+const isBusy = disabled || loading;
+const classes = [buttonVariantClass[variant], isBusy && "pointer-events-none opacity-60"];
+---
+
+{
+  href ? (
+    <a href={href.startsWith("/") ? withBase(href) : href} class:list={classes}>
+      <slot />
+    </a>
+  ) : (
+    <button type={type} disabled={isBusy} aria-busy={loading} class:list={classes}>
+      {loading && (
+        <svg class="size-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+          <path class="opacity-75" fill="currentColor" d="M12 2a10 10 0 0 1 10 10h-4a6 6 0 0 0-6-6V2Z" />
+        </svg>
+      )}
+      <slot />
+    </button>
+  )
+}

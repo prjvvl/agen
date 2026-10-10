@@ -351,6 +351,69 @@ async fn stdio_servers_do_not_inherit_host_credentials() {
 }
 
 #[tokio::test]
+async fn calls_carry_task_context_and_hints() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut servers = BTreeMap::new();
+    servers.insert(
+        "t".to_string(),
+        serde_json::from_value(json!({"command": SERVER, "env": {"PYTHONIOENCODING": "latin-1"}})).unwrap(),
+    );
+    let mut meta = BTreeMap::new();
+    meta.insert(
+        "t_echo".to_string(),
+        serde_json::from_value(json!({"idempotent": true})).unwrap(),
+    );
+    let (_c, tools) = mcp::connect(
+        dir.path(),
+        &servers,
+        &meta,
+        &Secrets::default(),
+        &Redactor::new(),
+        &McpOptions::default(),
+    )
+    .await
+    .unwrap();
+    let tool = |n: &str| tools.iter().find(|t| t.spec().name == n).unwrap().clone();
+    let ctx = ToolContext {
+        namespace: "default".into(),
+        deployment: "d".into(),
+        task_id: "task-1".into(),
+        run_id: "run-2".into(),
+        root_run_id: "run-1".into(),
+        conversation_id: "conv-3".into(),
+        conversation_key: "api:chat".into(),
+        labels: [("project".to_string(), "apollo".to_string())].into(),
+        traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".into(),
+        ..Default::default()
+    };
+    let got: Value = serde_json::from_str(&tool("t.context").call(json!({}), ctx.clone()).await.unwrap()).unwrap();
+    assert_eq!(got["agen/taskId"], "task-1");
+    assert_eq!(got["agen/runId"], "run-2");
+    assert_eq!(got["agen/rootRunId"], "run-1");
+    assert_eq!(got["agen/conversationId"], "conv-3");
+    assert_eq!(got["agen/conversationKey"], "api:chat");
+    assert_eq!(got["agen/labels"]["project"], "apollo");
+    assert_eq!(got["agen/deployment"], "d");
+    assert_eq!(got["traceparent"], ctx.traceparent);
+
+    // idempotentHint from the server, or config (by either name form).
+    assert!(tool("t.lookup").idempotency_key(&json!({"text": "a"})).is_some());
+    assert!(tool("t.echo").idempotency_key(&json!({"text": "a"})).is_some());
+    assert!(tool("t.write_note").idempotency_key(&json!({"text": "a"})).is_none());
+
+    // UTF-8 by default; a server's own env wins.
+    let getenv = tool("t.getenv");
+    assert_eq!(
+        getenv.call(json!({"text": "PYTHONUTF8"}), ctx.clone()).await.unwrap(),
+        "1"
+    );
+    assert_eq!(
+        getenv.call(json!({"text": "PYTHONIOENCODING"}), ctx).await.unwrap(),
+        "latin-1"
+    );
+}
+
+#[tokio::test]
 async fn dead_server_gives_unknown_outcome_and_is_reported() {
     let dir = tempfile::tempdir().unwrap();
     let mut servers = BTreeMap::new();

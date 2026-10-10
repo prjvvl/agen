@@ -280,6 +280,8 @@ type HealthResponse struct {
 	Ready         bool                   `protobuf:"varint,2,opt,name=ready,proto3" json:"ready,omitempty"`
 	RunningTasks  int32                  `protobuf:"varint,3,opt,name=running_tasks,json=runningTasks,proto3" json:"running_tasks,omitempty"`
 	Draining      bool                   `protobuf:"varint,4,opt,name=draining,proto3" json:"draining,omitempty"`
+	Tools         []string               `protobuf:"bytes,5,rep,name=tools,proto3" json:"tools,omitempty"`
+	ToolServers   []*ToolServer          `protobuf:"bytes,6,rep,name=tool_servers,json=toolServers,proto3" json:"tool_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -340,6 +342,20 @@ func (x *HealthResponse) GetDraining() bool {
 		return x.Draining
 	}
 	return false
+}
+
+func (x *HealthResponse) GetTools() []string {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
+func (x *HealthResponse) GetToolServers() []*ToolServer {
+	if x != nil {
+		return x.ToolServers
+	}
+	return nil
 }
 
 type RunTaskRequest struct {
@@ -644,13 +660,15 @@ const file_agen_v1_host_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"-\n" +
 	"\x15ResolveSecretResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\"\x0f\n" +
-	"\rHealthRequest\"\x88\x01\n" +
+	"\rHealthRequest\"\xd6\x01\n" +
 	"\x0eHealthResponse\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12#\n" +
 	"\rrunning_tasks\x18\x03 \x01(\x05R\frunningTasks\x12\x1a\n" +
-	"\bdraining\x18\x04 \x01(\bR\bdraining\"U\n" +
+	"\bdraining\x18\x04 \x01(\bR\bdraining\x12\x14\n" +
+	"\x05tools\x18\x05 \x03(\tR\x05tools\x126\n" +
+	"\ftool_servers\x18\x06 \x03(\v2\x13.agen.v1.ToolServerR\vtoolServers\"U\n" +
 	"\x0eRunTaskRequest\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\x12 \n" +
 	"\vtraceparent\x18\x02 \x01(\tR\vtraceparent\"y\n" +
@@ -703,34 +721,36 @@ var file_agen_v1_host_proto_goTypes = []any{
 	(*DrainRequest)(nil),            // 10: agen.v1.DrainRequest
 	(*DrainResponse)(nil),           // 11: agen.v1.DrainResponse
 	(*Approval)(nil),                // 12: agen.v1.Approval
-	(*Task)(nil),                    // 13: agen.v1.Task
-	(*Run)(nil),                     // 14: agen.v1.Run
-	(*ResolveRequest)(nil),          // 15: agen.v1.ResolveRequest
-	(*ResolveResponse)(nil),         // 16: agen.v1.ResolveResponse
+	(*ToolServer)(nil),              // 13: agen.v1.ToolServer
+	(*Task)(nil),                    // 14: agen.v1.Task
+	(*Run)(nil),                     // 15: agen.v1.Run
+	(*ResolveRequest)(nil),          // 16: agen.v1.ResolveRequest
+	(*ResolveResponse)(nil),         // 17: agen.v1.ResolveResponse
 }
 var file_agen_v1_host_proto_depIdxs = []int32{
 	12, // 0: agen.v1.RequestApprovalResponse.approval:type_name -> agen.v1.Approval
-	13, // 1: agen.v1.RunTaskRequest.task:type_name -> agen.v1.Task
-	14, // 2: agen.v1.RunTaskResponse.run:type_name -> agen.v1.Run
-	4,  // 3: agen.v1.HostService.Health:input_type -> agen.v1.HealthRequest
-	6,  // 4: agen.v1.HostService.RunTask:input_type -> agen.v1.RunTaskRequest
-	8,  // 5: agen.v1.HostService.CancelTask:input_type -> agen.v1.HostCancelTaskRequest
-	10, // 6: agen.v1.HostService.Drain:input_type -> agen.v1.DrainRequest
-	0,  // 7: agen.v1.ManagerService.RequestApproval:input_type -> agen.v1.RequestApprovalRequest
-	2,  // 8: agen.v1.ManagerService.ResolveSecret:input_type -> agen.v1.ResolveSecretRequest
-	15, // 9: agen.v1.ManagerService.Resolve:input_type -> agen.v1.ResolveRequest
-	5,  // 10: agen.v1.HostService.Health:output_type -> agen.v1.HealthResponse
-	7,  // 11: agen.v1.HostService.RunTask:output_type -> agen.v1.RunTaskResponse
-	9,  // 12: agen.v1.HostService.CancelTask:output_type -> agen.v1.HostCancelTaskResponse
-	11, // 13: agen.v1.HostService.Drain:output_type -> agen.v1.DrainResponse
-	1,  // 14: agen.v1.ManagerService.RequestApproval:output_type -> agen.v1.RequestApprovalResponse
-	3,  // 15: agen.v1.ManagerService.ResolveSecret:output_type -> agen.v1.ResolveSecretResponse
-	16, // 16: agen.v1.ManagerService.Resolve:output_type -> agen.v1.ResolveResponse
-	10, // [10:17] is the sub-list for method output_type
-	3,  // [3:10] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	13, // 1: agen.v1.HealthResponse.tool_servers:type_name -> agen.v1.ToolServer
+	14, // 2: agen.v1.RunTaskRequest.task:type_name -> agen.v1.Task
+	15, // 3: agen.v1.RunTaskResponse.run:type_name -> agen.v1.Run
+	4,  // 4: agen.v1.HostService.Health:input_type -> agen.v1.HealthRequest
+	6,  // 5: agen.v1.HostService.RunTask:input_type -> agen.v1.RunTaskRequest
+	8,  // 6: agen.v1.HostService.CancelTask:input_type -> agen.v1.HostCancelTaskRequest
+	10, // 7: agen.v1.HostService.Drain:input_type -> agen.v1.DrainRequest
+	0,  // 8: agen.v1.ManagerService.RequestApproval:input_type -> agen.v1.RequestApprovalRequest
+	2,  // 9: agen.v1.ManagerService.ResolveSecret:input_type -> agen.v1.ResolveSecretRequest
+	16, // 10: agen.v1.ManagerService.Resolve:input_type -> agen.v1.ResolveRequest
+	5,  // 11: agen.v1.HostService.Health:output_type -> agen.v1.HealthResponse
+	7,  // 12: agen.v1.HostService.RunTask:output_type -> agen.v1.RunTaskResponse
+	9,  // 13: agen.v1.HostService.CancelTask:output_type -> agen.v1.HostCancelTaskResponse
+	11, // 14: agen.v1.HostService.Drain:output_type -> agen.v1.DrainResponse
+	1,  // 15: agen.v1.ManagerService.RequestApproval:output_type -> agen.v1.RequestApprovalResponse
+	3,  // 16: agen.v1.ManagerService.ResolveSecret:output_type -> agen.v1.ResolveSecretResponse
+	17, // 17: agen.v1.ManagerService.Resolve:output_type -> agen.v1.ResolveResponse
+	11, // [11:18] is the sub-list for method output_type
+	4,  // [4:11] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_host_proto_init() }

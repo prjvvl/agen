@@ -32,9 +32,10 @@ type RunRow struct {
 	// RequestedBy: who asked for a run that is not a Hub task (from a
 	// verified A2A call token).
 	RequestedBy string
+	Labels      map[string]string
 }
 
-const runCols = "id, session_id, conversation_id, namespace, deployment, definition_digest, parent_run_id, root_run_id, status, input, output, error, input_tokens, output_tokens, cost_usd, trace_id, started_ms, COALESCE(ended_ms, 0), task_id, requested_by"
+const runCols = "id, session_id, conversation_id, namespace, deployment, definition_digest, parent_run_id, root_run_id, status, input, output, error, input_tokens, output_tokens, cost_usd, trace_id, started_ms, COALESCE(ended_ms, 0), task_id, requested_by, labels"
 
 func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]RunRow, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -45,9 +46,13 @@ func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]RunRow,
 	var out []RunRow
 	for rows.Next() {
 		var r RunRow
+		var labels string
 		if err := rows.Scan(&r.ID, &r.SessionID, &r.ConversationID, &r.Namespace, &r.Deployment, &r.DefinitionDigest, &r.ParentRunID,
 			&r.RootRunID, &r.Status, &r.Input, &r.Output, &r.Error, &r.InputTokens, &r.OutputTokens, &r.CostUSD, &r.TraceID,
-			&r.StartedMs, &r.EndedMs, &r.TaskID, &r.RequestedBy); err != nil {
+			&r.StartedMs, &r.EndedMs, &r.TaskID, &r.RequestedBy, &labels); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(labels), &r.Labels); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

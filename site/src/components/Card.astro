@@ -1,0 +1,36 @@
+---
+import { withBase } from "../lib/url";
+import { cardClickableClass } from "../lib/styles";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Omit for a plain informational block, only pass this when the card is
+   * actually clickable. A card-styled box around non-interactive content is
+   * a common "generic template" tell, so the two cases render differently. */
+  href?: string;
+}
+
+const { title, description, href } = Astro.props;
+---
+
+{
+  href ? (
+    <a
+      href={href.startsWith("/") ? withBase(href) : href}
+      class={cardClickableClass}
+    >
+      <slot name="icon" />
+      <h3 class="mt-3 text-base font-semibold text-fg">{title}</h3>
+      {description && <p class="mt-2 text-sm text-fg-muted">{description}</p>}
+      <slot />
+    </a>
+  ) : (
+    <div class="p-6">
+      <slot name="icon" />
+      <h3 class="mt-3 text-base font-semibold text-fg">{title}</h3>
+      {description && <p class="mt-2 text-sm text-fg-muted">{description}</p>}
+      <slot />
+    </div>
+  )
+}
