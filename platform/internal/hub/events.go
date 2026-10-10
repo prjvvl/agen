@@ -79,7 +79,7 @@ func (e *changeFeed) watch(ctx context.Context) {
 		change store.Change
 		at     time.Time
 	}
-	seen := map[string]entry{} // kind/namespace/id -> last version seen
+	seen := map[string]entry{} // kind/namespace/id -> last version seen, while in the window
 	first := true
 	t := time.NewTicker(e.interval)
 	defer t.Stop()
@@ -91,10 +91,11 @@ func (e *changeFeed) watch(ctx context.Context) {
 			for _, c := range changes {
 				key := c.Kind + "/" + c.Namespace + "/" + c.ID
 				live[key] = true
-				if seen[key].change.Version == c.Version {
+				prev, known := seen[key]
+				seen[key] = entry{c, now}
+				if known && prev.change.Version == c.Version {
 					continue
 				}
-				seen[key] = entry{c, now}
 				if !first {
 					e.publish(Event{Kind: c.Kind, ID: c.ID, Namespace: c.Namespace, Deployment: c.Deployment, State: c.State, TraceID: c.TraceID})
 				}
@@ -107,8 +108,10 @@ func (e *changeFeed) watch(ctx context.Context) {
 						delete(seen, key)
 						e.publish(Event{Kind: c.Kind, ID: c.ID, Namespace: c.Namespace, Deployment: c.Deployment, State: "removed"})
 					}
-				case now.Sub(s.at) > 2*eventOverlap:
-					delete(seen, key) // out of the window: it cannot come back as unseen
+				case !live[key] && now.Sub(s.at) > time.Minute:
+					// Long out of the window. (Rows drift in and out of it as
+					// lease renewals touch them; that is not a change.)
+					delete(seen, key)
 				}
 			}
 			first = false

@@ -27,10 +27,17 @@ See [Install](install.md) for platforms, options and uninstalling.
 
 ## How-to guides
 
+- [The console](guides/console.md): the web UI, from the fleet map down to
+  a single model call.
+- [Traces](guides/traces.md): what every run did, from the console, CLI and
+  API.
+- [Templates](guides/templates.md): ready-made agents to start from.
 - [Giving agents tools](guides/tools.md): MCP servers, side effects, retries.
 - [Connecting agents](guides/agents.md): delegation and its limits.
 - [Permissions and approvals](guides/permissions.md)
-- [Budgets](guides/budgets.md)
+- [Budgets and limits](guides/budgets.md)
+- [Notifications](guides/notifications.md): approvals, failures and budgets,
+  sent to your systems.
 - [Triggers](guides/triggers.md): schedules and webhooks.
 - [Memory and conversations](guides/memory.md): conversation keys and labels.
 - [Using Agen from Claude and other MCP clients](guides/mcp.md)

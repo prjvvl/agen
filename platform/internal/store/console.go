@@ -361,3 +361,26 @@ func (s *Store) DeleteNotificationTarget(ctx context.Context, ns, name string) e
 	}
 	return nil
 }
+
+// TraceIDs returns the trace id of each run.
+func (s *Store) TraceIDs(ctx context.Context, runIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(runIDs) == 0 {
+		return out, nil
+	}
+	var q query
+	q.in("id", runIDs)
+	rows, err := s.db.QueryContext(ctx, "SELECT id, trace_id FROM runs"+q.clause(), q.args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, trace string
+		if err := rows.Scan(&id, &trace); err != nil {
+			return nil, err
+		}
+		out[id] = trace
+	}
+	return out, rows.Err()
+}

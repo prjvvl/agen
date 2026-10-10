@@ -70,7 +70,7 @@ On Windows: `$env:OPENROUTER_API_KEY = "sk-or-..."` before `agen up`. Then, in
 the second terminal:
 
 ```sh
-agen init --example researcher
+agen init --template researcher
 agen deploy researcher --validate
 agen deploy researcher --replicas 1
 agen run researcher "What is the title of the page at https://example.com?" --conversation demo --label project=docs
@@ -98,12 +98,16 @@ agen ps --all
 agen tasks researcher
 agen logs researcher
 agen trace <task-id>
+agen transcript <task-id>
+agen ui
 ```
 
 `agen ps --all` shows each instance and how many tools it loaded; the trace
-shows every model call and tool call with its timing; the logs show the
-instance starting and each run's token usage. `agen ui` prints a sign-in link
-for the web UI, which shows the same, with the cost of each run.
+shows every model call and tool call with its timing; the transcript shows
+what the agent sent to the model and got back, tool results included; the
+logs show the instance starting and each run's token usage. `agen ui` prints
+a sign-in link for the [console](guides/console.md), which shows all of it
+live, from a map of the fleet down to a single model call.
 
 ## 6. Clean up
 
@@ -115,6 +119,7 @@ agen down
 
 ## Next
 
+- [Templates](guides/templates.md): more agents to start from
 - [Giving agents tools](guides/tools.md)
 - [Permissions and approvals](guides/permissions.md)
 - [Connecting agents](guides/agents.md)

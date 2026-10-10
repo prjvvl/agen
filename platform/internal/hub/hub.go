@@ -417,6 +417,27 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
 }
 
+// withTraceIDs sets the trace id of tasks that did not arrive with a
+// traceparent (API and trigger tasks): the trace their run started.
+func (h *Hub) withTraceIDs(ctx context.Context, tasks []*agenv1.Task) error {
+	var runs []string
+	for _, t := range tasks {
+		if t.TraceId == "" && t.RunId != "" {
+			runs = append(runs, t.RunId)
+		}
+	}
+	ids, err := h.Store.TraceIDs(ctx, runs)
+	if err != nil {
+		return err
+	}
+	for _, t := range tasks {
+		if t.TraceId == "" {
+			t.TraceId = ids[t.RunId]
+		}
+	}
+	return nil
+}
+
 // MaxTaskWait bounds GetTask's wait_seconds.
 const MaxTaskWait = 5 * time.Minute
 
@@ -433,6 +454,9 @@ func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRe
 			return nil, err
 		}
 		out := TaskProto(t)
+		if err := h.withTraceIDs(ctx, []*agenv1.Task{out}); err != nil {
+			return nil, connectErr(err)
+		}
 		if !t.Terminal() {
 			pending, err := h.Store.PendingApprovals(ctx, []string{t.ID})
 			if err != nil {
@@ -495,6 +519,9 @@ func (h *Hub) ListTasks(ctx context.Context, req *connect.Request[agenv1.ListTas
 		pt := TaskProto(t)
 		pt.PendingApprovalId = pending[t.ID]
 		out.Tasks = append(out.Tasks, pt)
+	}
+	if err := h.withTraceIDs(ctx, out.Tasks); err != nil {
+		return nil, connectErr(err)
 	}
 	return connect.NewResponse(out), nil
 }

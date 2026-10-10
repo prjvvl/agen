@@ -820,6 +820,7 @@ impl Agent {
             span.set("gen_ai.provider.name", self.provider.name().to_string());
             span.set("gen_ai.request.model", self.cfg.model.clone());
             span.set("agen.request.messages", req.messages.len() as u64);
+            tracer.record_open(&span).await;
             let resp = tokio::select! {
                 r = self.complete_with_retry(&req, opts) => r,
                 _ = opts.cancel.cancelled() => {
@@ -1064,6 +1065,7 @@ impl Agent {
             }
             span.set("gen_ai.tool.call.arguments", args);
         }
+        tracer.record_open(&span).await;
         let (result, status) = self.execute_call_inner(live, call, tracer, &mut span, opts).await?;
         span.set("agen.tool.result_chars", result.len() as u64);
         tracer.end(span, status).await;
@@ -1114,6 +1116,7 @@ impl Agent {
             Action::Deny => return Ok(("error: permission denied by policy".into(), "denied")),
             Action::Ask => {
                 let mut pspan = tracer.start(&span.ctx, "agen.permission.check");
+                tracer.record_open(&pspan).await;
                 self.store
                     .checkpoint(
                         &run.id,

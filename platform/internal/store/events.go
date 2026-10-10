@@ -40,7 +40,9 @@ func (s *Store) RecentChanges(ctx context.Context, sinceMs int64) ([]Change, err
 		}
 		return rows.Err()
 	}
-	if err := scan("task", "SELECT id, namespace, deployment, state, '', updated_ms FROM tasks WHERE updated_ms > $1", sinceMs); err != nil {
+	// Lease renewals touch updated_ms every few seconds; a task changes when
+	// its state or attempt does.
+	if err := scan("task", "SELECT id, namespace, deployment, state, '', attempts FROM tasks WHERE updated_ms > $1", sinceMs); err != nil {
 		return nil, err
 	}
 	if err := scan("run", "SELECT r.id, r.namespace, r.deployment, r.status, r.trace_id, s.last FROM runs r "+

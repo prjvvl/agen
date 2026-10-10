@@ -96,6 +96,9 @@ Failed notifications are written to the deployment's logs (`agen logs`).
 The Hub posts to whatever URL the bundle names, including internal
 addresses, so only trusted operators should deploy bundles.
 
+To send the approvals (and failures) of a whole namespace to one place, use
+a [notification target](notifications.md) instead.
+
 ## Embedded agents
 
 An agent embedded with an SDK decides approvals in your code: pass an

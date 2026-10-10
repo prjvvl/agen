@@ -1,14 +1,14 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, Page, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { stateFile } from "./setup";
 
 const state = () => JSON.parse(readFileSync(stateFile, "utf8")) as { hub: string; token: string };
 
-async function api<T = Record<string, unknown>>(method: string, body: object): Promise<T> {
-  const s = state();
-  const r = await fetch(`${s.hub}/agen.v1.HubService/${method}`, {
+async function api<T = Record<string, unknown>>(method: string, body: object, token = state().token): Promise<T> {
+  const r = await fetch(`${state().hub}/agen.v1.HubService/${method}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
   const data = await r.json();
@@ -28,22 +28,38 @@ function bundle(name: string, config: object, script: object): Record<string, st
   };
 }
 
-async function signIn(page: Page) {
-  await page.goto(`/#token=${encodeURIComponent(state().token)}`);
-  await expect(page.getByRole("heading", { name: "Deployments" })).toBeVisible();
+async function signIn(page: Page, token = state().token) {
+  await page.goto(`/#token=${encodeURIComponent(token)}`);
+  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   expect(page.url()).not.toContain("token=");
+}
+
+/** Submits a task from a deployment page and returns to it with the task panel closed. */
+async function runTask(page: Page, input: string) {
+  await page.getByRole("button", { name: "Run a task" }).click();
+  await page.getByLabel("Task input").fill(input);
+  await page.getByRole("button", { name: "Submit task" }).click();
+  await expect(page.getByRole("dialog", { name: "Task" })).toBeVisible();
+  await page.keyboard.press("Escape");
+}
+
+async function accessible(page: Page) {
+  const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  const serious = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 }
 
 test("sign-in: a wrong token is refused, the sign-in link works", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("API token").fill("agen_wrong");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.locator(".error")).toContainText(/token/i);
+  await expect(page.getByRole("alert")).toContainText(/token/i);
   await signIn(page);
 });
 
-test("create an agent from the form, run a task, open its trace", async ({ page }) => {
+test("create an agent from the form, run a task, follow it into its trace and transcript", async ({ page }) => {
   await signIn(page);
+  await page.getByRole("link", { name: "Deployments" }).click();
   await page.getByRole("link", { name: "New agent" }).click();
   await page.getByLabel("Name", { exact: true }).fill("greeter");
   await page.getByLabel("Description").fill("Says hello");
@@ -51,25 +67,31 @@ test("create an agent from the form, run a task, open its trace", async ({ page 
   await page.getByLabel("Model provider").selectOption("fake");
   await page.getByLabel("Scripted reply").fill("Hello from the UI agent.");
   await page.getByRole("button", { name: "Create agent" }).click();
-  await expect(page.getByRole("heading", { name: /default\/greeter/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "greeter" })).toBeVisible();
 
-  await page.getByLabel("Task input").fill("say hi");
-  await page.getByRole("button", { name: "Submit task" }).click();
-  await expect(page.locator(".note")).toContainText("queued");
+  await runTask(page, "say hi");
+  await page.getByRole("tab", { name: "Tasks" }).click();
   const row = page.locator("tr[data-task]").first();
   await expect(row.locator('[data-field="state"]')).toHaveText("succeeded", { timeout: 60_000 });
   await expect(row).toContainText("Hello from the UI agent.");
 
-  await page.getByRole("link", { name: "trace" }).first().click();
-  await expect(page.getByRole("heading", { name: /Trace/ })).toBeVisible();
-  await expect(page.locator('[data-field="summary"]')).toContainText("1 runs");
-  await expect(page.locator('tr[data-span="agen.run"]')).toContainText("default/greeter");
-  await expect(page.locator('tr[data-span="gen_ai.chat"]')).toHaveCount(1);
+  await row.click();
+  await page.getByRole("link", { name: "Open trace" }).click();
+  await expect(page.locator('[data-field="summary"]')).toContainText("1 run");
+  await expect(page.locator('[data-span="agen.run"]')).toContainText("greeter");
+  await page.locator('[data-span="gen_ai.chat"]').click();
+  const inspector = page.getByRole("complementary", { name: "Span details" });
+  await expect(inspector).toContainText("Model call");
+  await expect(inspector).toContainText("Hello from the UI agent.");
+  await page.getByRole("tab", { name: "Transcript" }).click();
+  await expect(page.locator('.msg[data-role="user"]')).toContainText("say hi");
+  await expect(page.locator('.msg[data-role="assistant"]')).toContainText("Hello from the UI agent.");
 });
 
 test("scale, stop and start from the list; the fleet shows the instances", async ({ page }) => {
   await api("CreateDeployment", { name: "scaler", bundleFiles: bundle("scaler", { kind: "pool", scale: { min: 0, max: 2 } }, { cycle: true, responses: [{ text: "ok" }] }) });
   await signIn(page);
+  await page.getByRole("link", { name: "Deployments" }).click();
   const row = page.locator('tr[data-deployment="scaler"]');
   await expect(row.locator('[data-field="desired"]')).toHaveText("0");
   await page.getByRole("button", { name: "scale scaler up" }).click();
@@ -79,7 +101,7 @@ test("scale, stop and start from the list; the fleet shows the instances", async
   await expect(row.locator('[data-field="ready"]')).toHaveText("2", { timeout: 60_000 });
 
   await page.getByRole("link", { name: "Fleet" }).click();
-  await expect(page.locator("td", { hasText: "local" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "local" })).toBeVisible();
   await expect(page.locator('tr[data-instance="scaler"]')).toHaveCount(2);
 
   await page.getByRole("link", { name: "Deployments" }).click();
@@ -107,14 +129,13 @@ test("edit a bundle and roll out the new version", async ({ page }) => {
   await page.getByRole("button", { name: "Save new version" }).click();
   await expect(page.locator(".error")).toContainText("harness.json");
 
-  await page.goto("/#/deployments/default/editme");
-  await page.getByLabel("Task input").fill("which version?");
-  await page.getByRole("button", { name: "Submit task" }).click();
+  await page.goto("/#/deployments/default/editme/tasks");
+  await runTask(page, "which version?");
   await expect(page.locator("tr[data-task]").first()).toContainText("version two", { timeout: 60_000 });
 });
 
-test("approve an agent's pending ask from the approvals page", async ({ page }) => {
-  await api("CreateDeployment", { name: "writer", bundleFiles: bundle("writer", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "Draft ready." }] }) });
+test("approve an agent's pending ask from the inbox", async ({ page }) => {
+  await api("CreateDeployment", { name: "drafter", bundleFiles: bundle("drafter", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "Draft ready." }] }) });
   await api("CreateDeployment", {
     name: "gated",
     bundleFiles: bundle(
@@ -122,31 +143,29 @@ test("approve an agent's pending ask from the approvals page", async ({ page }) 
       {
         kind: "pool",
         scale: { min: 0, max: 1 },
-        delegates: [{ name: "writer" }],
+        delegates: [{ name: "drafter" }],
         permissions: { default: "deny", rules: [{ tool: "call_agent", action: "ask" }] },
       },
-      { perRun: true, responses: [{ toolCalls: [{ name: "call_agent", arguments: { agent: "writer", message: "publish" } }] }, { text: "published" }] },
+      { perRun: true, responses: [{ toolCalls: [{ name: "call_agent", arguments: { agent: "drafter", message: "publish" } }] }, { text: "published" }] },
     ),
   });
   // Submitted by a separate operator, so the admin (signed in) may approve.
   const tok = await api<{ secret: string }>("CreateApiToken", { name: "ops", scopes: ["operator"] });
-  const r = await fetch(`${state().hub}/agen.v1.HubService/SubmitTask`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok.secret}` },
-    body: JSON.stringify({ ref: { name: "gated" }, input: "go" }),
-  });
-  const task = (await r.json()).task;
+  const task = (await api<{ task: { id: string } }>("SubmitTask", { ref: { name: "gated" }, input: "go" }, tok.secret)).task;
 
   await signIn(page);
-  await page.getByRole("link", { name: "Approvals" }).click();
-  const row = page.locator("tr[data-approval]").first();
-  await expect(row).toContainText("call_agent", { timeout: 60_000 });
-  await expect(row).toContainText('"agent":"writer"');
-  await row.getByRole("button", { name: "Approve" }).click();
-  await expect(page.locator(".empty")).toContainText("No pending approvals");
+  await expect(page.locator(".list li", { hasText: "waits for a decision" })).toBeVisible({ timeout: 60_000 }); // on the overview
+  await page.getByRole("link", { name: /Inbox/ }).click();
+  const item = page.locator("[data-approval]").first();
+  await expect(item).toContainText("call_agent", { timeout: 60_000 });
+  await expect(item).toContainText('"agent": "drafter"');
+  await item.getByRole("button", { name: "Show what the agent was doing" }).click();
+  await expect(item).toContainText("go");
+  await item.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("No approvals are waiting.")).toBeVisible();
 
   await expect
-    .poll(async () => (await api<{ task: { state: string; output?: string } }>("GetTask", { id: task.id })).task.state, { timeout: 60_000 })
+    .poll(async () => (await api<{ task: { state: string } }>("GetTask", { id: task.id })).task.state, { timeout: 60_000 })
     .toBe("TASK_STATE_SUCCEEDED");
   const done = await api<{ task: { output: string } }>("GetTask", { id: task.id });
   expect(done.task.output).toBe("published");
@@ -166,16 +185,16 @@ test("upload a bundle folder (with a large binary file)", async ({ page }) => {
   writeFileSync(join(dir, "x-agen", "agent.md"), "---\nname: uploaded\ndescription: Uploaded bundle\nskills: [greeting]\n---\nBe brief.\n");
 
   await signIn(page);
-  await page.getByRole("link", { name: "New agent" }).click();
+  await page.goto("/#/new");
   await page.getByLabel("Bundle folder").setInputFiles(dir);
-  await expect(page.getByRole("heading", { name: /default\/uploaded/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "uploaded" })).toBeVisible();
   // The binary arrived intact.
   const d = await api<{ deployment: { definitionDigest: string } }>("GetDeployment", { ref: { name: "uploaded" } });
   const def = await api<{ definition: { files: Record<string, string> } }>("GetDefinition", { digest: d.deployment.definitionDigest });
   expect(Buffer.from(def.definition.files["assets/blob.bin"], "base64").equals(big)).toBe(true);
 });
 
-test("cross-agent trace, deny and delete", async ({ page }) => {
+test("cross-agent trace with inspector, deny and delete", async ({ page }) => {
   await api("CreateDeployment", { name: "helper", bundleFiles: bundle("helper", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "helped" }] }) });
   await api("CreateDeployment", {
     name: "lead",
@@ -186,16 +205,27 @@ test("cross-agent trace, deny and delete", async ({ page }) => {
     ),
   });
   await signIn(page);
-  await page.goto("/#/deployments/default/lead");
-  await page.getByLabel("Task input").fill("go");
-  await page.getByRole("button", { name: "Submit task" }).click();
+  await page.goto("/#/deployments/default/lead/tasks");
+  await runTask(page, "go");
   await expect(page.locator("tr[data-task]").first()).toContainText("led", { timeout: 60_000 });
-  await page.getByRole("link", { name: "trace" }).first().click();
+  await page.locator("tr[data-task]").first().click();
+  await page.getByRole("link", { name: "Open trace" }).click();
   await expect(page.locator('[data-field="summary"]')).toContainText("2 runs");
-  const lead = page.locator('tr[data-span="agen.run"]', { hasText: "default/lead" });
-  const helper = page.locator('tr[data-span="agen.run"]', { hasText: "default/helper" });
-  await expect(helper).toHaveAttribute("data-depth", "2"); // run > tool > run
-  await expect(lead).toHaveAttribute("data-depth", "0");
+  const helper = page.locator('[data-span="agen.run"]', { hasText: "helper" });
+  await expect(helper).toHaveAttribute("aria-level", "3"); // run > tool > run
+  await expect(page.locator('[data-span="agen.run"]', { hasText: "lead" })).toHaveAttribute("aria-level", "1");
+
+  // The delegated call shows its arguments and result.
+  await page.locator('[data-span="agen.tool"]').click();
+  const inspector = page.getByRole("complementary", { name: "Span details" });
+  await expect(inspector).toContainText('"agent": "helper"');
+  await expect(inspector).toContainText("helped");
+  // Keyboard: down moves to the helper run.
+  await page.getByRole("tree", { name: "Spans" }).press("ArrowDown");
+  await expect(inspector).toContainText("Agent run");
+  // Runs list: one row per trace, with both agents' runs counted.
+  await page.goto("/#/runs?deployment=lead");
+  await expect(page.locator("tr[data-run]").first()).toContainText("2");
 
   // Deny an ask.
   await api("CreateDeployment", {
@@ -207,37 +237,84 @@ test("cross-agent trace, deny and delete", async ({ page }) => {
     ),
   });
   const tok = await api<{ secret: string }>("CreateApiToken", { name: "ops2", scopes: ["operator"] });
-  await fetch(`${state().hub}/agen.v1.HubService/SubmitTask`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok.secret}` },
-    body: JSON.stringify({ ref: { name: "asker" }, input: "go" }),
-  });
-  await page.getByRole("link", { name: "Approvals" }).click();
-  const row = page.locator("tr[data-approval]").first();
-  await expect(row).toContainText("asker", { timeout: 60_000 });
-  await row.getByRole("button", { name: "Deny" }).click();
-  await page.getByLabel("Show decided").check();
+  await api("SubmitTask", { ref: { name: "asker" }, input: "go" }, tok.secret);
+  await page.goto("/#/inbox");
+  const item = page.locator("[data-approval]", { hasText: "asker" });
+  await expect(item).toBeVisible({ timeout: 60_000 });
+  await item.getByRole("button", { name: "Deny" }).click();
+  await page.getByRole("tab", { name: "Decided approvals" }).click();
   await expect(page.locator("tr[data-approval]", { hasText: "asker" }).locator('[data-field="state"]')).toHaveText("denied");
 
   // Delete (two-step).
   await page.goto("/#/deployments/default/asker");
   await page.getByRole("button", { name: "Delete…" }).click();
-  await page.getByRole("button", { name: "Confirm delete" }).click();
+  await page.getByRole("button", { name: "Delete deployment" }).click();
   await expect(page.getByRole("heading", { name: "Deployments" })).toBeVisible();
   await expect(page.locator('tr[data-deployment="asker"]')).toHaveCount(0);
+});
+
+test("deploy from a template; costs and notification targets", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Templates" }).click();
+  await page.getByRole("link", { name: "Use the Hello template" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("hello-tpl");
+  await page.getByRole("button", { name: "Deploy" }).click();
+  await expect(page.getByRole("heading", { name: "hello-tpl" })).toBeVisible();
+  await page.getByRole("tab", { name: "Bundle" }).click();
+  await expect(page.getByLabel("content of x-agen/agent.md")).toContainText("friendly assistant");
+
+  await page.getByRole("link", { name: "Costs" }).click();
+  await expect(page.getByRole("heading", { name: "Costs" })).toBeVisible();
+
+  await page.goto("/#/settings/notifications");
+  await page.getByRole("button", { name: "Add target" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("ops-chat");
+  await page.getByLabel("URL").fill("https://example.invalid/hook");
+  await page.getByRole("dialog").getByRole("button", { name: "Add target" }).click();
+  await expect(page.getByRole("status")).toContainText("Signing secret");
+  await expect(page.locator("td", { hasText: "ops-chat" })).toBeVisible();
+});
+
+test("command palette jumps to a deployment", async ({ page }) => {
+  await signIn(page);
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Search" }).fill("scaler");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "scaler" })).toBeVisible();
+});
+
+test("pages are accessible and fit a phone screen", async ({ page }) => {
+  await signIn(page);
+  for (const path of ["/#/", "/#/deployments", "/#/runs", "/#/inbox", "/#/costs", "/#/templates", "/#/fleet", "/#/settings"]) {
+    await page.goto(path);
+    await expect(page.locator("main h1")).toBeVisible();
+    await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+    await accessible(page);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const path of ["/#/", "/#/deployments", "/#/runs", "/#/inbox"]) {
+    await page.goto(path);
+    await expect(page.locator("main h1")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
+  }
+  await page.getByRole("button", { name: "Menu" }).click();
+  await page.getByRole("link", { name: "Runs" }).click();
+  await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
 });
 
 test("a namespace-scoped token sees only its namespace; a revoked token signs out", async ({ page }) => {
   await api("CreateDeployment", { namespace: "team", name: "teamapp", bundleFiles: bundle("teamapp", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "t" }] }) });
   const tok = await api<{ secret: string; token: { id: string } }>("CreateApiToken", { name: "team-viewer", scopes: ["viewer"], namespaces: ["team"] });
-  await page.goto(`/#token=${encodeURIComponent(tok.secret)}`);
+  await signIn(page, tok.secret);
+  await page.getByRole("link", { name: "Deployments" }).click();
   await expect(page.locator('tr[data-deployment="teamapp"]')).toBeVisible();
   await expect(page.locator("tr[data-deployment]")).toHaveCount(1); // nothing from "default"
-  // A viewer cannot scale: the API error is shown, the page keeps working.
-  await page.getByRole("button", { name: "scale teamapp up" }).click();
-  await expect(page.locator(".error")).toContainText(/scope/i);
-  await page.getByRole("link", { name: "Approvals" }).click();
-  await expect(page.locator(".error")).toContainText(/scope/i); // approver scope needed
+  // A viewer gets no buttons that would fail.
+  await expect(page.getByRole("button", { name: "scale teamapp up" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "New agent" })).toHaveCount(0);
+  await page.getByRole("link", { name: /Inbox/ }).click();
+  await expect(page.getByText(/approver scope/)).toBeVisible();
   await page.getByRole("link", { name: "Fleet" }).click();
   await expect(page.getByRole("heading", { name: "Fleet" })).toBeVisible();
 

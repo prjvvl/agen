@@ -66,7 +66,10 @@ export async function call<T>(method: string, body: object = {}): Promise<T> {
   return data as T;
 }
 
-// ---- API types (protojson field names) ----
+// ---- API types (protojson field names; int64 values arrive as strings) ----
+
+export type Int = string | number;
+export const num = (v?: Int) => Number(v ?? 0);
 
 export interface Ref {
   namespace?: string;
@@ -81,6 +84,20 @@ export interface ScalePolicy {
   maxConcurrency?: number;
 }
 
+export interface Limits {
+  maxDelegationDepth?: number;
+  maxFanOut?: number;
+  maxTotalDelegations?: number;
+  maxQueuedTasks?: number;
+}
+
+export interface Trigger {
+  type: string;
+  name: string;
+  schedule?: string;
+  input?: string;
+}
+
 export interface Deployment {
   namespace: string;
   name: string;
@@ -92,8 +109,12 @@ export interface Deployment {
   paused?: boolean;
   budgetExhausted?: boolean;
   spentUsdToday?: number;
-  budget?: { maxUsdPerDay?: number };
-  triggers?: { type: string; name: string; schedule?: string }[];
+  budget?: { maxTokensPerRun?: Int; maxUsdPerRun?: number; maxUsdPerDay?: number };
+  limits?: Limits;
+  triggers?: Trigger[];
+  createdAt?: string;
+  updatedAt?: string;
+  lastActivityUnix?: Int;
 }
 
 export interface Instance {
@@ -105,6 +126,11 @@ export interface Instance {
   endpoint?: string;
   runningTasks?: number;
   definitionDigest?: string;
+  startedAt?: string;
+  lastSeen?: string;
+  message?: string;
+  tools?: string[];
+  toolServers?: { name: string; state: string; toolCount?: number }[];
 }
 
 export interface Nest {
@@ -115,6 +141,7 @@ export interface Nest {
   capacity?: number;
   used?: number;
   lastHeartbeat?: string;
+  labels?: Record<string, string>;
 }
 
 export interface Task {
@@ -127,7 +154,19 @@ export interface Task {
   error?: string;
   runId?: string;
   source?: string;
+  attempts?: number;
   createdAt?: string;
+  updatedAt?: string;
+  traceId?: string;
+  conversationKey?: string;
+  labels?: Record<string, string>;
+  pendingApprovalId?: string;
+}
+
+export interface Usage {
+  inputTokens?: Int;
+  outputTokens?: Int;
+  costUsd?: number;
 }
 
 export interface Run {
@@ -137,14 +176,24 @@ export interface Run {
   status: string;
   input?: string;
   output?: string;
+  error?: string;
   traceId?: string;
   parentRunId?: string;
   rootRunId?: string;
+  taskId?: string;
+  definitionDigest?: string;
+  conversationId?: string;
   startedAt?: string;
-  usage?: { inputTokens?: string; outputTokens?: string; costUsd?: number };
+  endedAt?: string;
+  usage?: Usage;
+  steps?: Int;
+  labels?: Record<string, string>;
+  treeUsage?: Usage;
+  treeRuns?: number;
 }
 
 export interface Span {
+  traceId?: string;
   spanId: string;
   parentSpanId?: string;
   name: string;
@@ -155,17 +204,44 @@ export interface Span {
   attributes?: Record<string, unknown>;
 }
 
+export interface ToolCallMessage {
+  id: string;
+  name: string;
+  arguments?: unknown;
+}
+
+export interface TranscriptMessage {
+  seq: Int;
+  runId: string;
+  role: string;
+  content?: string;
+  toolCalls?: ToolCallMessage[];
+  toolCallId?: string;
+  createdAt?: string;
+}
+
+export interface Transcript {
+  run?: Run;
+  messages?: TranscriptMessage[];
+  systemPrompt?: string;
+}
+
 export interface Approval {
   id: string;
   namespace: string;
   deployment: string;
   runId: string;
+  taskId?: string;
   tool: string;
   arguments?: Record<string, unknown>;
   state: string;
   requestedBy?: string;
+  requestedByName?: string;
   decidedBy?: string;
+  decidedByName?: string;
+  createdAt?: string;
   expiresAt?: string;
+  decidedAt?: string;
 }
 
 export interface LogLine {
@@ -181,6 +257,87 @@ export interface TriggerEvent {
   dueAt?: string;
   taskId?: string;
   message?: string;
+}
+
+export interface MetricsBucket {
+  runs?: number;
+  failed?: number;
+  costUsd?: number;
+}
+
+export interface DeploymentMetrics {
+  ref: Ref;
+  runs?: number;
+  failed?: number;
+  cancelled?: number;
+  active?: number;
+  p50Ms?: Int;
+  p95Ms?: Int;
+  usage?: Usage;
+  buckets?: MetricsBucket[];
+}
+
+export interface CallEdge {
+  from: Ref;
+  to: Ref;
+  calls?: number;
+  failed?: number;
+}
+
+export interface Metrics {
+  deployments?: DeploymentMetrics[];
+  edges?: CallEdge[];
+  since?: string;
+  bucketSeconds?: number;
+}
+
+export interface Template {
+  name: string;
+  title: string;
+  description: string;
+  category: string;
+  secrets?: string[];
+  files?: Record<string, string>;
+}
+
+export interface NotificationTarget {
+  namespace: string;
+  name: string;
+  url: string;
+  events?: string[];
+  createdAt?: string;
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  scopes?: string[];
+  namespaces?: string[];
+  createdAt?: string;
+  expiresAt?: string;
+  revoked?: boolean;
+  onBehalf?: boolean;
+}
+
+export interface SecretInfo {
+  namespace: string;
+  name: string;
+  updatedAt?: string;
+  deployments?: string[];
+}
+
+export interface Definition {
+  name: string;
+  digest: string;
+  files?: Record<string, string>;
+  createdAt?: string;
+}
+
+export interface WhoAmI {
+  id: string;
+  name?: string;
+  scopes?: string[];
+  namespaces?: string[];
 }
 
 export const short = (s?: string, n = 12) => (s ?? "").replace(/^sha256:/, "").slice(0, n);
@@ -215,4 +372,8 @@ export function unb64(s: string): string {
   const bin = atob(s);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return new TextDecoder().decode(bytes);
+}
+
+export function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
