@@ -91,6 +91,9 @@ export function App() {
             </a>
           ))}
         </nav>
+        <a className="link" href="https://prjvvl.github.io/agen/" target="_blank" rel="noreferrer">
+          Docs
+        </a>
         <button
           className="link"
           onClick={() => {

@@ -6,8 +6,8 @@ and the run's trace.
 ```sh
 # from the repo root: build and install the SDK into a virtualenv
 python -m venv .venv
-.venv/Scripts/pip install ./sdks/python # .venv/bin on Linux/macOS; builds with maturin
+.venv/bin/pip install ./sdks/python # Windows: .venv\Scripts; builds with maturin (needs Rust)
 
-.venv/Scripts/python examples/python-app/app.py # scripted model, no key
-.venv/Scripts/python examples/python-app/app.py --live # needs $OPENROUTER_API_KEY
+.venv/bin/python examples/python-app/app.py # scripted model, no key
+.venv/bin/python examples/python-app/app.py --live # needs $OPENROUTER_API_KEY
 ```

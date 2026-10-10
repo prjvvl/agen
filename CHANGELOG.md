@@ -47,10 +47,13 @@
   loaded tools and tool-server state (`agen ps --all`).
 - `GetTask` waits up to 300 s.
 - Fixed: `agen start` printed the usage of `agen stop`.
+- The web UI links to the docs.
 
 ### Docs
 - New docs site, with install, getting started, embedding, concepts, how-to
   guides, generated CLI and API references, and troubleshooting.
+- `CONTRIBUTING.md`, issue and pull request templates; release notes come from
+  this changelog.
 
 ## v0.1.0
 

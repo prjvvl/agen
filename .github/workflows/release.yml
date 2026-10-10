@@ -51,6 +51,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v6
         with:
           path: dist
@@ -60,4 +61,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l dist
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Agen $GITHUB_REF_NAME" --generate-notes
+          # The release notes are this version's section of CHANGELOG.md.
+          awk -v want="## $GITHUB_REF_NAME" '$0 == want {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for $GITHUB_REF_NAME"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Agen $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"

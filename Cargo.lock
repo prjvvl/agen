@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agen-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -32,7 +32,7 @@ dependencies = [
 
 [[package]]
 name = "agen-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agen-sdk-core",
  "serde_json",
@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "agen-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agen-engine",
  "agen-testkit",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "agen-sdk-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agen-engine",
  "async-trait",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "agen-testkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agen-engine",
  "anyhow",

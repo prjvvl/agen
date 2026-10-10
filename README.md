@@ -75,8 +75,8 @@ model and a real tool.
 - Reference: [bundle](docs/reference/bundle.md), [CLI](docs/reference/cli.md),
   [API](docs/reference/api.md), [SDKs](docs/reference/sdks.md)
 - Explanation: [architecture](docs/architecture.md), [security](docs/security.md)
-- [Changelog](CHANGELOG.md), and [developing Agen](docs/development.md)
-  (building from source, tests, layout)
+- [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), and
+  [developing Agen](docs/development.md) (building from source, tests, layout)
 
 ## Security
 
