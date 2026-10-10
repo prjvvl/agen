@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -75,11 +77,37 @@ func validateWebhook(t *agenv1.Trigger) error {
 			if _, err := hmacHash(a.Algorithm); err != nil {
 				return err
 			}
+			if a.Encoding != "" && a.Encoding != "hex" && a.Encoding != "base64" {
+				return fmt.Errorf("hmac encoding must be hex or base64, not %q", a.Encoding)
+			}
 		default:
 			return fmt.Errorf("auth type must be bearer or hmac, not %q", a.Type)
 		}
 	}
 	return store.CheckLabels(t.Labels)
+}
+
+func decodeSignature(s, encoding string) ([]byte, error) {
+	if encoding == "base64" {
+		return base64.StdEncoding.DecodeString(s)
+	}
+	return hex.DecodeString(s)
+}
+
+// deploymentSecret reads a platform secret the deployment may use (one
+// limited to other deployments is refused, as for instances).
+func (h *Hub) deploymentSecret(ctx context.Context, d store.Deployment, name string) (string, error) {
+	deps, err := h.Store.PlatformSecretDeployments(ctx, d.Namespace, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", fmt.Errorf("platform secret %q is not set", name)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !slices.Contains(deps, d.Name) {
+		return "", fmt.Errorf("platform secret %q is limited to other deployments", name)
+	}
+	return h.Store.GetPlatformSecret(ctx, d.Namespace, name)
 }
 
 func hmacHash(algorithm string) (func() hash.Hash, error) {
@@ -205,7 +233,7 @@ func (h *Hub) CreateWebhookSecret(ctx context.Context, req *connect.Request[agen
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%s/%s has no webhook trigger %q", ns, name, req.Msg.Trigger))
 	}
 	if t.GetAuth().GetType() == "hmac" {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("trigger %q verifies signatures with the platform secret %q; set it with agen secrets set", t.Name, t.GetAuth().GetSecret()))
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("trigger %q verifies signatures with the platform secret %q; set it with agen secret set", t.Name, t.GetAuth().GetSecret()))
 	}
 	secret, err := h.Store.SetWebhookSecret(ctx, ns, name, req.Msg.Trigger)
 	if err != nil {
@@ -251,7 +279,9 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		}
 		ok, why, err := h.webhookAuthorized(ctx, d, t, r.Header, body)
 		if err != nil {
-			reply(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			// Configuration problems are for the operator, not the caller.
+			_ = h.Store.AppendLog(ctx, "", ns, name, "error", fmt.Sprintf("webhook %s: %v", trig, err))
+			reply(http.StatusInternalServerError, map[string]string{"error": "webhook is misconfigured; see the deployment's logs"})
 			return
 		}
 		if !ok {
@@ -274,7 +304,7 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		if k := keyFrom(idem, r.Header, body); k != "" {
 			key = "webhook:" + trig + ":" + k
 		}
-		conversation := keyFrom(t.GetConversationKey(), r.Header, body)
+		conversation := scopedKey("webhook:"+trig+":", keyFrom(t.GetConversationKey(), r.Header, body))
 		if len(conversation) > 256 {
 			reply(http.StatusBadRequest, map[string]string{"error": "conversation key is longer than 256 bytes"})
 			return
@@ -302,15 +332,12 @@ func (h *Hub) webhookAuthorized(ctx context.Context, d store.Deployment, t *agen
 	if err != nil {
 		return false, "", err
 	}
-	key, err := h.Store.GetPlatformSecret(ctx, d.Namespace, a.Secret)
-	if errors.Is(err, store.ErrNotFound) {
-		return false, "", fmt.Errorf("trigger %q: platform secret %q is not set", t.Name, a.Secret)
-	}
+	key, err := h.deploymentSecret(ctx, d, a.Secret)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("trigger %q: %w", t.Name, err)
 	}
 	got, found := strings.CutPrefix(strings.TrimSpace(hdr.Get(a.Header)), a.Prefix)
-	sig, derr := hex.DecodeString(got)
+	sig, derr := decodeSignature(got, a.Encoding)
 	if !found || derr != nil || len(sig) == 0 {
 		return false, "missing or malformed signature in " + a.Header, nil
 	}

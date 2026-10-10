@@ -93,6 +93,8 @@ pub struct AgentConfig {
     pub approval_timeout: Duration,
     /// Run the tool calls of one model turn concurrently.
     pub parallel_tool_calls: bool,
+    /// Record tool call arguments (redacted) on tool spans.
+    pub trace_tool_arguments: bool,
 }
 
 impl AgentConfig {
@@ -118,6 +120,7 @@ impl AgentConfig {
             context_tokens: 64_000,
             approval_timeout: Duration::from_secs(3600),
             parallel_tool_calls: true,
+            trace_tool_arguments: false,
         }
     }
 }
@@ -321,6 +324,7 @@ impl Agent {
         cfg.temperature = bundle.harness.temperature;
         cfg.max_output_tokens = bundle.harness.max_output_tokens;
         cfg.parallel_tool_calls = bundle.harness.parallel_tool_calls.unwrap_or(true);
+        cfg.trace_tool_arguments = bundle.harness.trace_tool_arguments.unwrap_or(false);
         cfg.max_turns = bundle.agent.max_turns.unwrap_or(16);
         cfg.permissions = bundle.config.permissions.clone();
         if let Some(t) = bundle.config.permissions.approval_timeout.as_deref() {
@@ -406,7 +410,10 @@ impl Agent {
             .map(|name| ToolServerStatus {
                 name: name.to_string(),
                 connected: !closed.contains(&name),
-                tool_count: specs.iter().filter(|t| t.name.strip_prefix(name).is_some_and(|r| r.starts_with('.'))).count(),
+                tool_count: specs
+                    .iter()
+                    .filter(|t| t.name.strip_prefix(name).is_some_and(|r| r.starts_with('.')))
+                    .count(),
             })
             .collect()
     }
@@ -459,7 +466,12 @@ impl Agent {
             (Some(id), _) => self.store.get_session(id).await?,
             (None, _) if !opts.conversation_key.is_empty() => {
                 self.store
-                    .session_for_key(&self.cfg.name, &self.cfg.namespace, &self.cfg.deployment, &opts.conversation_key)
+                    .session_for_key(
+                        &self.cfg.name,
+                        &self.cfg.namespace,
+                        &self.cfg.deployment,
+                        &opts.conversation_key,
+                    )
                     .await?
             }
             (None, true) => {
@@ -715,7 +727,13 @@ impl Agent {
                 };
                 let msg = self.redact_message(&Message::tool(&id, result));
                 self.store
-                    .checkpoint(&shared.rec.id, shared.epoch, &shared.rec.conversation_id, Some(&msg), None)
+                    .checkpoint(
+                        &shared.rec.id,
+                        shared.epoch,
+                        &shared.rec.conversation_id,
+                        Some(&msg),
+                        None,
+                    )
                     .await?;
             }
             drop(results);
@@ -869,15 +887,19 @@ impl Agent {
 
     /// The output limit for the next model turn: the configured maximum,
     /// lowered so the turn's output cannot take the run past its token budget.
+    /// Without a configured maximum the remaining budget is only sent once it
+    /// is small (providers reject or pre-charge large limits).
     fn output_cap(&self, u: &Usage) -> Option<u32> {
-        let remaining = self
-            .cfg
-            .budget
-            .max_tokens_per_run
-            .map(|max| u32::try_from(max.saturating_sub(u.total_tokens())).unwrap_or(u32::MAX).max(1));
+        const UNSET_CEILING: u32 = 8192;
+        let remaining = self.cfg.budget.max_tokens_per_run.map(|max| {
+            u32::try_from(max.saturating_sub(u.total_tokens()))
+                .unwrap_or(u32::MAX)
+                .max(1)
+        });
         match (self.cfg.max_output_tokens, remaining) {
             (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
+            (None, Some(b)) if b <= UNSET_CEILING => Some(b),
+            (a, _) => a,
         }
     }
 
@@ -947,6 +969,18 @@ impl Agent {
         let mut span = tracer.start(ctx, "agen.tool");
         span.set("gen_ai.tool.name", call.name.clone());
         span.set("gen_ai.tool.call.id", call.id.clone());
+        if self.cfg.trace_tool_arguments {
+            let mut args = self.redactor.redact_json(&call.arguments).to_string();
+            if args.len() > 4096 {
+                let mut cut = 4096;
+                while !args.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                args.truncate(cut);
+                args.push('…');
+            }
+            span.set("gen_ai.tool.call.arguments", args);
+        }
         let (result, status) = self.execute_call_inner(live, call, tracer, &mut span, opts).await?;
         span.set("agen.tool.result_chars", result.len() as u64);
         tracer.end(span, status).await;

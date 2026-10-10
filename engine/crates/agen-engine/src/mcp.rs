@@ -343,7 +343,14 @@ fn call_meta(ctx: &ToolContext) -> serde_json::Map<String, Value> {
     put("agen/deployment", &ctx.deployment);
     put("agen/taskId", &ctx.task_id);
     put("agen/runId", &ctx.run_id);
-    put("agen/rootRunId", if ctx.root_run_id.is_empty() { &ctx.run_id } else { &ctx.root_run_id });
+    put(
+        "agen/rootRunId",
+        if ctx.root_run_id.is_empty() {
+            &ctx.run_id
+        } else {
+            &ctx.root_run_id
+        },
+    );
     put("agen/conversationId", &ctx.conversation_id);
     put("agen/conversationKey", &ctx.conversation_key);
     put("traceparent", &ctx.traceparent);

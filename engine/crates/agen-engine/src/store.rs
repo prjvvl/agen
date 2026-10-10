@@ -508,12 +508,13 @@ impl Store {
         .bind(key)
         .execute(&self.pool)
         .await?;
-        let row = sqlx::query("SELECT id FROM sessions WHERE namespace = $1 AND deployment = $2 AND conversation_key = $3")
-            .bind(namespace)
-            .bind(deployment)
-            .bind(key)
-            .fetch_one(&self.pool)
-            .await?;
+        let row =
+            sqlx::query("SELECT id FROM sessions WHERE namespace = $1 AND deployment = $2 AND conversation_key = $3")
+                .bind(namespace)
+                .bind(deployment)
+                .bind(key)
+                .fetch_one(&self.pool)
+                .await?;
         self.get_session(&row.get::<String, _>(0)).await
     }
 
@@ -802,17 +803,28 @@ impl Store {
 
     /// The run's top-level span that a dead owner left `unfinished`, if any.
     pub async fn unfinished_run_span(&self, run_id: &str) -> Result<Option<SpanRecord>> {
-        let spans = sqlx::query("SELECT trace_id FROM runs WHERE id = $1")
-            .bind(run_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        let Some(row) = spans else { return Ok(None) };
-        Ok(self
-            .trace(&row.get::<String, _>(0))
-            .await?
-            .into_iter()
-            .filter(|s| s.run_id == run_id && s.status == "unfinished")
-            .min_by_key(|s| s.seq))
+        let row = sqlx::query(
+            "SELECT span_id, trace_id, parent_span_id, run_id, name, start_ms, end_ms, status, attributes, seq FROM spans \
+             WHERE run_id = $1 AND status = 'unfinished' ORDER BY start_ms, seq LIMIT 1",
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| {
+            Ok(SpanRecord {
+                span_id: r.get(0),
+                trace_id: r.get(1),
+                parent_span_id: r.get(2),
+                run_id: r.get(3),
+                name: r.get(4),
+                start_ms: r.get(5),
+                end_ms: r.get(6),
+                status: r.get(7),
+                attributes: parse_json(&r.get::<String, _>(8))?,
+                seq: r.get(9),
+            })
+        })
+        .transpose()
     }
 
     pub async fn trace(&self, trace_id: &str) -> Result<Vec<SpanRecord>> {

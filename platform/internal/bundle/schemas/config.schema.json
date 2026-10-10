@@ -28,7 +28,7 @@
           "required": ["url"],
           "properties": {
             "url": { "type": "string", "format": "uri" },
-            "secret": { "type": "string", "description": "Platform secret (agen secrets set) whose value signs the body: X-Agen-Signature: sha256=<hex HMAC>" }
+            "secret": { "type": "string", "description": "Platform secret (agen secret set) whose value signs the body: X-Agen-Signature: sha256=<hex HMAC>" }
           },
           "additionalProperties": false
         }
@@ -96,7 +96,8 @@
                   "header": { "type": "string", "description": "hmac: header carrying the signature, e.g. X-Hub-Signature-256" },
                   "algorithm": { "enum": ["sha256", "sha1"] },
                   "prefix": { "type": "string", "description": "hmac: text before the hex signature, e.g. sha256=" },
-                  "secret": { "type": "string", "description": "hmac: platform secret (agen secrets set) holding the signing key" }
+                  "secret": { "type": "string", "description": "hmac: platform secret (agen secret set) holding the signing key" },
+                  "encoding": { "enum": ["hex", "base64"], "description": "hmac: signature encoding (default hex)" }
                 },
                 "required": ["type"],
                 "additionalProperties": false

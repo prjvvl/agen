@@ -272,7 +272,7 @@ func runProto(r store.RunRow) *agenv1.Run {
 	return &agenv1.Run{Id: r.ID, SessionId: r.SessionID, ConversationId: r.ConversationID, Namespace: r.Namespace, Deployment: r.Deployment,
 		Status: r.Status, Input: r.Input, Output: r.Output, Usage: &agenv1.Usage{InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUsd: r.CostUSD},
 		TraceId: r.TraceID, StartedAt: ms(r.StartedMs), EndedAt: ms(r.EndedMs), ParentRunId: r.ParentRunID, RootRunId: r.RootRunID,
-		DefinitionDigest: r.DefinitionDigest}
+		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels}
 }
 
 func spanProto(s store.SpanRow) *agenv1.Span {

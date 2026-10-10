@@ -94,6 +94,8 @@ message WebhookAuth {
   // hmac: the platform secret (SetSecret, same namespace) holding the
   // signing key shared with the sender.
   string secret = 5;
+  // hmac: "hex" (default) or "base64" signature encoding.
+  string encoding = 6;
 }
 
 // A value taken from a webhook request: a header, or a top-level field of a

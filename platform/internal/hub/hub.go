@@ -404,7 +404,7 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 		return nil, err
 	}
 	t, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
-		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: req.Msg.ConversationKey, Labels: req.Msg.Labels})
+		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels})
 	if err != nil {
 		return nil, connectErr(err)
 	}

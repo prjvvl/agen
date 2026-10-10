@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -44,6 +45,10 @@ func (h *Hub) notifyApproval(ctx context.Context, a store.Approval) {
 	fail := func(msg string) {
 		_ = h.Store.AppendLog(ctx, "", a.Namespace, a.Deployment, "warn", fmt.Sprintf("approval %s: notification to %s failed: %s", a.ID, n.URL, msg))
 	}
+	if u, err := url.Parse(n.URL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		fail("the URL must be http(s)")
+		return
+	}
 	approval, err := protojson.Marshal(h.approvalProto(a, h.principalNames(ctx)))
 	if err != nil {
 		fail(err.Error())
@@ -52,9 +57,9 @@ func (h *Hub) notifyApproval(ctx context.Context, a store.Approval) {
 	body, _ := json.Marshal(map[string]any{"type": "approval.pending", "approval": json.RawMessage(approval)})
 	signature := ""
 	if n.Secret != "" {
-		key, err := h.Store.GetPlatformSecret(ctx, a.Namespace, n.Secret)
+		key, err := h.deploymentSecret(ctx, d, n.Secret)
 		if err != nil {
-			fail(fmt.Sprintf("platform secret %q: %v", n.Secret, err))
+			fail(err.Error())
 			return
 		}
 		mac := hmac.New(sha256.New, []byte(key))
@@ -64,7 +69,11 @@ func (h *Hub) notifyApproval(ctx context.Context, a store.Approval) {
 	var last string
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(attempt) * 2 * time.Second):
+			}
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.URL, bytes.NewReader(body))
 		if err != nil {

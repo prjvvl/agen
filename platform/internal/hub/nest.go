@@ -445,7 +445,11 @@ func (n *NestAPI) CreateApproval(ctx context.Context, req *connect.Request[agenv
 		return nil, connectErr(err)
 	}
 	if out.ID == id {
-		go n.hub.notifyApproval(context.WithoutCancel(ctx), out)
+		go func() {
+			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			n.hub.notifyApproval(c, out)
+		}()
 	}
 	return connect.NewResponse(&agenv1.CreateApprovalResponse{Approval: ApprovalProto(out)}), nil
 }
@@ -663,7 +667,7 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	}
 	t, err := n.hub.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
 		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
-		SubmittedBy: parent.SubmittedBy})
+		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels})
 	if err != nil {
 		return nil, connectErr(err)
 	}

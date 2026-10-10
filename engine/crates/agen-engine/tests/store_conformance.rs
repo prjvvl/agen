@@ -193,7 +193,10 @@ async fn conversation_keys_share_a_session(s: &Store) {
     assert_eq!(a.id, b.id);
     let other = s.session_for_key("x", "default", &dep, "chat-2").await.unwrap();
     assert_ne!(other.id, a.id);
-    let elsewhere = s.session_for_key("x", "default", &format!("{dep}-b"), "chat-1").await.unwrap();
+    let elsewhere = s
+        .session_for_key("x", "default", &format!("{dep}-b"), "chat-1")
+        .await
+        .unwrap();
     assert_ne!(elsewhere.id, a.id);
     // Keyed sessions and the singleton session do not collide.
     let single = s.session_for_deployment("x", "default", &dep).await.unwrap();
@@ -323,7 +326,10 @@ async fn spans_delegations_logs(s: &Store) {
     done.status = "error".into();
     s.insert_span(&done).await.unwrap();
     let spans = s.trace(&trace).await.unwrap();
-    assert_eq!((spans.len(), spans[0].end_ms, spans[0].status.as_str()), (3, 3000, "error"));
+    assert_eq!(
+        (spans.len(), spans[0].end_ms, spans[0].status.as_str()),
+        (3, 3000, "error")
+    );
 
     let root = new_id();
     for want in 1..=3 {

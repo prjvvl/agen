@@ -3,6 +3,7 @@
 ALTER TABLE sessions ADD COLUMN conversation_key TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX sessions_conversation_key ON sessions(namespace, deployment, conversation_key) WHERE conversation_key <> '';
 ALTER TABLE tasks ADD COLUMN conversation_key TEXT NOT NULL DEFAULT '';
+CREATE INDEX tasks_conversation ON tasks(namespace, deployment, conversation_key, state) WHERE conversation_key <> '';
 
 -- Free-form labels (JSON object) copied from a task to its runs and to the
 -- tasks it delegates.

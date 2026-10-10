@@ -829,7 +829,9 @@ type WebhookAuth struct {
 	Prefix string `protobuf:"bytes,4,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	// hmac: the platform secret (SetSecret, same namespace) holding the
 	// signing key shared with the sender.
-	Secret        string `protobuf:"bytes,5,opt,name=secret,proto3" json:"secret,omitempty"`
+	Secret string `protobuf:"bytes,5,opt,name=secret,proto3" json:"secret,omitempty"`
+	// hmac: "hex" (default) or "base64" signature encoding.
+	Encoding      string `protobuf:"bytes,6,opt,name=encoding,proto3" json:"encoding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -895,6 +897,13 @@ func (x *WebhookAuth) GetPrefix() string {
 func (x *WebhookAuth) GetSecret() string {
 	if x != nil {
 		return x.Secret
+	}
+	return ""
+}
+
+func (x *WebhookAuth) GetEncoding() string {
+	if x != nil {
+		return x.Encoding
 	}
 	return ""
 }
@@ -2658,13 +2667,14 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	" \x03(\v2\x1c.agen.v1.Trigger.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x87\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa3\x01\n" +
 	"\vWebhookAuth\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x16\n" +
 	"\x06header\x18\x02 \x01(\tR\x06header\x12\x1c\n" +
 	"\talgorithm\x18\x03 \x01(\tR\talgorithm\x12\x16\n" +
 	"\x06prefix\x18\x04 \x01(\tR\x06prefix\x12\x16\n" +
-	"\x06secret\x18\x05 \x01(\tR\x06secret\"9\n" +
+	"\x06secret\x18\x05 \x01(\tR\x06secret\x12\x1a\n" +
+	"\bencoding\x18\x06 \x01(\tR\bencoding\"9\n" +
 	"\tKeySource\x12\x16\n" +
 	"\x06header\x18\x01 \x01(\tR\x06header\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\"\xcb\x02\n" +

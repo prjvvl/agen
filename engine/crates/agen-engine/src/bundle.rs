@@ -64,6 +64,7 @@ pub struct Harness {
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
     pub parallel_tool_calls: Option<bool>,
+    pub trace_tool_arguments: Option<bool>,
     pub base_url: Option<String>,
     pub api_key_secret: Option<String>,
     pub script: Option<String>,

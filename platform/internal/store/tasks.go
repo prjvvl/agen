@@ -36,7 +36,8 @@ type Task struct {
 	CreatedMs   int64
 	UpdatedMs   int64
 	// ConversationKey: tasks of a deployment with the same key continue one
-	// conversation; they are leased one at a time, oldest first.
+	// conversation; they are leased one at a time, oldest first. Keys are
+	// prefixed with their source ("api:", "webhook:<trigger>:").
 	ConversationKey string
 	Labels          map[string]string
 }
@@ -251,6 +252,9 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int6
 				res, err = tx.ExecContext(ctx, "UPDATE tasks SET state = 'failed', error = $1, lease_expires_ms = 0, updated_ms = $2 WHERE id = $3 AND lease_id = $4",
 					"task lease expired "+itoa(maxAttempts)+" times (the instance running it crashed or became unreachable)", now, t.ID, t.LeaseID)
 				msg, level = fmt.Sprintf("task %s failed: its lease on %s expired on attempt %d of %d", t.ID, where, t.Attempts, maxAttempts), "error"
+				if err == nil {
+					err = endTaskRun(ctx, tx, t, "failed", "the task failed: its lease expired too many times")
+				}
 			} else {
 				res, err = tx.ExecContext(ctx, "UPDATE tasks SET state = 'queued', lease_id = '', lease_nest_id = '', lease_expires_ms = 0, updated_ms = $1 WHERE id = $2 AND lease_id = $3",
 					now, t.ID, t.LeaseID)
@@ -306,10 +310,31 @@ func (s *Store) ReleaseTask(ctx context.Context, taskID, leaseID string, notStar
 
 // CancelTask cancels a task that has not finished.
 func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
-	if _, err := s.db.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running')", NowMs(), id); err != nil {
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		t, err := scanTask(tx.QueryRowContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running') RETURNING "+taskCols, NowMs(), id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return endTaskRun(ctx, tx, t, "cancelled", "cancelled")
+	})
+	if err != nil {
 		return Task{}, err
 	}
 	return s.GetTask(ctx, id)
+}
+
+// endTaskRun ends the unfinished run of a task the Hub has finished, and
+// fences off its owner (a host may still be running it). Otherwise the run
+// would keep its conversation open, and the next task with the same
+// conversation key could never start.
+func endTaskRun(ctx context.Context, tx *sql.Tx, t Task, status, msg string) error {
+	_, err := tx.ExecContext(ctx, "UPDATE runs SET status = $1, error = $2, ended_ms = $3, epoch = epoch + 1 "+
+		"WHERE namespace = $4 AND deployment = $5 AND task_id = $6 AND ended_ms IS NULL",
+		status, msg, NowMs(), t.Namespace, t.Deployment, t.ID)
+	return err
 }
 
 // QueueStats counts unfinished tasks of a deployment.
