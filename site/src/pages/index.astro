@@ -1,0 +1,71 @@
+---
+import { Boxes, Code, Network, ShieldCheck } from "@lucide/astro";
+import { render } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Hero from "../components/Hero.astro";
+import Button from "../components/Button.astro";
+import Card from "../components/Card.astro";
+import { allDocs } from "../lib/docs";
+import { siteConfig } from "../site.config";
+
+const features = [
+  {
+    icon: Code,
+    title: "Embed it",
+    description: "Run an agent inside your Python, Node.js or Go app with the same engine the fleet uses.",
+  },
+  {
+    icon: Boxes,
+    title: "Run a fleet",
+    description: "Deploy agents that scale to zero, wake on demand and survive crashes, on one machine, many, or Kubernetes.",
+  },
+  {
+    icon: Network,
+    title: "Connect everything",
+    description: "MCP servers as tools, agents calling agents over A2A, cron and webhook triggers, and an MCP endpoint for your assistant.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Stay in control",
+    description: "Permissions and approvals, budgets per run and per day, redacted secrets, and a trace of every call.",
+  },
+];
+
+const index = (await allDocs()).find((d) => d.id === "index");
+const { Content } = index ? await render(index) : { Content: null };
+---
+
+<BaseLayout title={siteConfig.name}>
+  <Hero title={siteConfig.name} subtitle={siteConfig.description}>
+    <Button href="/getting-started/">Get started</Button>
+    <Button href={siteConfig.repo} variant="secondary">View on GitHub</Button>
+  </Hero>
+
+  <section class="mx-auto max-w-5xl px-4 pb-12">
+    <div class="grid gap-6 sm:grid-cols-2">
+      {
+        features.map(({ icon: Icon, title, description }) => (
+          <Card title={title} description={description}>
+            <Icon slot="icon" class="size-5 text-brand" aria-hidden="true" />
+          </Card>
+        ))
+      }
+    </div>
+  </section>
+
+  {
+    Content && (
+      <section class="landing prose mx-auto max-w-3xl px-4 pb-20">
+        <Content />
+      </section>
+    )
+  }
+</BaseLayout>
+
+<style>
+  /* docs/index.md opens with the title and introduction the hero and cards
+     already show; the landing page starts at its first section. */
+  .landing :global(> :not(h2, h2 ~ *)) {
+    display: none;
+  }
+</style>

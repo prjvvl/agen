@@ -591,4 +591,5 @@ deploy/      docker (image), compose (cluster), kube (manifests)
 scripts/     code generation, release, install
 examples/    bundles and sample apps
 docs/        this and user docs
+site/        the docs website (Astro, from Trestle), built from docs/
 ```

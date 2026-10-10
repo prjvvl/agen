@@ -140,6 +140,7 @@ The docs are at [prjvvl.github.io/agen](https://prjvvl.github.io/agen/):
 | `sdks/` | Python, Node and Go SDKs |
 | `platform/` | Go: Hub, Nest (Manager + Gateway), CLI; `platform/e2e` runs the distributed and Kubernetes scenarios |
 | `web/` | React UI |
+| `docs/`, `site/` | Documentation, and the website that publishes it ([Trestle](https://github.com/prjvvl/trestle)) |
 | `examples/` | Example bundles and apps |
 | `deploy/` | Docker image, compose cluster, Kubernetes manifests |
 | `scripts/` | Code generation, release, install |
