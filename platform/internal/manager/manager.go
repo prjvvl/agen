@@ -832,6 +832,13 @@ func (m *Manager) report(ctx context.Context) {
 	m.mu.Lock()
 	req := &agenv1.ReportStatusRequest{NestId: m.nestID, Capacity: int32(m.cfg.Capacity), GatewayUrl: m.cfg.GatewayURL}
 	for _, in := range m.instances {
+		select {
+		case <-in.exited:
+			if !in.retiring {
+				continue // a crash, reported below once forget has recorded it
+			}
+		default:
+		}
 		req.Instances = append(req.Instances, &agenv1.Instance{Id: in.id, Namespace: in.ns, Deployment: in.dep, NestId: m.nestID,
 			DefinitionDigest: in.digest, State: states[in.state], Endpoint: in.endpoint, RunningTasks: int32(in.running),
 			StartedAt: timestamppb.New(in.started), Message: in.message, Tools: in.tools, ToolServers: in.toolServers})
