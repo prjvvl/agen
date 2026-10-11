@@ -300,7 +300,21 @@ func (e *env) cmdPs(ctx context.Context, args []string) error {
 			fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\t%s\t%s\n", in.Id, in.Namespace, in.Deployment, nest,
 				stateName(in.State, "INSTANCE_STATE_"), in.RunningTasks, toolSummary(in), shortDigest(in.DefinitionDigest), in.Endpoint)
 		}
-		return w.Flush()
+		if err := w.Flush(); err != nil {
+			return err
+		}
+		// Why instances failed (e.g. a missing secret), under the table.
+		first := true
+		for _, in := range r.Msg.Instances {
+			if in.State == agenv1.InstanceState_INSTANCE_STATE_FAILED && in.Message != "" {
+				if first {
+					fmt.Fprintln(e.stdout)
+					first = false
+				}
+				fmt.Fprintf(e.stdout, "%s (%s/%s) failed: %s\n", in.Id, in.Namespace, in.Deployment, in.Message)
+			}
+		}
+		return nil
 	}
 	r, err := c.ListDeployments(ctx, connect.NewRequest(&agenv1.ListDeploymentsRequest{Namespace: ns}))
 	if err != nil {

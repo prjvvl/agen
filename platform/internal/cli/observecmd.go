@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
 )
@@ -22,12 +23,14 @@ func (e *env) cmdRuns(ctx context.Context, args []string) error {
 	roots := fs.Bool("roots", false, "only runs that started a trace, with the usage of the runs they delegated to")
 	labels := labelFlag{}
 	fs.Var(labels, "label", "only runs with this key=value label (repeatable)")
+	since := fs.Duration("since", 0, "only runs started within this long (e.g. 1h)")
+	task := fs.String("task", "", "only the run of this task")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) > 1 {
-		return usageErr("agen runs [name] [--status S] [--roots] [--label k=v]")
+		return usageErr("agen runs [name] [--status S] [--roots] [--label k=v] [--since D] [--task ID]")
 	}
 	dep := ""
 	if len(pos) == 1 {
@@ -37,8 +40,12 @@ func (e *env) cmdRuns(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := c.ListRuns(ctx, connect.NewRequest(&agenv1.ListRunsRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit),
-		Status: *status, RootsOnly: *roots, Labels: labels}))
+	req := &agenv1.ListRunsRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit),
+		Status: *status, RootsOnly: *roots, Labels: labels, TaskId: *task}
+	if *since > 0 {
+		req.Since = timestamppb.New(time.Now().Add(-*since))
+	}
+	r, err := c.ListRuns(ctx, connect.NewRequest(req))
 	if err != nil {
 		return err
 	}
@@ -46,7 +53,7 @@ func (e *env) cmdRuns(ctx context.Context, args []string) error {
 		return e.printJSON(r.Msg)
 	}
 	w := e.table()
-	fmt.Fprintln(w, "RUN\tDEPLOYMENT\tSTATUS\tSTARTED\tDURATION\tTOKENS\tCOST\tTRACE")
+	fmt.Fprintln(w, "RUN\tDEPLOYMENT\tSTATUS\tSTARTED\tDURATION\tTOKENS\tCOST\tTRACE\tERROR")
 	for _, run := range r.Msg.Runs {
 		u := run.Usage
 		if run.TreeUsage != nil {
@@ -56,8 +63,8 @@ func (e *env) cmdRuns(ctx context.Context, args []string) error {
 		if run.EndedAt != nil {
 			dur = run.EndedAt.AsTime().Sub(run.StartedAt.AsTime()).Round(time.Millisecond).String()
 		}
-		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%d\t$%.4f\t%s\n", run.Id, run.Namespace, run.Deployment, run.Status,
-			run.StartedAt.AsTime().Local().Format(time.RFC3339), dur, u.GetInputTokens()+u.GetOutputTokens(), u.GetCostUsd(), run.TraceId)
+		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%d\t$%.4f\t%s\t%s\n", run.Id, run.Namespace, run.Deployment, run.Status,
+			run.StartedAt.AsTime().Local().Format(time.RFC3339), dur, u.GetInputTokens()+u.GetOutputTokens(), u.GetCostUsd(), run.TraceId, oneLine(run.Error, 80))
 	}
 	return w.Flush()
 }
@@ -173,4 +180,13 @@ func (e *env) cmdNotify(ctx context.Context, args []string) error {
 		return err
 	}
 	return usageErr(usage)
+}
+
+// oneLine shortens s to one line of at most n characters.
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
 }

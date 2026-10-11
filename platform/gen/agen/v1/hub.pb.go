@@ -211,8 +211,11 @@ func (x *ListTemplatesResponse) GetTemplates() []*Template {
 type NotificationTarget struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Url       string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	// Lowercase letters, digits and dashes; setting a name again replaces
+	// the target and its signing secret.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// http(s) URL that receives a signed JSON POST per event.
+	Url string `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
 	// Event types to send: approval.pending, task.failed, budget.exhausted.
 	// Empty means all.
 	Events        []string               `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
@@ -2582,21 +2585,24 @@ func (x *DecideApprovalResponse) GetApproval() *Approval {
 }
 
 type ListRunsRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Namespace  string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Deployment string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
-	Limit      int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty: every namespace the caller may see.
+	Namespace  string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Deployment string `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	// Runs per page (default 50, at most 500), newest first.
+	Limit int32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	// running, waiting_approval, succeeded, failed or cancelled.
 	Status string `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
-	// Only runs that started a trace (not delegated runs), with the usage of
-	// their whole run tree.
+	// Only runs that started a trace (rootsOnly; not delegated runs), with
+	// the usage of their whole run tree.
 	RootsOnly bool `protobuf:"varint,5,opt,name=roots_only,json=rootsOnly,proto3" json:"roots_only,omitempty"`
 	// Runs carrying all of these labels.
 	Labels map[string]string `protobuf:"bytes,6,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Runs started at or after this time.
 	Since *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=since,proto3" json:"since,omitempty"`
-	// next_page_token of the previous page.
-	PageToken     string `protobuf:"bytes,8,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// nextPageToken of the previous page.
+	PageToken string `protobuf:"bytes,8,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// The run(s) of one task (a task's attempts resume one run).
 	TaskId        string `protobuf:"bytes,9,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2698,7 +2704,7 @@ func (x *ListRunsRequest) GetTaskId() string {
 type ListRunsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Runs  []*Run                 `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
-	// Pass as page_token for the next page; empty on the last page.
+	// Pass as pageToken for the next page; empty on the last page.
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2750,7 +2756,8 @@ func (x *ListRunsResponse) GetNextPageToken() string {
 
 type GetTranscriptRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	RunId string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	// A run id: a task's runId (get_task), or from list_runs or get_trace.
+	RunId string `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	// Also the earlier messages of the conversation the run continued.
 	IncludeHistory bool `protobuf:"varint,2,opt,name=include_history,json=includeHistory,proto3" json:"include_history,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -3018,8 +3025,9 @@ func (x *GetTranscriptResponse) GetSystemPrompt() string {
 }
 
 type GetMetricsRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty: every namespace the caller may see.
+	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	// Window length (default 86400, at most 30 days).
 	WindowSeconds int32 `protobuf:"varint,2,opt,name=window_seconds,json=windowSeconds,proto3" json:"window_seconds,omitempty"`
 	// Number of time buckets per deployment (default 24, at most 200).

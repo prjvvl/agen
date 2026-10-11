@@ -165,7 +165,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetMetrics` · MCP tool: `get
 
 | Field | Type | Description |
 |---|---|---|
-| `namespace` | string |  |
+| `namespace` | string | Empty: every namespace the caller may see. |
 | `windowSeconds` | int32 | Window length (default 86400, at most 30 days). |
 | `buckets` | int32 | Number of time buckets per deployment (default 24, at most 200). |
 
@@ -198,7 +198,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTranscript` · MCP tool: `
 
 | Field | Type | Description |
 |---|---|---|
-| `runId` | string |  |
+| `runId` | string | A run id: a task's runId (get_task), or from list_runs or get_trace. |
 | `includeHistory` | bool | Also the earlier messages of the conversation the run continued. |
 
 ## ListApiTokens
@@ -274,15 +274,15 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListRuns` · MCP tool: `list_
 
 | Field | Type | Description |
 |---|---|---|
-| `namespace` | string |  |
+| `namespace` | string | Empty: every namespace the caller may see. |
 | `deployment` | string |  |
-| `limit` | int32 |  |
+| `limit` | int32 | Runs per page (default 50, at most 500), newest first. |
 | `status` | string | running, waiting_approval, succeeded, failed or cancelled. |
-| `rootsOnly` | bool | Only runs that started a trace (not delegated runs), with the usage of their whole run tree. |
+| `rootsOnly` | bool | Only runs that started a trace (rootsOnly; not delegated runs), with the usage of their whole run tree. |
 | `labels` | map&lt;string, string&gt; | Runs carrying all of these labels. |
 | `since` | Timestamp | Runs started at or after this time. |
-| `pageToken` | string | next_page_token of the previous page. |
-| `taskId` | string |  |
+| `pageToken` | string | nextPageToken of the previous page. |
+| `taskId` | string | The run(s) of one task (a task's attempts resume one run). |
 
 ## ListSecrets
 

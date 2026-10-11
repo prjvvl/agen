@@ -45,6 +45,10 @@ message Budget {
   double max_usd_per_day = 3;
 }
 
+// Fleet-side limits. In CreateDeployment and UpdateDeployment a field left
+// 0 keeps the bundle's value (to turn a limit off, set it to 0 in the
+// bundle's x-agen/config.json). maxRunDuration, maxIdenticalToolCalls,
+// modelRequestTimeout and toolTimeout are set only in the bundle.
 message Limits {
   // Max A2A/task delegation depth below a root run.
   int32 max_delegation_depth = 1;

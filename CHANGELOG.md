@@ -22,7 +22,8 @@
   included, and its system prompt; `agen transcript`.
 - `ListRuns` filters by status, labels, time and task, pages with
   `pageToken`, and with `rootsOnly` lists one row per trace with the usage of
-  the whole run tree; `agen runs`.
+  the whole run tree; `agen runs` (with `--since`, `--task` and each run's
+  error).
 - `GetMetrics`: runs, failures, duration percentiles, tokens and cost per
   deployment over a window, and the delegation edges between deployments.
 - `GET /api/v1/events` streams changes (server-sent events).
@@ -64,7 +65,13 @@
 ### Fleet
 - An instance that crashes on start is reported with the host's error (for
   example a missing secret), once per distinct error, until one starts: the
-  console shows why an agent does not start instead of "starting".
+  console and `agen ps --all` show why an agent does not start instead of
+  "starting".
+
+### MCP
+- The instructions MCP clients receive (and `get_bundle_guide`) cover
+  investigating failures (runs, transcripts, traces, metrics), templates,
+  the limits that end runs, per-agent Hub tokens and on-behalf tokens.
 
 ## v0.1.1
 

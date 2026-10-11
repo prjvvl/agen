@@ -183,6 +183,21 @@ func TestLocalFleetThroughTheCLI(t *testing.T) {
 	if out := agen(t, 0, "tasks"); !strings.Contains(out, "succeeded") {
 		t.Fatalf("tasks: %s", out)
 	}
+	if out := agen(t, 0, "runs", "hello", "--since", "1h", "--status", "succeeded"); !strings.Contains(out, "ERROR") || !strings.Contains(out, "default/hello  succeeded") {
+		t.Fatalf("runs: %s", out)
+	}
+
+	// An agent that cannot start says why in ps --all.
+	broken := filepath.Join(t.TempDir(), "broken")
+	copyDir(t, bundle, broken)
+	if err := os.WriteFile(filepath.Join(broken, "x-agen", "secrets.json"), []byte(`{"NOT_SET_ANYWHERE": {"source": "platform"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agen(t, 0, "deploy", broken, "--name", "broken", "--replicas", "1")
+	waitUntil(t, "failure shown", 30*time.Second, func() bool {
+		return strings.Contains(agen(t, 0, "ps", "--all"), "(default/broken) failed: ")
+	})
+	agen(t, 0, "rm", "broken")
 	waitUntil(t, "run logged", 10*time.Second, func() bool {
 		out := agen(t, 0, "logs", "hello")
 		return strings.Contains(out, " succeeded in ") && strings.Contains(out, "started (task ")

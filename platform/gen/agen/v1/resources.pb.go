@@ -623,6 +623,10 @@ func (x *Budget) GetMaxUsdPerDay() float64 {
 	return 0
 }
 
+// Fleet-side limits. In CreateDeployment and UpdateDeployment a field left
+// 0 keeps the bundle's value (to turn a limit off, set it to 0 in the
+// bundle's x-agen/config.json). maxRunDuration, maxIdenticalToolCalls,
+// modelRequestTimeout and toolTimeout are set only in the bundle.
 type Limits struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Max A2A/task delegation depth below a root run.

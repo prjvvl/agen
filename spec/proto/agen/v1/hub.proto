@@ -125,7 +125,10 @@ message ListTemplatesResponse {
 
 message NotificationTarget {
   string namespace = 1;
+  // Lowercase letters, digits and dashes; setting a name again replaces
+  // the target and its signing secret.
   string name = 2;
+  // http(s) URL that receives a signed JSON POST per event.
   string url = 3;
   // Event types to send: approval.pending, task.failed, budget.exhausted.
   // Empty means all.
@@ -352,29 +355,33 @@ message DecideApprovalResponse {
 }
 
 message ListRunsRequest {
+  // Empty: every namespace the caller may see.
   string namespace = 1;
   string deployment = 2;
+  // Runs per page (default 50, at most 500), newest first.
   int32 limit = 3;
   // running, waiting_approval, succeeded, failed or cancelled.
   string status = 4;
-  // Only runs that started a trace (not delegated runs), with the usage of
-  // their whole run tree.
+  // Only runs that started a trace (rootsOnly; not delegated runs), with
+  // the usage of their whole run tree.
   bool roots_only = 5;
   // Runs carrying all of these labels.
   map<string, string> labels = 6;
   // Runs started at or after this time.
   google.protobuf.Timestamp since = 7;
-  // next_page_token of the previous page.
+  // nextPageToken of the previous page.
   string page_token = 8;
+  // The run(s) of one task (a task's attempts resume one run).
   string task_id = 9;
 }
 message ListRunsResponse {
   repeated Run runs = 1;
-  // Pass as page_token for the next page; empty on the last page.
+  // Pass as pageToken for the next page; empty on the last page.
   string next_page_token = 2;
 }
 
 message GetTranscriptRequest {
+  // A run id: a task's runId (get_task), or from list_runs or get_trace.
   string run_id = 1;
   // Also the earlier messages of the conversation the run continued.
   bool include_history = 2;
@@ -404,6 +411,7 @@ message GetTranscriptResponse {
 }
 
 message GetMetricsRequest {
+  // Empty: every namespace the caller may see.
   string namespace = 1;
   // Window length (default 86400, at most 30 days).
   int32 window_seconds = 2;

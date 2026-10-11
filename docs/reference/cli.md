@@ -392,8 +392,12 @@ Usage of runs:
     	namespace (default "default")
   -roots
     	only runs that started a trace, with the usage of the runs they delegated to
+  -since duration
+    	only runs started within this long (e.g. 1h)
   -status string
     	running, waiting_approval, succeeded, failed or cancelled
+  -task string
+    	only the run of this task
   -token string
     	API token
 ```
