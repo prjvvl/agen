@@ -305,6 +305,9 @@ func (s *Store) ReportInstances(ctx context.Context, nestID string, list []Insta
 			delete(before, in.ID)
 			msg, level := "", "info"
 			switch {
+			case !known && in.State == "failed":
+				// Reported once it has already exited (a crash on start).
+				msg, level = "instance "+in.ID+" failed on nest "+nestID+": "+in.Message, "error"
 			case !known:
 				msg = "instance " + in.ID + " started on nest " + nestID
 			case (in.State == "failed" || in.State == "stopped") && prev.State != in.State:

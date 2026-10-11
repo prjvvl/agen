@@ -383,7 +383,9 @@ func (h *Hub) ListNests(ctx context.Context, _ *connect.Request[agenv1.ListNests
 	}
 	used := map[string]int{}
 	for _, in := range insts {
-		used[in.NestID]++
+		if in.State != "failed" {
+			used[in.NestID]++
+		}
 	}
 	out := &agenv1.ListNestsResponse{}
 	for _, n := range nests {

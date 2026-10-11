@@ -268,6 +268,23 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   await page.getByRole("tab", { name: "Bundle" }).click();
   await expect(page.getByLabel("content of x-agen/agent.md")).toContainText("friendly assistant");
 
+  // Agents that talk to the Hub each get their own token, and share its URL.
+  for (const [tpl, name] of [
+    ["Fleet steward", "steward-a"],
+    ["Cost watchdog", "watchdog-b"],
+  ]) {
+    await page.getByRole("link", { name: "Templates" }).click();
+    await page.getByRole("link", { name: `Use the ${tpl} template` }).click();
+    await page.getByLabel("Name", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "Deploy" }).click();
+    await expect(page.getByRole("heading", { name })).toBeVisible();
+  }
+  const { secrets } = await api<{ secrets: { name: string; deployments: string[] }[] }>("ListSecrets", { namespace: "default" });
+  const grants = Object.fromEntries(secrets.map((s) => [s.name, [...s.deployments].sort()]));
+  expect(grants["AGEN_TOKEN.steward-a"]).toEqual(["steward-a"]);
+  expect(grants["AGEN_TOKEN.watchdog-b"]).toEqual(["watchdog-b"]);
+  expect(grants["AGEN_HUB_URL"]).toEqual(["steward-a", "watchdog-b"]);
+
   await page.getByRole("link", { name: "Costs" }).click();
   await expect(page.getByRole("heading", { name: "Costs" })).toBeVisible();
 

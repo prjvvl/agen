@@ -33,12 +33,16 @@ agent more tools, add servers to its `mcp.json` and allow their tools in
 | `assistant` | The console's chat assistant. | an `--on-behalf` token (see [The console](console.md#assistant)) |
 
 The operations templates talk to the Hub through its MCP endpoint. They read
-two platform secrets: `AGEN_HUB_URL` (the Hub's address as the Nest sees it)
-and `AGEN_TOKEN` (a token with the scopes in the table). The console sets
-both when it deploys them; from the CLI:
+two platform secrets: `AGEN_HUB_URL` (the Hub's address as the Nest sees it,
+shared by all of them) and their own token, stored as `AGEN_TOKEN.<agent>`
+(`key` in `x-agen/secrets.json`) because each needs different scopes. The
+console sets both when it deploys them; from the CLI:
 
 ```sh
 agen token create --name fleet-steward-agent --scope viewer
-echo "<the token>" | agen secret set AGEN_TOKEN --for fleet-steward
-echo "http://127.0.0.1:7070" | agen secret set AGEN_HUB_URL --for fleet-steward
+echo "<the token>" | agen secret set AGEN_TOKEN.fleet-steward --for fleet-steward
+echo "http://127.0.0.1:7070" | agen secret set AGEN_HUB_URL --for fleet-steward --for cost-watchdog
 ```
+
+A secret names every deployment that may read it: setting it again replaces
+that list, so name them all.

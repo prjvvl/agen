@@ -152,13 +152,22 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
     }
   }, [t]);
   const missingDelegates = delegates.filter((d) => !(deps.data?.deployments ?? []).some((x) => x.name === d));
-  const has = (s: string) => (existing.data?.secrets ?? []).some((x) => x.name === s && (x.deployments ?? []).includes(name));
   const hubToken = HUB_TOKEN[t.name];
+  // Each agent's Hub token is its own secret, since agents need different
+  // scopes; other secrets are shared by name within the namespace.
+  const stored = (s: string) => (s === "AGEN_TOKEN" && hubToken ? `AGEN_TOKEN.${name}` : s);
+  const grants = (s: string) => (existing.data?.secrets ?? []).find((x) => x.name === stored(s))?.deployments ?? [];
+  const has = (s: string) => grants(s).includes(name);
 
   function files(): Record<string, string> {
     const out = { ...(t.files ?? {}) };
     out["x-agen/agent.md"] = `${front}\n${prompt.trim()}\n`;
     if (model && harness.model) out["x-agen/harness.json"] = JSON.stringify({ ...harness, model }, null, 2) + "\n";
+    if (hubToken && sources.AGEN_TOKEN === "platform") {
+      const decl = JSON.parse(out["x-agen/secrets.json"]);
+      decl.AGEN_TOKEN = { ...decl.AGEN_TOKEN, key: stored("AGEN_TOKEN") };
+      out["x-agen/secrets.json"] = JSON.stringify(decl, null, 2) + "\n";
+    }
     return out;
   }
 
@@ -170,7 +179,7 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
         const tok = await call<{ secret: string }>("CreateApiToken", { name: `${name}-agent`, scopes: hubToken.scopes, onBehalf: hubToken.onBehalf });
         v = tok.secret;
       }
-      if (v) await call("SetSecret", { namespace, name: s, value: v, deployments: [name] });
+      if (v) await call("SetSecret", { namespace, name: stored(s), value: v, deployments: [...new Set([...grants(s), name])] });
     }
   }
 

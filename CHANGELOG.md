@@ -57,6 +57,14 @@
   Each brings its tool servers and skills, which `agen init --list`, the
   console's Templates page and `ListTemplates` show;
   `agen init <dir> --template NAME`.
+- Agents that talk to the Hub each keep their own token
+  (`AGEN_TOKEN.<agent>`); deploying one no longer replaces another's token
+  or access to the shared `AGEN_HUB_URL`.
+
+### Fleet
+- An instance that crashes on start is reported with the host's error (for
+  example a missing secret), once per distinct error, until one starts: the
+  console shows why an agent does not start instead of "starting".
 
 ## v0.1.1
 
