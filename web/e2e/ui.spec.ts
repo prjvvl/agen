@@ -341,6 +341,8 @@ test("a namespace-scoped token sees only its namespace; a revoked token signs ou
   await expect(page.getByRole("heading", { name: "Fleet" })).toBeVisible();
 
   await api("RevokeApiToken", { id: tok.token.id });
-  await page.getByRole("link", { name: "Deployments" }).click();
+  // The console may already have noticed (any request signs it out); a
+  // navigation makes sure one is made.
+  await page.goto("/#/deployments");
   await expect(page.getByLabel("API token")).toBeVisible(); // back to sign-in
 });
