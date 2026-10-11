@@ -14,8 +14,8 @@
   limits, instances, live logs and the bundle's files; `Ctrl+K` to jump
   anywhere; light and dark themes.
 - A chat assistant that answers questions about the fleet and makes changes
-  you confirm, with your permissions (see Templates); its panel resizes and
-  keeps past chats.
+  you confirm, with your permissions (see Templates). The chat shows each
+  step as it works; the panel resizes and keeps past chats.
 
 ### Traces and metrics
 - `GetTranscript` returns a run's conversation, tool calls and results
@@ -30,6 +30,8 @@
 - Model-call, tool-call and approval spans are recorded when they start, so
   a running trace shows what is in progress; model-call spans link to their
   messages (`agen.message.seq`) and record their cost.
+- A task an agent submits through the Hub's API or MCP tools joins the
+  agent's trace and the fleet map, and counts towards the delegation depth.
 - The Hub deletes spans, log lines and trigger events older than 30 days
   (`--retention`).
 

@@ -742,3 +742,30 @@
     border-bottom: 1px solid var(--border);
   }
 }
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.steps li {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.steps li svg {
+  flex: none;
+  margin-top: 3px;
+}
+.steps-done summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.steps-done[open] summary {
+  margin-bottom: 4px;
+}

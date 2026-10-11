@@ -96,7 +96,9 @@ token only acts for the submitter of the task it works on, never has more
 scopes or namespaces than that person, never has admin rights and can never
 decide approvals. Each answer links to its trace.
 
-Drag the panel's left edge to widen it. **History** lists your past chats in
+While it works, the chat lists each step (the tools it calls, with their
+arguments); a finished answer keeps them under **Steps**. Drag the panel's
+left edge to widen it. **History** lists your past chats in
 this browser; opening one continues that conversation, since the assistant
 remembers each by its conversation key.
 

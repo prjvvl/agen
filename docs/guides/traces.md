@@ -6,6 +6,11 @@ the caller's trace), and the conversation's messages, tool calls and results
 included. The [console](console.md#runs-and-traces) shows them as a timeline
 with an inspector; the CLI and API return the same data.
 
+A task that an agent submits through the Hub's API or MCP tools (for example
+the console assistant asking another agent) is linked the same way: it joins
+the agent's trace, appears on the fleet map as a call, and counts towards the
+delegation depth.
+
 ## From the CLI
 
 ```sh

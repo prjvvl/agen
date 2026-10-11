@@ -446,3 +446,57 @@ func (e env) clientWith(token string, hdr map[string]string) agenv1HubClient {
 			}
 		})), connect.WithProtoJSON())
 }
+
+// A task an agent submits through the Hub's API or MCP tools joins the
+// agent's run tree and trace, and counts towards the delegation depth.
+func TestAgentSubmittedTaskIsLinked(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "shallow", BundleFiles: helloFiles(t),
+		Limits: &agenv1.Limits{MaxDelegationDepth: 1}})); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	for _, q := range []string{
+		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','hello','default','hello','{}',$1,$1)",
+		"INSERT INTO conversations (id, session_id, created_ms) VALUES ('c1','s1',$1)",
+	} {
+		if _, err := e.store.DB().Exec(q, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.store.DB().Exec("INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, started_ms, task_id) VALUES ('r1','s1','c1','default','hello','running','x',$1,$2)",
+		now, parent.Msg.Task.Id); err != nil {
+		t.Fatal(err)
+	}
+	tp := "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+	agent := e.clientWith(admin, map[string]string{TaskHeader: parent.Msg.Task.Id, RunHeader: "r1", "Traceparent": tp})
+	child, err := agent.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "y"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.store.GetTask(ctx, child.Msg.Task.Id)
+	if err != nil || got.ParentTaskID != parent.Msg.Task.Id || got.ParentRunID != "r1" || got.RootRunID != "r1" || got.Depth != 1 || got.Traceparent != tp {
+		t.Fatalf("child: %+v %v", got, err)
+	}
+	deeper := e.clientWith(admin, map[string]string{TaskHeader: child.Msg.Task.Id})
+	if _, err := deeper.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "shallow"), Input: "z"})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("depth 2 on a depth-1 deployment: %v", err)
+	}
+	stranger := e.clientWith(admin, map[string]string{TaskHeader: "no-such-task"})
+	plain, err := stranger.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "w"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.store.GetTask(ctx, plain.Msg.Task.Id); got.ParentTaskID != "" || got.Depth != 0 {
+		t.Fatalf("unknown parent linked: %+v", got)
+	}
+}

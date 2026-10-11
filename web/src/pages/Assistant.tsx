@@ -1,6 +1,6 @@
-import { ExternalLink, History, Loader2, Plus, Send, Trash2, Wrench, X } from "lucide-react";
+import { Check, ExternalLink, History, Loader2, Plus, Send, Trash2, X } from "lucide-react";
 import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { call, Deployment, Task } from "../api";
+import { call, Deployment, Run, Task } from "../api";
 import { useSession } from "../App";
 import { ago } from "../format";
 import { useQuery } from "../live";
@@ -327,10 +327,30 @@ export function Assistant({ prompt, onClose }: { prompt?: string; onClose: () =>
 }
 
 function ChatTurn({ t }: { t: Turn }) {
+  const working = t.role === "assistant" && (t.state === "running" || t.state === "approval");
+  // A task names its run only when it ends; until then, find it by task.
+  const run = useQuery(
+    () => (working && !t.runId && t.taskId ? call<{ runs?: Run[] }>("ListRuns", { taskId: t.taskId, limit: 1 }) : Promise.resolve({ runs: [] })),
+    [working, t.runId, t.taskId],
+    { on: (e) => working && e.kind === "run" && e.deployment === NAME, every: working ? 3000 : 0 },
+  );
+  const taskRun = run.data?.runs?.[0]?.id;
   if (t.role === "user") return <div className="turn user">{t.text}</div>;
   return (
     <div className="turn assistant" data-state={t.state}>
-      {t.state === "running" || t.state === "approval" ? <Progress runId={t.runId} approval={t.state === "approval"} /> : <Markdown text={t.text} />}
+      {t.state === "running" || t.state === "approval" ? (
+        <div className="progress">
+          <span className="status" data-tone="info" data-active>
+            <Loader2 size={14} aria-hidden /> {t.state === "approval" ? "Waiting for an approval" : "Working"}
+          </span>
+          <Steps runId={t.runId ?? taskRun} live />
+        </div>
+      ) : (
+        <>
+          {t.runId && <PastSteps runId={t.runId} />}
+          <Markdown text={t.text} />
+        </>
+      )}
       {t.traceId && (
         <a className="turn-trace" href={traceHref(t.traceId)}>
           <ExternalLink size={12} aria-hidden /> What it did
@@ -340,21 +360,51 @@ function ChatTurn({ t }: { t: Turn }) {
   );
 }
 
-/** The tool calls of the assistant's run so far. */
-function Progress({ runId, approval }: { runId?: string; approval: boolean }) {
-  const t = useTranscript(runId, true);
-  const calls = (t.data?.messages ?? []).filter((m) => m.runId === runId).flatMap((m) => m.toolCalls ?? []);
+/** A finished answer's steps, loaded when opened. */
+function PastSteps({ runId }: { runId: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="progress">
-      <span className="status" data-tone="info" data-active>
-        <Loader2 size={14} aria-hidden /> {approval ? "Waiting for an approval" : "Working"}
-      </span>
-      {calls.map((c) => (
-        <span key={c.id} className="muted toolbar">
-          <Wrench size={12} aria-hidden /> {c.name.replace(/^agen[._]/, "").replace(/_/g, " ")}
-        </span>
-      ))}
-    </div>
+    <details className="steps-done" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="muted">Steps</summary>
+      {open && <Steps runId={runId} live={false} />}
+    </details>
+  );
+}
+
+/** A tool call's arguments in a few words: the first values, shortened. */
+function argSummary(args: unknown): string {
+  if (!args || typeof args !== "object") return args === undefined ? "" : String(args);
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
+    if (v === "" || v === null || v === undefined) continue;
+    const val = v && typeof v === "object" ? ((v as { name?: string }).name ?? JSON.stringify(v)) : String(v);
+    parts.push(`${k}: ${val.length > 40 ? val.slice(0, 39) + "…" : val}`);
+    if (parts.length === 2) break;
+  }
+  return parts.join(", ");
+}
+
+/** The tool calls of the assistant's run, each marked done once its result is in. Details load only when shown. */
+function Steps({ runId, live }: { runId?: string; live: boolean }) {
+  const t = useTranscript(runId, live);
+  const msgs = (t.data?.messages ?? []).filter((m) => m.runId === runId);
+  const answered = new Set(msgs.map((m) => m.toolCallId).filter(Boolean));
+  const calls = msgs.flatMap((m) => m.toolCalls ?? []);
+  if (!calls.length) return live || t.loading ? null : <p className="muted">No tool calls: it answered directly.</p>;
+  return (
+    <ol className="steps">
+      {calls.map((c) => {
+        const done = answered.has(c.id);
+        return (
+          <li key={c.id} className="status" data-tone={done ? "muted" : "info"} data-active={done ? undefined : true}>
+            {done ? <Check size={12} aria-hidden /> : <Loader2 size={12} aria-hidden />}
+            <span>
+              <b>{c.name.replace(/^agen[._]/, "").replace(/_/g, " ")}</b> <span className="muted">{argSummary(c.arguments)}</span>
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

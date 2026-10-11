@@ -346,3 +346,19 @@ test("a namespace-scoped token sees only its namespace; a revoked token signs ou
   await page.goto("/#/deployments");
   await expect(page.getByLabel("API token")).toBeVisible(); // back to sign-in
 });
+
+test("the assistant answers in the chat, with its steps and history", async ({ page }) => {
+  await api("CreateDeployment", { name: "assistant", bundleFiles: bundle("assistant", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "**All good.**" }] }) });
+  await signIn(page);
+  await page.getByRole("button", { name: "Assistant", exact: true }).click();
+  const panel = page.locator(".assistant-panel");
+  await panel.getByLabel("Message the assistant").fill("How is the fleet?");
+  await panel.getByRole("button", { name: "Send" }).click();
+  const answer = panel.locator(".turn.assistant[data-state=done]");
+  await expect(answer).toContainText("All good.", { timeout: 60_000 });
+  await answer.locator("summary", { hasText: "Steps" }).click();
+  await expect(answer).toContainText("it answered directly");
+  await panel.getByRole("button", { name: "History" }).click();
+  await expect(panel.locator(".chat-history")).toContainText("How is the fleet?");
+  await accessible(page);
+});

@@ -409,14 +409,50 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkWorkIdentity(req.Msg.ConversationKey, req.Msg.Labels); err != nil {
 		return nil, err
 	}
-	t, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
+	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
+		return nil, err
+	}
+	t, err := h.Store.SubmitTask(ctx, task)
 	if err != nil {
 		return nil, connectErr(err)
 	}
 	_ = h.Store.TouchActivity(ctx, ns, name)
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// RunHeader names the run of the agent making a call (with TaskHeader and
+// a W3C traceparent; the MCP endpoint sets them from the call's _meta).
+const RunHeader = "X-Agen-Run"
+
+// linkToCaller makes a task submitted by an agent, through the Hub's API or
+// MCP tools, a child of the agent's unfinished task: it joins the agent's
+// trace and the delegation graph, and counts towards the delegation depth.
+// A caller that names no task, or one it may not see, submits a plain task.
+func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deployment, t *store.Task) error {
+	id := hdr.Get(TaskHeader)
+	if id == "" {
+		return nil
+	}
+	parent, err := h.Store.GetTask(ctx, id)
+	if err != nil || parent.Terminal() || !PrincipalFrom(ctx).AllowsNamespace(parent.Namespace) {
+		return nil
+	}
+	t.ParentTaskID, t.Depth, t.RootRunID = parent.ID, parent.Depth+1, parent.RootRunID
+	if runID := hdr.Get(RunHeader); runID != "" {
+		if run, err := h.Store.GetRun(ctx, runID); err == nil && run.TaskID == parent.ID {
+			t.ParentRunID, t.Traceparent = run.ID, hdr.Get("Traceparent")
+			if t.RootRunID == "" {
+				t.RootRunID = run.ID
+			}
+		}
+	}
+	if max := int(PolicyOf(d).Limits.MaxDelegationDepth); max > 0 && t.Depth > max {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("delegation depth %d exceeds max_delegation_depth %d of %s/%s", t.Depth, max, d.Namespace, d.Name))
+	}
+	return nil
 }
 
 // withTraceIDs sets the trace id of tasks that did not arrive with a
