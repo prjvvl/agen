@@ -272,7 +272,7 @@ func (h *Hub) ListTemplates(context.Context, *connect.Request[agenv1.ListTemplat
 	out := &agenv1.ListTemplatesResponse{}
 	for _, t := range list {
 		out.Templates = append(out.Templates, &agenv1.Template{Name: t.Name, Title: t.Title, Description: t.Description, Category: t.Category,
-			Secrets: t.Secrets, Files: t.Files})
+			Secrets: t.Secrets, Files: t.Files, Tools: t.Tools, Skills: t.Skills})
 	}
 	return connect.NewResponse(out), nil
 }

@@ -77,8 +77,16 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := st.RequeueExpiredLeases(ctx, s.MaxTaskAttempts); err != nil {
+	_, failed, err := st.RequeueExpiredLeases(ctx, s.MaxTaskAttempts)
+	if err != nil {
 		return epoch, err
+	}
+	for _, id := range failed {
+		go func() {
+			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			s.Hub.afterTaskEnded(c, id)
+		}()
 	}
 	if _, err := st.ExpireApprovals(ctx); err != nil {
 		return epoch, err

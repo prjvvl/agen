@@ -160,6 +160,10 @@ func (h *Hub) EventsHandler() (string, http.Handler) {
 			case <-r.Context().Done():
 				return
 			case <-ping.C:
+				// A revoked or expired token ends the stream.
+				if _, err := h.Auth.Authenticate(r.Context(), bearer(r.Header)); err != nil {
+					return
+				}
 				if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 					return
 				}

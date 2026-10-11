@@ -12,6 +12,13 @@ agen deploy my-researcher --replicas 1
 The console's **Templates** page deploys them directly, asks for the name,
 model and instructions, and sets the platform secrets they need.
 
+A template brings the tools and skills it uses: tool servers in its
+`mcp.json` (the Hub's own tools, GitHub's MCP server, a web fetcher) and
+skills in `skills/` (`hello` greets with one, `pr-reviewer` loads a review
+checklist). `agen init --list` and the Templates page show them. To give an
+agent more tools, add servers to its `mcp.json` and allow their tools in
+`permissions`; see [Tools](tools.md).
+
 | Template | What it does | Needs |
 |---|---|---|
 | `hello` | A scripted agent that never calls a model. | nothing |

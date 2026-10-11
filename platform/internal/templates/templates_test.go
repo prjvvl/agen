@@ -31,6 +31,18 @@ func TestTemplatesAreValidBundles(t *testing.T) {
 			t.Errorf("%s: bundle is named %q", tpl.Name, b.Name)
 		}
 	}
+	for _, tpl := range list {
+		switch tpl.Name {
+		case "hello":
+			if len(tpl.Tools) != 0 || len(tpl.Skills) != 1 || tpl.Skills[0] != "greeting" {
+				t.Errorf("hello: tools %v skills %v", tpl.Tools, tpl.Skills)
+			}
+		case "researcher":
+			if len(tpl.Tools) != 1 || tpl.Tools[0] != "fetch" {
+				t.Errorf("researcher: tools %v", tpl.Tools)
+			}
+		}
+	}
 	entries, err := bundles.ReadDir("bundles")
 	if err != nil {
 		t.Fatal(err)

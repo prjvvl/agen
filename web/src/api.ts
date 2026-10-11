@@ -298,6 +298,8 @@ export interface Template {
   category: string;
   secrets?: string[];
   files?: Record<string, string>;
+  tools?: string[];
+  skills?: string[];
 }
 
 export interface NotificationTarget {

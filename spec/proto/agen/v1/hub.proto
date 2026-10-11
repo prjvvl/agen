@@ -114,6 +114,10 @@ message Template {
   repeated string secrets = 5;
   // Bundle files: path -> text.
   map<string, string> files = 6;
+  // Tool servers the template connects to (mcp.json server names).
+  repeated string tools = 7;
+  // Skills the template ships (skills/<name>/SKILL.md).
+  repeated string skills = 8;
 }
 message ListTemplatesResponse {
   repeated Template templates = 1;

@@ -564,6 +564,55 @@
   box-shadow: var(--shadow);
   animation: slide-in 150ms ease-out;
 }
+.panel-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  z-index: 1;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.panel-resize:hover,
+.panel-resize:focus-visible {
+  background: var(--brand-soft);
+  outline: none;
+}
+.chat-history {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.chat-history li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-history li[aria-current] {
+  background: var(--surface-2);
+}
+.chat-history-open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-history-open:hover {
+  color: var(--brand);
+}
 .assistant-body {
   display: flex;
   flex-direction: column;

@@ -1,7 +1,8 @@
-import { ExternalLink, Loader2, RotateCcw, Send, Wrench, X } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ExternalLink, History, Loader2, Plus, Send, Trash2, Wrench, X } from "lucide-react";
+import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { call, Deployment, Task } from "../api";
 import { useSession } from "../App";
+import { ago } from "../format";
 import { useQuery } from "../live";
 import { traceHref } from "../router";
 import { Alert } from "../ui";
@@ -18,9 +19,22 @@ interface Turn {
   state?: "running" | "done" | "failed" | "approval";
 }
 
-function store<T>(key: string, fallback: T): T {
+/** A past chat, newest first in the history. */
+interface ChatMeta {
+  id: string;
+  title: string;
+  updated: number;
+}
+
+const MAX_CHATS = 30;
+const MIN_WIDTH = 360;
+const maxWidth = () => Math.max(MIN_WIDTH, Math.min(1200, innerWidth - 80));
+
+// Chats are kept in this browser, per signed-in principal; the assistant
+// itself remembers each one by its conversation key.
+function load<T>(key: string, fallback: T): T {
   try {
-    const v = sessionStorage.getItem(key);
+    const v = localStorage.getItem(key);
     return v ? (JSON.parse(v) as T) : fallback;
   } catch {
     return fallback;
@@ -29,7 +43,8 @@ function store<T>(key: string, fallback: T): T {
 
 function save(key: string, value: unknown) {
   try {
-    sessionStorage.setItem(key, JSON.stringify(value));
+    if (value === undefined) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
   } catch {
     /* storage unavailable: the chat lasts while the panel is open */
   }
@@ -40,27 +55,49 @@ export function Assistant({ prompt, onClose }: { prompt?: string; onClose: () =>
   const { me, can } = useSession();
   const deps = useQuery(() => call<{ deployments?: Deployment[] }>("ListDeployments", {}), [], { on: ["deployment"] });
   const dep = (deps.data?.deployments ?? []).find((d) => d.name === NAME);
-  const [chat, setChat] = useState(() => store("agen.chat.id", crypto.randomUUID()));
-  const [turns, setTurns] = useState<Turn[]>(() => store(`agen.chat.${chat}`, []));
+  const key = `agen.chat.${me?.id ?? "user"}`;
+  const [chats, setChats] = useState<ChatMeta[]>(() => load(`${key}.list`, []));
+  const [chat, setChat] = useState<string>(() => load(`${key}.current`, crypto.randomUUID()));
+  const [turns, setTurns] = useState<Turn[]>(() => load(`${key}.${chat}`, []));
+  // The turns as loaded, which opening a chat does not make recent.
+  const loaded = useRef(turns);
+  const [history, setHistory] = useState(false);
+  const [width, setWidth] = useState(() => Math.min(load("agen.assistant.width", 440), maxWidth()));
   const [input, setInput] = useState(prompt ?? "");
   const [error, setError] = useState("");
   const list = useRef<HTMLDivElement>(null);
   const sent = useRef(false);
   const following = useRef(new Set<string>());
   const alive = useRef(true);
+  // Bumped when the open chat changes, so answers being followed for the
+  // previous one stop updating this one.
+  const opened = useRef(0);
   useEffect(() => {
     alive.current = true;
-    // Pick up answers still being worked on when the panel was closed.
-    for (const t of turns) if (t.taskId && (t.state === "running" || t.state === "approval")) follow(t.taskId);
     return () => {
       alive.current = false;
       following.current.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    // Pick up answers still being worked on when the chat was left.
+    for (const t of turns) if (t.taskId && (t.state === "running" || t.state === "approval")) follow(t.taskId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat]);
 
-  useEffect(() => save("agen.chat.id", chat), [chat]);
-  useEffect(() => save(`agen.chat.${chat}`, turns), [chat, turns]);
+  useEffect(() => save(`${key}.current`, chat), [key, chat]);
+  useEffect(() => {
+    if (!turns.length || turns === loaded.current) return;
+    save(`${key}.${chat}`, turns);
+    const title = turns.find((t) => t.role === "user")?.text.slice(0, 80) ?? "";
+    setChats((all) => {
+      const next = [{ id: chat, title, updated: Date.now() }, ...all.filter((c) => c.id !== chat)];
+      for (const old of next.slice(MAX_CHATS)) save(`${key}.${old.id}`, undefined);
+      return next.slice(0, MAX_CHATS);
+    });
+  }, [key, chat, turns]);
+  useEffect(() => save(`${key}.list`, chats), [key, chats]);
+  useEffect(() => save("agen.assistant.width", width), [width]);
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [turns]);
@@ -102,10 +139,12 @@ export function Assistant({ prompt, onClose }: { prompt?: string; onClose: () =>
   async function follow(id: string) {
     if (following.current.has(id)) return;
     following.current.add(id);
-    while (alive.current) {
+    const mine = opened.current;
+    while (alive.current && mine === opened.current) {
       let t: Task;
       try {
         t = (await call<{ task: Task }>("GetTask", { id, waitSeconds: 25 })).task;
+        if (mine !== opened.current) break;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
         break;
@@ -130,11 +169,34 @@ export function Assistant({ prompt, onClose }: { prompt?: string; onClose: () =>
     following.current.delete(id);
   }
 
-  function reset() {
-    const id = crypto.randomUUID();
+  function open(id: string) {
+    opened.current++;
+    following.current.clear();
     setChat(id);
-    setTurns([]);
+    loaded.current = load(`${key}.${id}`, []);
+    setTurns(loaded.current);
+    setHistory(false);
     setError("");
+  }
+
+  function forget(id: string) {
+    save(`${key}.${id}`, undefined);
+    setChats((all) => all.filter((c) => c.id !== id));
+    if (id === chat) open(crypto.randomUUID());
+  }
+
+  // Drag the left edge to resize; arrow keys do the same from the keyboard.
+  function onResizeStart(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => setWidth(Math.round(Math.min(maxWidth(), Math.max(MIN_WIDTH, innerWidth - m.clientX))));
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
   }
 
   let body: ReactNode;
@@ -154,6 +216,24 @@ export function Assistant({ prompt, onClose }: { prompt?: string; onClose: () =>
           <Alert tone="info">An admin can set it up from Templates → Console assistant.</Alert>
         )}
       </div>
+    );
+  else if (history)
+    body = chats.length ? (
+      <ul className="chat-history" aria-label="Past chats">
+        {chats.map((c) => (
+          <li key={c.id} aria-current={c.id === chat || undefined}>
+            <button className="chat-history-open" onClick={() => open(c.id)}>
+              <span className="truncate">{c.title || "(untitled)"}</span>
+              <span className="muted">{ago(new Date(c.updated).toISOString())}</span>
+            </button>
+            <button className="btn ghost icon sm" onClick={() => forget(c.id)} aria-label={`Delete chat: ${c.title}`}>
+              <Trash2 size={13} aria-hidden />
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p className="muted">No past chats in this browser yet.</p>
     );
   else
     body = (
@@ -203,12 +283,37 @@ export function Assistant({ prompt, onClose }: { prompt?: string; onClose: () =>
     );
 
   return (
-    <aside className="assistant-panel" aria-label="Assistant">
+    <aside className="assistant-panel" aria-label="Assistant" style={{ width: `min(${width}px, 100vw)` }}>
+      <div
+        className="panel-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the assistant"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={maxWidth()}
+        aria-valuenow={width}
+        tabIndex={0}
+        onPointerDown={onResizeStart}
+        onDoubleClick={() => setWidth(440)}
+        onKeyDown={(e) => {
+          const step = e.key === "ArrowLeft" ? 40 : e.key === "ArrowRight" ? -40 : 0;
+          if (step) {
+            e.preventDefault();
+            setWidth((w) => Math.min(maxWidth(), Math.max(MIN_WIDTH, w + step)));
+          }
+        }}
+      />
       <div className="panel-head">
-        <h2>Assistant</h2>
+        <h2>{history ? "Past chats" : "Assistant"}</h2>
         {dep && (
-          <button className="btn ghost sm" onClick={reset} disabled={busy}>
-            <RotateCcw size={13} aria-hidden />
+          <button className="btn ghost sm" onClick={() => setHistory((h) => !h)} aria-pressed={history}>
+            <History size={13} aria-hidden />
+            History
+          </button>
+        )}
+        {dep && (
+          <button className="btn ghost sm" onClick={() => open(crypto.randomUUID())} disabled={!history && !turns.length}>
+            <Plus size={13} aria-hidden />
             New chat
           </button>
         )}

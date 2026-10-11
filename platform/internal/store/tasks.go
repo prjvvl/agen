@@ -256,10 +256,12 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, leaseID string, succes
 
 // RequeueExpiredLeases returns tasks whose lease expired to the queue. A task
 // that has already been leased maxAttempts times fails instead, so a task
-// that keeps killing its host does not loop forever (maxAttempts <= 0: no cap).
-func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int64, error) {
+// that keeps killing its host does not loop forever (maxAttempts <= 0: no cap);
+// the ids of tasks that failed are returned.
+func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int64, []string, error) {
 	now := NowMs()
 	var n int64
+	var failed []string
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE state IN ('leased', 'running') AND lease_expires_ms < $1", now)
 		if err != nil {
@@ -295,13 +297,19 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int6
 				continue
 			}
 			n++
+			if level == "error" {
+				failed = append(failed, t.ID)
+			}
 			if err := appendLog(ctx, tx, t.InstanceID, t.Namespace, t.Deployment, level, msg); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	return n, err
+	if err != nil {
+		return 0, nil, err
+	}
+	return n, failed, nil
 }
 
 // ReleaseTask gives a leased task back to the queue before its lease expires

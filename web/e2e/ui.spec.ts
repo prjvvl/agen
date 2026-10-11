@@ -255,8 +255,13 @@ test("cross-agent trace with inspector, deny and delete", async ({ page }) => {
 
 test("deploy from a template; costs and notification targets", async ({ page }) => {
   await signIn(page);
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
   await page.getByRole("link", { name: "Templates" }).click();
+  await expect(page.locator('[data-template="researcher"]')).toContainText("fetch");
+  await expect(page.locator('[data-template="pr-reviewer"]')).toContainText("review-checklist");
   await page.getByRole("link", { name: "Use the Hello template" }).click();
+  await expect(page.getByRole("heading", { name: "Tools and skills" })).toBeVisible();
+  await expect(page.getByText("How to greet someone warmly in one sentence")).toBeVisible();
   await page.getByLabel("Name", { exact: true }).fill("hello-tpl");
   await page.getByRole("button", { name: "Deploy" }).click();
   await expect(page.getByRole("heading", { name: "hello-tpl" })).toBeVisible();

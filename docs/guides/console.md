@@ -96,6 +96,10 @@ token only acts for the submitter of the task it works on, never has more
 scopes or namespaces than that person, never has admin rights and can never
 decide approvals. Each answer links to its trace.
 
+Drag the panel's left edge to widen it. **History** lists your past chats in
+this browser; opening one continues that conversation, since the assistant
+remembers each by its conversation key.
+
 ## Settings
 
 Your token's identity and scopes; for admins, API tokens, platform secrets

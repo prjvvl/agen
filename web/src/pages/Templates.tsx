@@ -1,5 +1,5 @@
-import { KeyRound, LayoutTemplate } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BookOpen, KeyRound, LayoutTemplate, Wrench } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
 import { call, Deployment, SecretInfo, Template } from "../api";
 import { useSession } from "../App";
 import { useQuery } from "../live";
@@ -41,10 +41,20 @@ export function Templates({ selected }: { selected?: string }) {
                     <Badge>{category.replace("-", " ")}</Badge>
                   </span>
                   <span className="soft">{t.description}</span>
-                  {(t.secrets ?? []).length > 0 && (
+                  {[t.tools, t.skills, t.secrets].some((l) => l?.length) && (
                     <span className="toolbar" style={{ marginTop: 4 }}>
-                      {t.secrets!.map((s) => (
-                        <Badge key={s}>
+                      {(t.tools ?? []).map((s) => (
+                        <Badge key={`tool:${s}`} title="Tool server">
+                          <Wrench size={11} aria-hidden /> {s}
+                        </Badge>
+                      ))}
+                      {(t.skills ?? []).map((s) => (
+                        <Badge key={`skill:${s}`} title="Skill">
+                          <BookOpen size={11} aria-hidden /> {s}
+                        </Badge>
+                      ))}
+                      {(t.secrets ?? []).map((s) => (
+                        <Badge key={`secret:${s}`} title="Secret">
                           <KeyRound size={11} aria-hidden /> {s}
                         </Badge>
                       ))}
@@ -82,6 +92,24 @@ function secretSources(t: Template): Record<string, string> {
   } catch {
     return {};
   }
+}
+
+/** Where each tool server of a template runs: its command or URL. */
+function toolServers(t: Template): [string, string][] {
+  try {
+    const s = JSON.parse(t.files?.["mcp.json"] ?? "{}").mcpServers ?? {};
+    return Object.entries(s as Record<string, { command?: string; args?: string[]; url?: string }>).map(([k, v]) => [
+      k,
+      v.url ?? [v.command, ...(v.args ?? [])].join(" "),
+    ]);
+  } catch {
+    return [];
+  }
+}
+
+/** A skill's description, from its SKILL.md front matter. */
+function skillDescription(t: Template, name: string): string {
+  return /^description:\s*(.+)$/m.exec(t.files?.[`skills/${name}/SKILL.md`] ?? "")?.[1] ?? "";
 }
 
 function splitAgent(md: string): [string, string] {
@@ -186,6 +214,32 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
             <textarea rows={10} value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="Instructions" />
           </label>
         </div>
+        {[t.tools, t.skills].some((l) => l?.length) && (
+          <section className="section">
+            <h3>Tools and skills</h3>
+            <p className="soft">They come with the bundle; the agent's permissions in x-agen/config.json say which tools it may use freely.</p>
+            <dl className="kv">
+              {toolServers(t).map(([k, where]) => (
+                <Fragment key={`tool:${k}`}>
+                  <dt>
+                    <Wrench size={12} aria-hidden /> {k}
+                  </dt>
+                  <dd className="mono truncate" title={where}>
+                    {where}
+                  </dd>
+                </Fragment>
+              ))}
+              {(t.skills ?? []).map((k) => (
+                <Fragment key={`skill:${k}`}>
+                  <dt>
+                    <BookOpen size={12} aria-hidden /> {k}
+                  </dt>
+                  <dd>{skillDescription(t, k)}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </section>
+        )}
         {missingDelegates.length > 0 && (
           <Alert tone="warn">
             This agent hands work to {missingDelegates.join(" and ")}, which {missingDelegates.length === 1 ? "is" : "are"} not deployed in {namespace}. Deploy{" "}

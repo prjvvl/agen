@@ -14,7 +14,8 @@
   limits, instances, live logs and the bundle's files; `Ctrl+K` to jump
   anywhere; light and dark themes.
 - A chat assistant that answers questions about the fleet and makes changes
-  you confirm, with your permissions (see Templates).
+  you confirm, with your permissions (see Templates); its panel resizes and
+  keeps past chats.
 
 ### Traces and metrics
 - `GetTranscript` returns a run's conversation, tool calls and results
@@ -53,8 +54,9 @@
 - Ten ready-made agents: hello, researcher, writer, editor (delegates to the
   researcher and the writer), support triage, pull request reviewer, fleet
   steward, cost watchdog, approval triage and the console assistant.
-  `agen init --list`, `agen init <dir> --template NAME`, and the console's
-  Templates page; `ListTemplates` in the API.
+  Each brings its tool servers and skills, which `agen init --list`, the
+  console's Templates page and `ListTemplates` show;
+  `agen init <dir> --template NAME`.
 
 ## v0.1.1
 

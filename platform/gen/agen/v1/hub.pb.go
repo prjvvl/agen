@@ -69,7 +69,11 @@ type Template struct {
 	// Secrets the template needs (names from x-agen/secrets.json).
 	Secrets []string `protobuf:"bytes,5,rep,name=secrets,proto3" json:"secrets,omitempty"`
 	// Bundle files: path -> text.
-	Files         map[string]string `protobuf:"bytes,6,rep,name=files,proto3" json:"files,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Files map[string]string `protobuf:"bytes,6,rep,name=files,proto3" json:"files,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Tool servers the template connects to (mcp.json server names).
+	Tools []string `protobuf:"bytes,7,rep,name=tools,proto3" json:"tools,omitempty"`
+	// Skills the template ships (skills/<name>/SKILL.md).
+	Skills        []string `protobuf:"bytes,8,rep,name=skills,proto3" json:"skills,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -142,6 +146,20 @@ func (x *Template) GetSecrets() []string {
 func (x *Template) GetFiles() map[string]string {
 	if x != nil {
 		return x.Files
+	}
+	return nil
+}
+
+func (x *Template) GetTools() []string {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
+func (x *Template) GetSkills() []string {
+	if x != nil {
+		return x.Skills
 	}
 	return nil
 }
@@ -4799,14 +4817,16 @@ var File_agen_v1_hub_proto protoreflect.FileDescriptor
 const file_agen_v1_hub_proto_rawDesc = "" +
 	"\n" +
 	"\x11agen/v1/hub.proto\x12\aagen.v1\x1a\x17agen/v1/resources.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x16\n" +
-	"\x14ListTemplatesRequest\"\xfa\x01\n" +
+	"\x14ListTemplatesRequest\"\xa8\x02\n" +
 	"\bTemplate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1a\n" +
 	"\bcategory\x18\x04 \x01(\tR\bcategory\x12\x18\n" +
 	"\asecrets\x18\x05 \x03(\tR\asecrets\x122\n" +
-	"\x05files\x18\x06 \x03(\v2\x1c.agen.v1.Template.FilesEntryR\x05files\x1a8\n" +
+	"\x05files\x18\x06 \x03(\v2\x1c.agen.v1.Template.FilesEntryR\x05files\x12\x14\n" +
+	"\x05tools\x18\a \x03(\tR\x05tools\x12\x16\n" +
+	"\x06skills\x18\b \x03(\tR\x06skills\x1a8\n" +
 	"\n" +
 	"FilesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

@@ -13,6 +13,10 @@
     "default": "deny",
     "rules": [
       {
+        "tool": "load_skill",
+        "action": "allow"
+      },
+      {
         "tool": "github.get_*",
         "action": "allow"
       },

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"path"
 	"sort"
+	"strings"
 )
 
 //go:embed bundles
@@ -22,6 +23,10 @@ type Template struct {
 	Description string `json:"description"`
 	// Secrets named in the bundle's x-agen/secrets.json.
 	Secrets []string `json:"-"`
+	// Tool servers named in the bundle's mcp.json.
+	Tools []string `json:"-"`
+	// Skills under the bundle's skills/.
+	Skills []string `json:"-"`
 	// Files maps bundle paths to their text.
 	Files map[string]string `json:"-"`
 }
@@ -67,11 +72,18 @@ func List() ([]Template, error) {
 			return nil, err
 		}
 		var secrets map[string]json.RawMessage
-		_ = json.Unmarshal([]byte(t.Files["x-agen/secrets.json"]), &secrets)
-		for k := range secrets {
-			t.Secrets = append(t.Secrets, k)
+		var mcp struct {
+			Servers map[string]json.RawMessage `json:"mcpServers"`
 		}
-		sort.Strings(t.Secrets)
+		_ = json.Unmarshal([]byte(t.Files["x-agen/secrets.json"]), &secrets)
+		_ = json.Unmarshal([]byte(t.Files["mcp.json"]), &mcp)
+		t.Secrets, t.Tools = sortedKeys(secrets), sortedKeys(mcp.Servers)
+		for p := range t.Files {
+			if dir, ok := strings.CutSuffix(p, "/SKILL.md"); ok && strings.HasPrefix(dir, "skills/") {
+				t.Skills = append(t.Skills, strings.TrimPrefix(dir, "skills/"))
+			}
+		}
+		sort.Strings(t.Skills)
 	}
 	return list, nil
 }
@@ -84,4 +96,13 @@ func Names() []string {
 		names[i] = t.Name
 	}
 	return names
+}
+
+func sortedKeys(m map[string]json.RawMessage) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -1092,12 +1092,7 @@ impl Agent {
         }
         let max = self.cfg.limits.identical_tool_calls();
         if max > 0 {
-            let key = format!(
-                "{}
-{}",
-                call.name,
-                args_hash(&call.arguments)
-            );
+            let key = format!("{}\n{}", call.name, args_hash(&call.arguments));
             let mut calls = live.calls.lock().unwrap();
             let n = calls.entry(key).or_default();
             *n += 1;

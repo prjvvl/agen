@@ -267,7 +267,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
           </main>
         </div>
         {palette && <CommandPalette onClose={() => setPalette(false)} onTheme={nextTheme} />}
-        {assistant.open && <Assistant prompt={assistant.prompt} onClose={() => setAssistant({ open: false })} />}
+        {assistant.open && <Assistant key={me?.id} prompt={assistant.prompt} onClose={() => setAssistant({ open: false })} />}
       </div>
     </SessionContext.Provider>
   );

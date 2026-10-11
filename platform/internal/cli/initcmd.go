@@ -32,9 +32,9 @@ func (e *env) cmdInit(_ context.Context, args []string) error {
 			return err
 		}
 		w := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tCATEGORY\tSECRETS\tDESCRIPTION")
+		fmt.Fprintln(w, "NAME\tCATEGORY\tTOOLS\tSKILLS\tSECRETS\tDESCRIPTION")
 		for _, t := range all {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.Name, t.Category, strings.Join(t.Secrets, ","), t.Description)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, t.Category, orDash(t.Tools), orDash(t.Skills), orDash(t.Secrets), t.Description)
 		}
 		return w.Flush()
 	}
@@ -76,4 +76,11 @@ func (e *env) cmdInit(_ context.Context, args []string) error {
 	}
 	fmt.Fprintf(e.stdout, "wrote the %s template to %s\nnext: agen deploy %s --replicas 1\n", *name, dir, dir)
 	return nil
+}
+
+func orDash(list []string) string {
+	if len(list) == 0 {
+		return "-"
+	}
+	return strings.Join(list, ",")
 }
