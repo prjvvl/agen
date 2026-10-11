@@ -1,0 +1,132 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* Design tokens, shared in spirit with the docs site (Trestle): dark navy by
+   default, an indigo brand, semantic status colours. Components read these
+   and never hard-code colours. */
+:root {
+  color-scheme: dark;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Menlo, monospace;
+
+  --brand: hsl(235 72% 60%);
+  --brand-strong: hsl(235 70% 50%);
+  --brand-fg: #fff;
+  --brand-soft: hsl(235 60% 60% / 0.16);
+  --link: hsl(232 92% 78%);
+
+  --bg: hsl(222 47% 6%);
+  --surface: hsl(222 40% 9%);
+  --surface-2: hsl(222 35% 12%);
+  --hover: hsl(222 32% 15%);
+  --border: hsl(222 30% 17%);
+  --border-strong: hsl(222 25% 27%);
+  --fg: hsl(210 40% 96%);
+  --fg-soft: hsl(214 22% 80%);
+  --fg-muted: hsl(215 16% 62%);
+
+  --ok: hsl(152 55% 55%);
+  --ok-bg: hsl(152 45% 14%);
+  --warn: hsl(38 85% 60%);
+  --warn-bg: hsl(38 60% 14%);
+  --err: hsl(0 70% 66%);
+  --err-bg: hsl(0 50% 16%);
+  --info: hsl(199 85% 65%);
+  --info-bg: hsl(199 50% 14%);
+
+  /* Span kinds in the trace waterfall. */
+  --kind-run: hsl(235 72% 66%);
+  --kind-model: hsl(268 60% 68%);
+  --kind-tool: hsl(176 55% 50%);
+  --kind-wait: hsl(38 85% 60%);
+  --kind-agent: hsl(330 60% 66%);
+
+  --code-bg: hsl(224 42% 7%);
+  --scrollbar: hsl(222 22% 24%);
+  --scrollbar-hover: hsl(222 18% 34%);
+  --focus: hsl(232 92% 72%);
+  --shadow: 0 12px 40px hsl(222 60% 2% / 0.55);
+
+  --radius: 6px;
+  --radius-lg: 8px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --brand: hsl(235 70% 50%);
+    --brand-strong: hsl(235 68% 42%);
+    --brand-soft: hsl(235 80% 55% / 0.1);
+    --link: hsl(235 70% 46%);
+    --bg: hsl(220 20% 98%);
+    --surface: #fff;
+    --surface-2: hsl(220 20% 96%);
+    --hover: hsl(220 20% 93%);
+    --border: hsl(220 15% 89%);
+    --border-strong: hsl(220 14% 78%);
+    --fg: hsl(222 47% 11%);
+    --fg-soft: hsl(220 16% 24%);
+    --fg-muted: hsl(220 9% 42%);
+    --ok: hsl(152 60% 30%);
+    --ok-bg: hsl(152 60% 94%);
+    --warn: hsl(32 92% 36%);
+    --warn-bg: hsl(38 92% 94%);
+    --err: hsl(0 72% 44%);
+    --err-bg: hsl(0 72% 96%);
+    --info: hsl(199 89% 36%);
+    --info-bg: hsl(199 89% 95%);
+    --kind-run: hsl(235 65% 55%);
+    --kind-model: hsl(268 55% 55%);
+    --kind-tool: hsl(176 60% 34%);
+    --kind-wait: hsl(32 92% 42%);
+    --kind-agent: hsl(330 55% 50%);
+    --code-bg: hsl(224 36% 13%);
+    --scrollbar: hsl(220 14% 80%);
+    --scrollbar-hover: hsl(220 12% 66%);
+    --focus: hsl(235 70% 50%);
+    --shadow: 0 12px 40px hsl(222 40% 20% / 0.18);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --brand: hsl(235 70% 50%);
+  --brand-strong: hsl(235 68% 42%);
+  --brand-soft: hsl(235 80% 55% / 0.1);
+  --link: hsl(235 70% 46%);
+  --bg: hsl(220 20% 98%);
+  --surface: #fff;
+  --surface-2: hsl(220 20% 96%);
+  --hover: hsl(220 20% 93%);
+  --border: hsl(220 15% 89%);
+  --border-strong: hsl(220 14% 78%);
+  --fg: hsl(222 47% 11%);
+  --fg-soft: hsl(220 16% 24%);
+  --fg-muted: hsl(220 9% 42%);
+  --ok: hsl(152 60% 30%);
+  --ok-bg: hsl(152 60% 94%);
+  --warn: hsl(32 92% 36%);
+  --warn-bg: hsl(38 92% 94%);
+  --err: hsl(0 72% 44%);
+  --err-bg: hsl(0 72% 96%);
+  --info: hsl(199 89% 36%);
+  --info-bg: hsl(199 89% 95%);
+  --kind-run: hsl(235 65% 55%);
+  --kind-model: hsl(268 55% 55%);
+  --kind-tool: hsl(176 60% 34%);
+  --kind-wait: hsl(32 92% 42%);
+  --kind-agent: hsl(330 55% 50%);
+  --code-bg: hsl(224 36% 13%);
+  --scrollbar: hsl(220 14% 80%);
+  --scrollbar-hover: hsl(220 12% 66%);
+  --focus: hsl(235 70% 50%);
+  --shadow: 0 12px 40px hsl(222 40% 20% / 0.18);
+}

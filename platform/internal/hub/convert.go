@@ -114,12 +114,21 @@ func policyFromBundle(b *bundle.Bundle) Policy {
 	_ = json.Unmarshal(b.Budget, &budget)
 	p.Budget = &agenv1.Budget{MaxTokensPerRun: budget.MaxTokensPerRun, MaxUsdPerRun: budget.MaxUsdPerRun, MaxUsdPerDay: budget.MaxUsdPerDay}
 	var limits struct {
-		MaxDelegationDepth  int32 `json:"maxDelegationDepth"`
-		MaxFanOut           int32 `json:"maxFanOut"`
-		MaxTotalDelegations int32 `json:"maxTotalDelegations"`
+		MaxDelegationDepth  *int32 `json:"maxDelegationDepth"`
+		MaxFanOut           *int32 `json:"maxFanOut"`
+		MaxTotalDelegations *int32 `json:"maxTotalDelegations"`
+		MaxQueuedTasks      *int32 `json:"maxQueuedTasks"`
 	}
 	_ = json.Unmarshal(b.Limits, &limits)
-	p.Limits = &agenv1.Limits{MaxDelegationDepth: limits.MaxDelegationDepth, MaxFanOut: limits.MaxFanOut, MaxTotalDelegations: limits.MaxTotalDelegations}
+	or := func(v *int32, def int32) int32 {
+		if v == nil {
+			return def
+		}
+		return *v
+	}
+	// Unset limits get the engine's defaults; 0 means no limit.
+	p.Limits = &agenv1.Limits{MaxDelegationDepth: or(limits.MaxDelegationDepth, 3), MaxFanOut: or(limits.MaxFanOut, 20),
+		MaxTotalDelegations: or(limits.MaxTotalDelegations, 50), MaxQueuedTasks: or(limits.MaxQueuedTasks, 1000)}
 	for _, t := range b.Triggers {
 		pt := &agenv1.Trigger{}
 		fromJSON(t.Raw, pt)
@@ -127,6 +136,27 @@ func policyFromBundle(b *bundle.Bundle) Policy {
 		p.Triggers = append(p.Triggers, pt)
 	}
 	return p
+}
+
+// mergeLimits applies the limits set (non-zero) in override to base.
+func mergeLimits(base, override *agenv1.Limits) *agenv1.Limits {
+	out := &agenv1.Limits{}
+	if base != nil {
+		*out = agenv1.Limits{MaxDelegationDepth: base.MaxDelegationDepth, MaxFanOut: base.MaxFanOut,
+			MaxTotalDelegations: base.MaxTotalDelegations, MaxQueuedTasks: base.MaxQueuedTasks}
+	}
+	for _, f := range []struct {
+		dst *int32
+		v   int32
+	}{
+		{&out.MaxDelegationDepth, override.MaxDelegationDepth}, {&out.MaxFanOut, override.MaxFanOut},
+		{&out.MaxTotalDelegations, override.MaxTotalDelegations}, {&out.MaxQueuedTasks, override.MaxQueuedTasks},
+	} {
+		if f.v != 0 {
+			*f.dst = f.v
+		}
+	}
+	return out
 }
 
 func (p Policy) apply(d *store.Deployment) {
@@ -272,7 +302,7 @@ func runProto(r store.RunRow) *agenv1.Run {
 	return &agenv1.Run{Id: r.ID, SessionId: r.SessionID, ConversationId: r.ConversationID, Namespace: r.Namespace, Deployment: r.Deployment,
 		Status: r.Status, Input: r.Input, Output: r.Output, Usage: &agenv1.Usage{InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUsd: r.CostUSD},
 		TraceId: r.TraceID, StartedAt: ms(r.StartedMs), EndedAt: ms(r.EndedMs), ParentRunId: r.ParentRunID, RootRunId: r.RootRunID,
-		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels}
+		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels, Error: r.Error, Steps: r.Step}
 }
 
 func spanProto(s store.SpanRow) *agenv1.Span {
@@ -302,6 +332,8 @@ func connectErr(err error) error {
 		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, store.ErrFenced):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrQueueFull):
+		return connect.NewError(connect.CodeResourceExhausted, err)
 	}
 	return connect.NewError(connect.CodeInternal, err)
 }

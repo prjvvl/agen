@@ -116,8 +116,12 @@ type Manager struct {
 	haveAssign  bool
 	instances   map[string]*instance
 	backoff     map[[2]string]*restartBackoff
-	lastHubOK   time.Time
-	wg          sync.WaitGroup
+	// crashed keeps the last unexpected exit per deployment until one of its
+	// instances is ready, so the Hub sees why it does not start (a crash is
+	// usually over before the next report).
+	crashed   map[[2]string]*crash
+	lastHubOK time.Time
+	wg        sync.WaitGroup
 
 	// ManagerService (host callbacks).
 	managerURL     string
@@ -147,6 +151,7 @@ type instance struct {
 	endpoint       string
 	state          string // starting | ready | busy | draining | stopped | failed
 	message        string
+	lastError      string // the host's last line of error output
 	tools          []string
 	toolServers    []*agenv1.ToolServer
 	running        int
@@ -228,7 +233,7 @@ func New(cfg Config) (*Manager, error) {
 		cfg.Log = slog.Default()
 	}
 	m := &Manager{cfg: cfg, nestID: cfg.NestID, assignments: map[[2]string]*agenv1.Assignment{}, instances: map[string]*instance{},
-		backoff: map[[2]string]*restartBackoff{}, instanceTokens: map[string]string{}, resolved: map[string]*resolvedEntry{}, secrets: map[string]string{}}
+		backoff: map[[2]string]*restartBackoff{}, crashed: map[[2]string]*crash{}, instanceTokens: map[string]string{}, resolved: map[string]*resolvedEntry{}, secrets: map[string]string{}}
 	m.setToken(cfg.NestToken)
 	if cfg.Kube != nil {
 		m.backend = &kubeBackend{m: m, cfg: *cfg.Kube}
@@ -514,11 +519,23 @@ func (m *Manager) forget(in *instance, now time.Time) {
 		return
 	}
 	m.cfg.Log.Warn("instance exited unexpectedly", "instance", in.id, "deployment", in.ns+"/"+in.dep, "message", in.message)
+	if c := m.crashed[k]; c != nil && c.message == in.message {
+		c.times++
+	} else {
+		m.crashed[k] = &crash{id: in.id, digest: in.digest, message: in.message, started: in.started, times: 1}
+	}
 	if now.Sub(in.started) < 10*time.Second {
 		m.noteFailure(k, now)
 	} else {
 		delete(m.backoff, k)
 	}
+}
+
+// crash is an instance that exited unexpectedly, reported as failed.
+type crash struct {
+	id, digest, message string
+	started             time.Time
+	times               int
 }
 
 func (m *Manager) noteFailure(k [2]string, now time.Time) {
@@ -685,7 +702,12 @@ func (m *Manager) start(ctx context.Context, a *agenv1.Assignment) error {
 	in.hostToken = store.NewSecret("agen_host_")
 	log := m.cfg.Log.With("instance", in.id, "deployment", in.ns+"/"+in.dep)
 	endpoint := make(chan string, 1)
-	proc, err := m.backend.start(ctx, hostSpec{id: in.id, ns: in.ns, dep: in.dep, digest: in.digest, args: args, log: log, endpoint: endpoint,
+	stderr := func(line string) {
+		m.mu.Lock()
+		in.lastError = strings.TrimPrefix(line, "agen-host: ")
+		m.mu.Unlock()
+	}
+	proc, err := m.backend.start(ctx, hostSpec{id: in.id, ns: in.ns, dep: in.dep, digest: in.digest, args: args, log: log, endpoint: endpoint, stderr: stderr,
 		env: []string{"AGEN_STORE=" + m.storeFor(in.ns), "AGEN_INSTANCE_ID=" + in.id, "AGEN_MANAGER_URL=" + m.managerURL, "AGEN_MANAGER_TOKEN=" + token, "AGEN_HOST_TOKEN=" + in.hostToken,
 			// Tool servers may write into the shared definition directory, so
 			// the host must not re-derive the digest from what is on disk.
@@ -706,6 +728,9 @@ func (m *Manager) start(ctx context.Context, a *agenv1.Assignment) error {
 		if !in.retiring {
 			in.state = "failed"
 			in.message = fmt.Sprintf("host exited: %v", err)
+			if in.lastError != "" {
+				in.message += ": " + in.lastError
+			}
 		}
 		m.mu.Unlock()
 		close(in.exited)
@@ -761,6 +786,7 @@ func (m *Manager) checkInstance(ctx context.Context, in *instance) {
 	if err == nil && hl.Ready {
 		in.unhealthy = 0
 		in.message = ""
+		delete(m.crashed, [2]string{in.ns, in.dep})
 		if in.running > 0 {
 			in.state = "busy"
 		} else {
@@ -806,9 +832,28 @@ func (m *Manager) report(ctx context.Context) {
 	m.mu.Lock()
 	req := &agenv1.ReportStatusRequest{NestId: m.nestID, Capacity: int32(m.cfg.Capacity), GatewayUrl: m.cfg.GatewayURL}
 	for _, in := range m.instances {
+		select {
+		case <-in.exited:
+			if !in.retiring {
+				continue // a crash, reported below once forget has recorded it
+			}
+		default:
+		}
 		req.Instances = append(req.Instances, &agenv1.Instance{Id: in.id, Namespace: in.ns, Deployment: in.dep, NestId: m.nestID,
 			DefinitionDigest: in.digest, State: states[in.state], Endpoint: in.endpoint, RunningTasks: int32(in.running),
 			StartedAt: timestamppb.New(in.started), Message: in.message, Tools: in.tools, ToolServers: in.toolServers})
+	}
+	for k, c := range m.crashed {
+		if m.assignments[k] == nil {
+			delete(m.crashed, k)
+			continue
+		}
+		msg := c.message
+		if c.times > 1 {
+			msg += fmt.Sprintf(" (%d times in a row)", c.times)
+		}
+		req.Instances = append(req.Instances, &agenv1.Instance{Id: c.id, Namespace: k[0], Deployment: k[1], NestId: m.nestID,
+			DefinitionDigest: c.digest, State: agenv1.InstanceState_INSTANCE_STATE_FAILED, StartedAt: timestamppb.New(c.started), Message: msg})
 	}
 	m.mu.Unlock()
 	c, cancel := context.WithTimeout(ctx, 10*time.Second)

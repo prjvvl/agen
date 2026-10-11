@@ -1,0 +1,32 @@
+{
+  "kind": "singleton",
+  "budget": {
+    "maxTokensPerRun": 30000,
+    "maxUsdPerDay": 0.2
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "agen.get_metrics",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_deployments",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_deployment",
+        "action": "allow"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "cron",
+      "name": "daily",
+      "schedule": "0 8 * * *",
+      "input": "Write the daily cost report."
+    }
+  ]
+}

@@ -37,6 +37,8 @@ type hostSpec struct {
 	log *slog.Logger
 	// endpoint receives the host's base URL once it listens.
 	endpoint chan<- string
+	// stderr receives the host's error output, line by line.
+	stderr func(line string)
 }
 
 // backend starts instances on some substrate (architecture §5: native
@@ -75,7 +77,12 @@ func (b nativeBackend) start(ctx context.Context, s hostSpec) (hostProc, error) 
 		}
 		s.log.Debug("host stdout", "line", line)
 	}}
-	cmd.Stderr = &lineWriter{line: func(line string) { s.log.Info("host", "line", line) }}
+	cmd.Stderr = &lineWriter{line: func(line string) {
+		s.log.Info("host", "line", line)
+		if s.stderr != nil {
+			s.stderr(line)
+		}
+	}}
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
 		return nil, err

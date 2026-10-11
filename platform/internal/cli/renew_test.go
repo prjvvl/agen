@@ -49,10 +49,14 @@ func TestNestCertificateRenewal(t *testing.T) {
 			"--store", storeURL, "--data-dir", nestDir, "--gateway-listen", "127.0.0.1:0", "--host-bin", bin, "--cert-renew-before", "14s"}, &safeBuf{}, nestErr)
 	}()
 	waitUntil(t, "nest enrolled", 30*time.Second, func() bool { return strings.Contains(cli(0, "nests"), "renewing") })
-	first, ok := loadNestCredential(nestDir, hubURL)
-	if !ok || first.CertPEM == "" {
-		t.Fatal("no nest certificate saved")
-	}
+	// The Nest saves its credential right after enrolling, which can be a
+	// moment after the Hub lists it.
+	var first nestCredential
+	waitUntil(t, "nest certificate saved", 10*time.Second, func() bool {
+		c, ok := loadNestCredential(nestDir, hubURL)
+		first = c
+		return ok && c.CertPEM != ""
+	})
 	firstExpiry, _ := pki.CertNotAfter(first.CertPEM)
 
 	// Renewed (and saved) before it expires.

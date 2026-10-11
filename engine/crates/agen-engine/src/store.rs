@@ -143,6 +143,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0019_work_identity.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0019_work_identity.sql"),
     },
+    Migration {
+        version: 20,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0020_console.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0020_console.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -661,7 +666,8 @@ impl Store {
     }
 
     /// Atomically: verify ownership (`epoch`), optionally record progress, and
-    /// optionally append a message. The loop's only write path.
+    /// optionally append a message, returning its sequence number. The loop's
+    /// only write path.
     pub async fn checkpoint(
         &self,
         run_id: &str,
@@ -669,7 +675,7 @@ impl Store {
         conversation_id: &str,
         msg: Option<&Message>,
         progress: Option<(i64, RunStatus, Usage)>,
-    ) -> Result<()> {
+    ) -> Result<Option<i64>> {
         let mut tx = self.pool.begin().await?;
         let updated = match progress {
             Some((step, status, usage)) => sqlx::query("UPDATE runs SET step = $1, status = $2, input_tokens = $3, output_tokens = $4, cost_usd = $5 WHERE id = $6 AND epoch = $7 AND ended_ms IS NULL")
@@ -692,11 +698,12 @@ impl Store {
             tx.rollback().await?;
             return Err(StoreError::Fenced(run_id.to_string()));
         }
-        if let Some(m) = msg {
-            insert_message(&mut tx, conversation_id, run_id, m).await?;
-        }
+        let seq = match msg {
+            Some(m) => Some(insert_message(&mut tx, conversation_id, run_id, m).await?),
+            None => None,
+        };
         tx.commit().await?;
-        Ok(())
+        Ok(seq)
     }
 
     pub async fn finish_run(

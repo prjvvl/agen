@@ -1,4 +1,4 @@
-# Budgets
+# Budgets and limits
 
 Budgets stop an agent from spending more than you meant it to. They are set in
 `x-agen/config.json` (or per deployment with `UpdateDeployment`):
@@ -33,6 +33,29 @@ Each run records its tokens and cost: `agen logs <name>` prints them per run,
 `ListRuns` returns them, and the web UI shows them per deployment. `agen ps`
 marks a deployment whose daily budget is used up.
 
-Other limits that bound cost: `maxTurns` in `x-agen/agent.md` (model calls per
-run, default 16), and the delegation limits in
-[Connecting agents](agents.md#limits).
+## Limits
+
+Limits stop a run that goes wrong (a loop, a hung tool, a runaway
+delegation) even without a budget. Every limit has a default; set one to `0`
+to turn it off.
+
+```json
+{
+  "limits": { "maxRunDuration": "2h", "maxIdenticalToolCalls": 10, "maxQueuedTasks": 5000 }
+}
+```
+
+| Limit | Where | Default | What happens |
+|---|---|---|---|
+| `maxTurns` | `x-agen/agent.md` | 16 | Model calls per run; the run fails past it. |
+| `maxOutputTokens` | `x-agen/harness.json` | 8192 | The most one model answer may produce. |
+| `maxRunDuration` | `limits` | `1h` | Working time of a run, not counting approval waits; the run fails past it. |
+| `maxIdenticalToolCalls` | `limits` | 5 | The same tool with the same arguments in one run; further identical calls are refused and the model is told to change course. |
+| `modelRequestTimeout` | `limits` | `10m` | One model request; it fails past it. |
+| `toolTimeout` | `limits` | `10m` | One tool call (not `call_agent`, which the callee's limits bound); the model gets a timeout error. |
+| `maxQueuedTasks` | `limits` | 1000 | Queued tasks per deployment; more are refused (`RESOURCE_EXHAUSTED`, webhooks get 429). |
+| `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations` | `limits` | 3, 20, 50 | See [Connecting agents](agents.md#limits). |
+| `approvalTimeout` | `permissions` | `1h` | How long an ask waits; at most `168h`. |
+
+A deployment's page in the [console](console.md#deployments) shows where it
+stands against its spend and queue limits.

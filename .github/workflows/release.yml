@@ -3,7 +3,7 @@ on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: ["scripts/**", "platform/internal/cli/**", "examples/bundles/**", ".github/workflows/release.yml"]
+    paths: ["scripts/**", "platform/internal/cli/**", "platform/internal/templates/**", "examples/bundles/**", ".github/workflows/release.yml"]
   workflow_dispatch:
 permissions:
   contents: read

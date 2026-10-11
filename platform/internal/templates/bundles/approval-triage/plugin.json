@@ -1,0 +1,5 @@
+{
+  "name": "approval-triage",
+  "version": "0.1.0",
+  "description": "Summarizes pending approvals so a person can decide them quickly"
+}

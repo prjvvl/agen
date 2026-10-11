@@ -1,0 +1,28 @@
+{
+  "kind": "singleton",
+  "budget": {
+    "maxTokensPerRun": 40000,
+    "maxUsdPerDay": 0.5
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "agen.list_approvals",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_transcript",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_trace",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_task",
+        "action": "allow"
+      }
+    ]
+  }
+}

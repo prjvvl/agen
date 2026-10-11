@@ -522,15 +522,14 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
                 return connect_error(StatusCode::FORBIDDEN, "permission_denied", msg);
             }
         }
-        if let Some(max) = st.agent.config().limits.max_delegation_depth {
-            if max > 0 && depth > max {
-                st.running.lock().unwrap().remove(&task_id);
-                return connect_error(
-                    StatusCode::FORBIDDEN,
-                    "permission_denied",
-                    format!("delegation depth {depth} exceeds max_delegation_depth {max}"),
-                );
-            }
+        let max = st.agent.config().limits.delegation_depth();
+        if max > 0 && depth > max {
+            st.running.lock().unwrap().remove(&task_id);
+            return connect_error(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                format!("delegation depth {depth} exceeds max_delegation_depth {max}"),
+            );
         }
     }
     let opts = RunOptions {

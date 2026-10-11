@@ -1,0 +1,41 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "15m"
+  },
+  "budget": {
+    "maxTokensPerRun": 60000,
+    "maxUsdPerDay": 1
+  },
+  "permissions": {
+    "default": "allow",
+    "rules": [
+      {
+        "tool": "agen.decide_approval",
+        "action": "deny"
+      },
+      {
+        "tool": "agen.create_api_token",
+        "action": "deny"
+      },
+      {
+        "tool": "agen.revoke_api_token",
+        "action": "deny"
+      },
+      {
+        "tool": "agen.create_join_token",
+        "action": "deny"
+      },
+      {
+        "tool": "agen.revoke_nest",
+        "action": "deny"
+      },
+      {
+        "tool": "agen.delete_secret",
+        "action": "deny"
+      }
+    ]
+  }
+}

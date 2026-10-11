@@ -21,7 +21,7 @@
             "additionalProperties": false
           }
         },
-        "approvalTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+        "approvalTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long an ask waits for a decision (default 1h, at most 168h)" },
         "notify": {
           "type": "object",
           "description": "POST each new pending approval as JSON to this URL",
@@ -59,9 +59,14 @@
     "limits": {
       "type": "object",
       "properties": {
-        "maxDelegationDepth": { "type": "integer", "minimum": 0 },
-        "maxFanOut": { "type": "integer", "minimum": 0 },
-        "maxTotalDelegations": { "type": "integer", "minimum": 0 }
+        "maxDelegationDepth": { "type": "integer", "minimum": 0, "description": "How deep delegated calls may nest below a root run (default 3, 0 = no limit)" },
+        "maxFanOut": { "type": "integer", "minimum": 0, "description": "Delegated calls one run may make (default 20, 0 = no limit)" },
+        "maxTotalDelegations": { "type": "integer", "minimum": 0, "description": "Delegated calls across a whole run tree (default 50, 0 = no limit)" },
+        "maxQueuedTasks": { "type": "integer", "minimum": 0, "description": "Queued tasks the deployment accepts before refusing more (default 1000, 0 = no limit)" },
+        "maxRunDuration": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "Wall-clock time a run may take, not counting approval waits (default 1h, 0s = no limit)" },
+        "maxIdenticalToolCalls": { "type": "integer", "minimum": 0, "description": "How often a run may make the same tool call with the same arguments (default 5, 0 = no limit)" },
+        "modelRequestTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one model request may take (default 10m, 0s = no limit)" },
+        "toolTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one tool call may take, except call_agent (default 10m, 0s = no limit)" }
       },
       "additionalProperties": false
     },

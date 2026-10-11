@@ -9,27 +9,29 @@ const state = () => JSON.parse(readFileSync(stateFile, "utf8")) as { hub: string
 // back to 0.
 test("scenario 9: autoscale burst through the UI", async ({ page }) => {
   await page.goto(`/#token=${encodeURIComponent(state().token)}`);
-  await page.getByRole("link", { name: "New agent" }).click();
+  await page.goto("/#/new");
   await page.getByLabel("Name", { exact: true }).fill("burst");
   await page.getByLabel("Max instances").fill("5");
   await page.getByLabel("Idle timeout").fill("2s");
   await page.getByLabel("Model provider").selectOption("fake");
   await page.getByLabel("Scripted reply").fill("done");
-  await page.getByLabel("Reply delay").fill("200");
+  await page.getByLabel("Reply delay").fill("2000");
   await page.getByRole("button", { name: "Create agent" }).click();
-  await expect(page.getByRole("heading", { name: /default\/burst/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "burst" })).toBeVisible();
   await expect(page.locator('[data-field="status"]').first()).toContainText("asleep");
 
   const started = Date.now();
+  await page.getByRole("button", { name: "Run a task" }).click();
   for (let i = 0; i < 50; i++) {
     await page.getByLabel("Task input").fill(`job ${i}`);
     await page.getByRole("button", { name: "Submit task" }).click();
-    // Submitted when the form clears (the note may still show the last one).
-    await expect(page.getByLabel("Task input")).toHaveValue("");
+    // Submitted when the panel follows the task.
+    await page.getByRole("dialog", { name: "Task" }).getByRole("button", { name: "Run another" }).click();
   }
+  await page.keyboard.press("Escape");
   const submitted = Date.now() - started;
 
-  await page.getByRole("link", { name: "Deployments" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Deployments" }).click();
   const row = page.locator('tr[data-deployment="burst"]');
   await expect(row.locator('[data-field="ready"]')).toHaveText("5", { timeout: 60_000 });
   const scaled = Date.now() - started;

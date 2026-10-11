@@ -300,7 +300,21 @@ func (e *env) cmdPs(ctx context.Context, args []string) error {
 			fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\t%s\t%s\n", in.Id, in.Namespace, in.Deployment, nest,
 				stateName(in.State, "INSTANCE_STATE_"), in.RunningTasks, toolSummary(in), shortDigest(in.DefinitionDigest), in.Endpoint)
 		}
-		return w.Flush()
+		if err := w.Flush(); err != nil {
+			return err
+		}
+		// Why instances failed (e.g. a missing secret), under the table.
+		first := true
+		for _, in := range r.Msg.Instances {
+			if in.State == agenv1.InstanceState_INSTANCE_STATE_FAILED && in.Message != "" {
+				if first {
+					fmt.Fprintln(e.stdout)
+					first = false
+				}
+				fmt.Fprintf(e.stdout, "%s (%s/%s) failed: %s\n", in.Id, in.Namespace, in.Deployment, in.Message)
+			}
+		}
+		return nil
 	}
 	r, err := c.ListDeployments(ctx, connect.NewRequest(&agenv1.ListDeploymentsRequest{Namespace: ns}))
 	if err != nil {
@@ -426,6 +440,9 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		if a := r.Msg.Task.PendingApprovalId; a != "" && a != t.PendingApprovalId {
+			fmt.Fprintf(e.stderr, "waiting for approval %s (agen approvals; agen approve %s with another token)\n", a, a)
+		}
 		t = r.Msg.Task
 	}
 	if cf.json {
@@ -468,7 +485,11 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	w := e.table()
 	fmt.Fprintln(w, "TASK\tDEPLOYMENT\tSTATE\tSOURCE\tATTEMPTS\tCREATED")
 	for _, t := range r.Msg.Tasks {
-		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\n", t.Id, t.Namespace, t.Deployment, stateName(t.State, "TASK_STATE_"), t.Source, t.Attempts,
+		state := stateName(t.State, "TASK_STATE_")
+		if t.PendingApprovalId != "" {
+			state += " (approval " + t.PendingApprovalId + ")"
+		}
+		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\n", t.Id, t.Namespace, t.Deployment, state, t.Source, t.Attempts,
 			t.CreatedAt.AsTime().Local().Format(time.RFC3339))
 	}
 	return w.Flush()
@@ -662,7 +683,7 @@ func (l *listFlag) Set(v string) error { *l = append(*l, strings.Split(v, ",")..
 
 func (e *env) cmdToken(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "create" {
-		return usageErr("agen token create --name N --scope viewer|operator|approver|admin [--namespace NS] [--ttl D]")
+		return usageErr("agen token create --name N --scope viewer|operator|approver|admin [--namespace NS] [--ttl D] [--on-behalf]")
 	}
 	var cf clientFlags
 	fs := e.flags("token create", &cf)
@@ -671,6 +692,7 @@ func (e *env) cmdToken(ctx context.Context, args []string) error {
 	fs.Var(&scopes, "scope", "scope (repeatable)")
 	fs.Var(&namespaces, "namespace", "limit to namespace (repeatable)")
 	ttl := fs.Duration("ttl", 0, "validity (0 = no expiry)")
+	onBehalf := fs.Bool("on-behalf", false, "for an agent that works for people: it acts for whoever submitted its task (see the assistant template)")
 	if _, err := parse(fs, args[1:]); err != nil {
 		return err
 	}
@@ -682,7 +704,7 @@ func (e *env) cmdToken(ctx context.Context, args []string) error {
 		return err
 	}
 	r, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: *name, Scopes: scopes, Namespaces: namespaces,
-		TtlSeconds: int32(ttl.Seconds())}))
+		TtlSeconds: int32(ttl.Seconds()), OnBehalf: *onBehalf}))
 	if err != nil {
 		return err
 	}
@@ -897,7 +919,7 @@ func (e *env) cmdTrace(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		runs, err := c.ListRuns(ctx, connect.NewRequest(&agenv1.ListRunsRequest{Namespace: tk.Msg.Task.Namespace, Deployment: tk.Msg.Task.Deployment, Limit: 1000}))
+		runs, err := c.ListRuns(ctx, connect.NewRequest(&agenv1.ListRunsRequest{Namespace: tk.Msg.Task.Namespace, TaskId: tk.Msg.Task.Id}))
 		if err != nil {
 			return err
 		}

@@ -548,6 +548,13 @@ share a golden test vector.
   the local Hub URL. A saved Nest credential the Hub rejects is replaced by a
   fresh enrolment when a join token is at hand. `agen down` stops a running
   `agen up` through an admin-only local endpoint.
+- On-behalf tokens (`CreateApiToken` with `on_behalf`) are for agents that
+  work for people, like the console assistant. Each call must name a running
+  task (`X-Agen-Task`, which the MCP endpoint fills from the call's `_meta`
+  `agen/taskId`); the Hub then acts as that task's submitter with the
+  intersection of both principals' scopes (admin never passes) and
+  namespaces, and refuses `DecideApproval`. A task started by a trigger has
+  no person to act for and is refused.
 
 ## 11. API surface
 
@@ -568,7 +575,19 @@ as text in `bundleText`). The server's `instructions` carry a primer on
 bundles, tools, permissions and work; `GetBundleGuide` returns the bundle
 schemas and an example; `WhoAmI` returns the caller's scopes;
 `CreateDeployment`/`UpdateDeployment` with `validateOnly` check a bundle and
-return warnings without deploying. `GetTask` waits up to 300 s.
+return warnings without deploying. `GetTask` waits up to 300 s and returns
+early when the task starts waiting for an approval.
+
+`GET /api/v1/events` streams change notices (server-sent events) for the
+caller's namespaces: tasks, runs, approvals, instances and deployments. One
+watcher per Hub polls the Store once a second while anyone listens (hosts
+write run data straight to the Store, so the Store is where changes appear)
+and fans the changes out; clients refetch what they show. The web console
+uses it instead of polling each view.
+
+A model-call span records `agen.message.seq`, the reply's place in its
+conversation, and `GetTranscript` returns the conversation, so a trace view
+can show what each call sent and received.
 
 ## 12. Storage
 

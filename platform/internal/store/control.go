@@ -326,6 +326,8 @@ type APIToken struct {
 	CreatedMs  int64
 	ExpiresMs  int64
 	Revoked    bool
+	// OnBehalf: the token acts for the submitter of the task it works on.
+	OnBehalf bool
 }
 
 func hashSecret(secret string) string {
@@ -343,28 +345,29 @@ func NewSecret(prefix string) string {
 }
 
 // CreateAPIToken stores a token and returns it with its secret (shown once).
-func (s *Store) CreateAPIToken(ctx context.Context, name string, scopes, namespaces []string, ttlMs int64) (APIToken, string, error) {
-	t := APIToken{ID: NewID(), Name: name, Scopes: scopes, Namespaces: namespaces, CreatedMs: NowMs()}
+func (s *Store) CreateAPIToken(ctx context.Context, name string, scopes, namespaces []string, ttlMs int64, onBehalf bool) (APIToken, string, error) {
+	t := APIToken{ID: NewID(), Name: name, Scopes: scopes, Namespaces: namespaces, CreatedMs: NowMs(), OnBehalf: onBehalf}
 	if ttlMs > 0 {
 		t.ExpiresMs = t.CreatedMs + ttlMs
 	}
 	secret := NewSecret("agen_")
 	sc, _ := json.Marshal(scopes)
 	nss, _ := json.Marshal(namespaces)
-	_, err := s.db.ExecContext(ctx, "INSERT INTO api_tokens (id, name, secret_hash, scopes, namespaces, created_ms, expires_ms, revoked) VALUES ($1, $2, $3, $4, $5, $6, $7, 0)",
-		t.ID, name, hashSecret(secret), string(sc), string(nss), t.CreatedMs, t.ExpiresMs)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO api_tokens (id, name, secret_hash, scopes, namespaces, created_ms, expires_ms, revoked, on_behalf) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)",
+		t.ID, name, hashSecret(secret), string(sc), string(nss), t.CreatedMs, t.ExpiresMs, boolInt(onBehalf))
 	return t, secret, err
 }
 
 func scanToken(r interface{ Scan(...any) error }) (APIToken, error) {
 	var t APIToken
 	var sc, nss string
-	var revoked int
-	err := r.Scan(&t.ID, &t.Name, &sc, &nss, &t.CreatedMs, &t.ExpiresMs, &revoked)
+	var revoked, onBehalf int
+	err := r.Scan(&t.ID, &t.Name, &sc, &nss, &t.CreatedMs, &t.ExpiresMs, &revoked, &onBehalf)
 	if err == nil {
 		_ = json.Unmarshal([]byte(sc), &t.Scopes)
 		_ = json.Unmarshal([]byte(nss), &t.Namespaces)
 		t.Revoked = revoked != 0
+		t.OnBehalf = onBehalf != 0
 	}
 	return t, err
 }
@@ -372,7 +375,7 @@ func scanToken(r interface{ Scan(...any) error }) (APIToken, error) {
 // LookupAPIToken returns the valid (unrevoked, unexpired) token for a secret.
 func (s *Store) LookupAPIToken(ctx context.Context, secret string) (APIToken, error) {
 	t, err := scanToken(s.db.QueryRowContext(ctx,
-		"SELECT id, name, scopes, namespaces, created_ms, expires_ms, revoked FROM api_tokens WHERE secret_hash = $1", hashSecret(secret)))
+		"SELECT id, name, scopes, namespaces, created_ms, expires_ms, revoked, on_behalf FROM api_tokens WHERE secret_hash = $1", hashSecret(secret)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -387,7 +390,7 @@ func (s *Store) LookupAPIToken(ctx context.Context, secret string) (APIToken, er
 
 // ListAPITokens lists tokens (never secrets).
 func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, name, scopes, namespaces, created_ms, expires_ms, revoked FROM api_tokens ORDER BY created_ms, id")
+	rows, err := s.db.QueryContext(ctx, "SELECT id, name, scopes, namespaces, created_ms, expires_ms, revoked, on_behalf FROM api_tokens ORDER BY created_ms, id")
 	if err != nil {
 		return nil, err
 	}
@@ -606,4 +609,21 @@ func (s *Store) EnsureCA(ctx context.Context, create func() (CA, error)) (CA, er
 	s.sealInPlace(ctx, ca.KeyPEM, "UPDATE hub_ca SET key_pem = $1 WHERE id = 1 AND key_pem = $2")
 	ca.KeyPEM, err = s.unseal(ca.KeyPEM)
 	return ca, err
+}
+
+// GetAPIToken returns a token by id (revoked or not).
+func (s *Store) GetAPIToken(ctx context.Context, id string) (APIToken, error) {
+	t, err := scanToken(s.db.QueryRowContext(ctx,
+		"SELECT id, name, scopes, namespaces, created_ms, expires_ms, revoked, on_behalf FROM api_tokens WHERE id = $1", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return t, ErrNotFound
+	}
+	return t, err
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

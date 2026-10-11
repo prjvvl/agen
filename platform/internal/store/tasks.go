@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 )
 
@@ -40,6 +41,9 @@ type Task struct {
 	// prefixed with their source ("api:", "webhook:<trigger>:").
 	ConversationKey string
 	Labels          map[string]string
+	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
+	// deployment has that many queued tasks. Not stored.
+	MaxQueued int
 }
 
 // CheckLabels enforces the limits on task labels: at most 32, keys of 1-63
@@ -110,17 +114,33 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 		labels = []byte("{}")
 	}
 	now := NowMs()
-	_, err = s.db.ExecContext(ctx,
-		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels) "+
-			"VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
-		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-		t.ConversationKey, string(labels))
-	if isUnique(err) && t.IdempotencyKey != "" {
+	maxQueued := t.MaxQueued
+	if maxQueued <= 0 {
+		maxQueued = math.MaxInt32
+	}
+	existing := func() (Task, error) {
 		return scanTask(s.db.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND idempotency_key = $3",
 			t.Namespace, t.Deployment, t.IdempotencyKey))
 	}
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels) "+
+			"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16 "+
+			"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $17",
+		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
+		t.ConversationKey, string(labels), maxQueued)
+	if isUnique(err) && t.IdempotencyKey != "" {
+		return existing()
+	}
 	if err != nil {
 		return t, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if t.IdempotencyKey != "" {
+			if prev, err := existing(); err == nil {
+				return prev, nil
+			}
+		}
+		return t, fmt.Errorf("%w: %s/%s has %d queued tasks (limits.maxQueuedTasks)", ErrQueueFull, t.Namespace, t.Deployment, maxQueued)
 	}
 	return s.GetTask(ctx, t.ID)
 }
@@ -236,10 +256,12 @@ func (s *Store) CompleteTask(ctx context.Context, taskID, leaseID string, succes
 
 // RequeueExpiredLeases returns tasks whose lease expired to the queue. A task
 // that has already been leased maxAttempts times fails instead, so a task
-// that keeps killing its host does not loop forever (maxAttempts <= 0: no cap).
-func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int64, error) {
+// that keeps killing its host does not loop forever (maxAttempts <= 0: no cap);
+// the ids of tasks that failed are returned.
+func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int64, []string, error) {
 	now := NowMs()
 	var n int64
+	var failed []string
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE state IN ('leased', 'running') AND lease_expires_ms < $1", now)
 		if err != nil {
@@ -275,13 +297,19 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int6
 				continue
 			}
 			n++
+			if level == "error" {
+				failed = append(failed, t.ID)
+			}
 			if err := appendLog(ctx, tx, t.InstanceID, t.Namespace, t.Deployment, level, msg); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	return n, err
+	if err != nil {
+		return 0, nil, err
+	}
+	return n, failed, nil
 }
 
 // ReleaseTask gives a leased task back to the queue before its lease expires

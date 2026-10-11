@@ -1,0 +1,5 @@
+{
+  "name": "cost-watchdog",
+  "version": "0.1.0",
+  "description": "Reports model spend per deployment and flags unusual jumps"
+}

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agen-engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "agen-python"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "agen-sdk-core",
  "pyo3",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "agen-sdk-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "agen-engine",
  "async-trait",

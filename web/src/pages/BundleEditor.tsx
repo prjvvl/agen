@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { b64, bytesB64, call, Deployment, textOf } from "../api";
-import { errorText } from "../hooks";
+import { b64, bytesB64, call, Deployment, errorText, textOf } from "../api";
+
 
 type Files = Record<string, string>; // path -> text
 
@@ -134,19 +134,37 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
 
   if (editing) {
     return (
-      <section>
-        <h2>
-          Edit bundle — {namespace}/{name}
-        </h2>
-        {msg && <p className={msg.startsWith("Saved") ? "note" : "error"}>{msg}</p>}
+      <div className="page">
+        <div className="page-head">
+          <div className="titles">
+            <div className="crumbs">
+              <a href="#/deployments">Deployments</a>
+              <span>/</span>
+              <a href={`#/deployments/${namespace}/${name}`}>
+                {namespace}/{name}
+              </a>
+            </div>
+            <h1>Edit bundle</h1>
+            <p className="facts">Saving validates the bundle and rolls the new version out to the deployment's instances.</p>
+          </div>
+          <div className="actions">
+            <a className="btn" href={`#/deployments/${namespace}/${name}`}>
+              Back
+            </a>
+            <button className="btn primary" onClick={save} disabled={busy}>
+              Save new version
+            </button>
+          </div>
+        </div>
+        {msg && (msg.startsWith("Saved") ? <p className="note alert" data-tone="ok">{msg}</p> : <p className="error alert">{msg}</p>)}
         <div className="editor">
-          <ul className="files">
+          <ul className="list files" aria-label="Bundle files">
             {Object.keys(files)
               .sort()
               .map((p) => (
-                <li key={p}>
-                  <button className={`link ${p === selected ? "active" : ""}`} onClick={() => setSelected(p)}>
-                    {p}
+                <li key={p} style={{ padding: 0 }}>
+                  <button className="btn ghost" aria-current={p === selected || undefined} onClick={() => setSelected(p)}>
+                    <span className="truncate">{p}</span>
                   </button>
                 </li>
               ))}
@@ -160,56 +178,62 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
             />
           )}
         </div>
-        <button onClick={save} disabled={busy}>
-          Save new version
-        </button>{" "}
-        <a href={`#/deployments/${namespace}/${name}`}>Back</a>
-      </section>
+      </div>
     );
   }
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm({ ...form, [k]: k === "max" || k === "delayMs" ? Number(e.target.value) : e.target.value });
   return (
-    <section>
-      <h2>New agent</h2>
-      {msg && <p className="error">{msg}</p>}
+    <div className="page" style={{ maxWidth: 900 }}>
+      <div className="page-head">
+        <div className="titles">
+          <div className="crumbs">
+            <a href="#/deployments">Deployments</a>
+          </div>
+          <h1>New agent</h1>
+          <p className="facts">
+            Fill in the basics and the console writes the bundle. For more, <a href="#/templates">start from a template</a> or upload a bundle folder.
+          </p>
+        </div>
+      </div>
+      {msg && <p className="error alert">{msg}</p>}
       <form
-        className="grid"
+        className="form-grid"
         onSubmit={(e) => {
           e.preventDefault();
           create(templateFiles(form));
         }}
       >
-        <label>
+        <label className="field">
           Name
           <input value={form.name} onChange={set("name")} required pattern="[a-z0-9][a-z0-9-]*" aria-label="Name" />
         </label>
-        <label>
+        <label className="field">
           Namespace
           <input value={form.namespace} onChange={set("namespace")} aria-label="Namespace" />
         </label>
-        <label>
+        <label className="field wide">
           Description
           <input value={form.description} onChange={set("description")} aria-label="Description" />
         </label>
-        <label>
-          Kind
+        <label className="field">
+          Kind <span className="help">pool: many instances; singleton: one, with memory; task: one per task.</span>
           <select value={form.kind} onChange={set("kind")} aria-label="Kind">
             <option value="pool">pool</option>
             <option value="singleton">singleton</option>
             <option value="task">task</option>
           </select>
         </label>
-        <label>
+        <label className="field">
           Max instances
           <input type="number" min={1} value={form.max} onChange={set("max")} aria-label="Max instances" />
         </label>
-        <label>
-          Idle timeout
+        <label className="field">
+          Idle timeout <span className="help">Sleep after this long without work.</span>
           <input value={form.idle} onChange={set("idle")} pattern="[0-9]+(ms|s|m|h)" aria-label="Idle timeout" />
         </label>
-        <label>
+        <label className="field">
           Model
           <select value={form.provider} onChange={set("provider")} aria-label="Model provider">
             <option value="openrouter">OpenRouter</option>
@@ -218,40 +242,43 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
         </label>
         {form.provider === "fake" ? (
           <>
-            <label>
+            <label className="field">
               Scripted reply
               <input value={form.reply} onChange={set("reply")} aria-label="Scripted reply" />
             </label>
-            <label>
+            <label className="field">
               Reply delay (ms)
               <input type="number" min={0} value={form.delayMs} onChange={set("delayMs")} aria-label="Reply delay" />
             </label>
           </>
         ) : (
-          <label>
-            OpenRouter model
+          <label className="field">
+            OpenRouter model <span className="help">Reads OPENROUTER_API_KEY from the environment.</span>
             <input value={form.model} onChange={set("model")} aria-label="OpenRouter model" />
           </label>
         )}
-        <label className="wide">
+        <label className="field wide">
           Instructions
-          <textarea value={form.instructions} onChange={set("instructions")} rows={5} aria-label="Instructions" />
+          <textarea value={form.instructions} onChange={set("instructions")} rows={6} aria-label="Instructions" />
         </label>
-        <div className="wide">
-          <button type="submit" disabled={busy}>
+        <div className="wide actions">
+          <button className="btn primary" type="submit" disabled={busy}>
             Create agent
           </button>
         </div>
       </form>
-      <h3>Or upload a bundle folder</h3>
-      <input
-        type="file"
-        aria-label="Bundle folder"
-        // @ts-expect-error non-standard but supported by all major browsers
-        webkitdirectory=""
-        multiple
-        onChange={(e) => upload(e.target.files)}
-      />
-    </section>
+      <section className="section">
+        <h2>Or upload a bundle folder</h2>
+        <p className="muted">The folder with plugin.json and x-agen/. Files are validated like any deploy.</p>
+        <input
+          type="file"
+          aria-label="Bundle folder"
+          // @ts-expect-error non-standard but supported by all major browsers
+          webkitdirectory=""
+          multiple
+          onChange={(e) => upload(e.target.files)}
+        />
+      </section>
+    </div>
   );
 }

@@ -33,7 +33,7 @@ one, or point the CLI at a Hub with `--hub` and `--token` (or `AGEN_HUB`,
 `AGEN_TOKEN`).
 
 **`hello` always answers the same thing.** Its model is scripted (`"provider":
-"fake"`); it never calls a real model. Use `agen init --example researcher` for
+"fake"`); it never calls a real model. Use `agen init --template researcher` for
 a real one.
 
 **Start over.** `agen down`, then delete `~/.agen` (keep `~/.agen/bin` if you

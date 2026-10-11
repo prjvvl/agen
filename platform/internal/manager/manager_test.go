@@ -529,6 +529,33 @@ func TestCrashLoopBacksOff(t *testing.T) {
 	if exits == 0 || starts < 2 || starts > 5 {
 		t.Fatalf("starts %d exits %d\n%s", starts, exits, c.logs.String())
 	}
+	// The Hub sees why, once: a failed instance with the host's own error.
+	ref := &agenv1.DeploymentRef{Namespace: "default", Name: "hello"}
+	waitFor(t, "crash reported", 10*time.Second, func() bool {
+		r, err := c.client.ListInstances(ctx, connect.NewRequest(&agenv1.ListInstancesRequest{Namespace: "default", Deployment: "hello"}))
+		if err != nil {
+			return false
+		}
+		for _, in := range r.Msg.Instances {
+			if in.State == agenv1.InstanceState_INSTANCE_STATE_FAILED && strings.Count(in.Message, ": ") >= 2 {
+				return true
+			}
+		}
+		return false
+	})
+	logs, err := c.client.GetLogs(ctx, connect.NewRequest(&agenv1.GetLogsRequest{Ref: ref}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := 0
+	for _, l := range logs.Msg.Lines {
+		if l.Level == "error" && strings.Contains(l.Message, "failed") {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("%d failure log lines, want 1: %v", failed, logs.Msg.Lines)
+	}
 }
 
 // When the Hub is unreachable, singletons are killed at once, even busy ones

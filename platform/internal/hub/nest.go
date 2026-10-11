@@ -367,6 +367,11 @@ func (n *NestAPI) CompleteTask(ctx context.Context, req *connect.Request[agenv1.
 	if err := n.hub.Store.CompleteTask(ctx, m.TaskId, m.LeaseId, m.Success, m.Output, m.Error, m.RunId, m.InstanceId); err != nil {
 		return nil, connectErr(err)
 	}
+	go func() {
+		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		defer cancel()
+		n.hub.afterTaskEnded(c, m.TaskId)
+	}()
 	return connect.NewResponse(&agenv1.CompleteTaskResponse{}), nil
 }
 
@@ -667,7 +672,7 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	}
 	t, err := n.hub.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
 		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
-		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels})
+		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
 	if err != nil {
 		return nil, connectErr(err)
 	}

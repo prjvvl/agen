@@ -48,7 +48,7 @@ Platform:
   agen store host-role            create the least-privilege Postgres role for Nests
 
 Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local config from agen up):
-  agen init [dir]                 write an example bundle to start from (--example hello|researcher)
+  agen init [dir]                 write a template bundle to start from (--template NAME; --list)
   agen deploy <bundle-dir>        create or update a deployment (--validate: check only)
   agen scale <name> <n>           set desired instances
   agen ps [--all]                 deployments (--all: every instance on every nest)
@@ -59,13 +59,16 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen run <name> <input>         submit a task and wait for its result
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
+  agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
+  agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
   agen resolve <name>             A2A endpoints of a deployment and a call token
   agen nests                      enrolled nests
   agen approvals | approve <id> | deny <id>
+  agen notify set|ls|rm           where the Hub POSTs a namespace's events
   agen join-token                 one-time token for 'agen nest run'
   agen token create --scope S     API token
   agen whoami                     the current token's identity and scopes
@@ -90,6 +93,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		"init": e.cmdInit, "deploy": e.cmdDeploy, "scale": e.cmdScale, "ps": e.cmdPs, "logs": e.cmdLogs, "stop": e.cmdStop, "start": e.cmdStart, "rm": e.cmdRm,
 		"run": e.cmdRun, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
+		"runs": e.cmdRuns, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
 	}
 	switch args[0] {
 	case "version", "--version":

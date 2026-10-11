@@ -50,6 +50,9 @@ agen deploy hello --replicas 3 # a bundle directory, e.g. from agen init
 agen ps --all
 ```
 
+The leader Hub deletes spans, log lines and trigger events older than
+`--retention` (default 30 days; `0` keeps them). See [Traces](guides/traces.md#retention).
+
 Moving a local fleet to Postgres keeps its history:
 `agen down && agen migrate --to postgres://…`, then start the Hub with
 `--store postgres://…`.

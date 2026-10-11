@@ -1,0 +1,5 @@
+{
+  "name": "fleet-steward",
+  "version": "0.1.0",
+  "description": "Watches the fleet and reports failed tasks with their likely cause"
+}

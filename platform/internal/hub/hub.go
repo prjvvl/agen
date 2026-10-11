@@ -40,6 +40,9 @@ type Hub struct {
 
 	tokenMu sync.Mutex
 	keys    *tokenKeyring // call-token keys, re-read every keyringTTL
+
+	evOnce sync.Once
+	ev     *changeFeed
 }
 
 // New creates a Hub over a store; adminToken authenticates the admin.
@@ -105,7 +108,7 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		p.Budget = m.Budget
 	}
 	if m.Limits != nil {
-		p.Limits = m.Limits
+		p.Limits = mergeLimits(p.Limits, m.Limits)
 	}
 	if m.Placement != nil {
 		p.Placement = m.Placement
@@ -222,7 +225,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 			p.Budget = m.Budget
 		}
 		if m.Limits != nil {
-			p.Limits = m.Limits
+			p.Limits = mergeLimits(p.Limits, m.Limits)
 		}
 		if m.Placement != nil {
 			p.Placement = m.Placement
@@ -380,7 +383,9 @@ func (h *Hub) ListNests(ctx context.Context, _ *connect.Request[agenv1.ListNests
 	}
 	used := map[string]int{}
 	for _, in := range insts {
-		used[in.NestID]++
+		if in.State != "failed" {
+			used[in.NestID]++
+		}
 	}
 	out := &agenv1.ListNestsResponse{}
 	for _, n := range nests {
@@ -397,19 +402,78 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 		return nil, err
 	}
 	name := req.Msg.GetRef().GetName()
-	if _, err := h.Store.GetDeployment(ctx, ns, name); err != nil {
+	d, err := h.Store.GetDeployment(ctx, ns, name)
+	if err != nil {
 		return nil, connectErr(err)
 	}
 	if err := checkWorkIdentity(req.Msg.ConversationKey, req.Msg.Labels); err != nil {
 		return nil, err
 	}
-	t, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
-		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels})
+	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
+		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
+		return nil, err
+	}
+	t, err := h.Store.SubmitTask(ctx, task)
 	if err != nil {
 		return nil, connectErr(err)
 	}
 	_ = h.Store.TouchActivity(ctx, ns, name)
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// RunHeader names the run of the agent making a call (with TaskHeader and
+// a W3C traceparent; the MCP endpoint sets them from the call's _meta).
+const RunHeader = "X-Agen-Run"
+
+// linkToCaller makes a task submitted by an agent, through the Hub's API or
+// MCP tools, a child of the agent's unfinished task: it joins the agent's
+// trace and the delegation graph, and counts towards the delegation depth.
+// A caller that names no task, or one it may not see, submits a plain task.
+func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deployment, t *store.Task) error {
+	id := hdr.Get(TaskHeader)
+	if id == "" {
+		return nil
+	}
+	parent, err := h.Store.GetTask(ctx, id)
+	if err != nil || parent.Terminal() || !PrincipalFrom(ctx).AllowsNamespace(parent.Namespace) {
+		return nil
+	}
+	t.ParentTaskID, t.Depth, t.RootRunID = parent.ID, parent.Depth+1, parent.RootRunID
+	if runID := hdr.Get(RunHeader); runID != "" {
+		if run, err := h.Store.GetRun(ctx, runID); err == nil && run.TaskID == parent.ID {
+			t.ParentRunID, t.Traceparent = run.ID, hdr.Get("Traceparent")
+			if t.RootRunID == "" {
+				t.RootRunID = run.ID
+			}
+		}
+	}
+	if max := int(PolicyOf(d).Limits.MaxDelegationDepth); max > 0 && t.Depth > max {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("delegation depth %d exceeds max_delegation_depth %d of %s/%s", t.Depth, max, d.Namespace, d.Name))
+	}
+	return nil
+}
+
+// withTraceIDs sets the trace id of tasks that did not arrive with a
+// traceparent (API and trigger tasks): the trace their run started.
+func (h *Hub) withTraceIDs(ctx context.Context, tasks []*agenv1.Task) error {
+	var runs []string
+	for _, t := range tasks {
+		if t.TraceId == "" && t.RunId != "" {
+			runs = append(runs, t.RunId)
+		}
+	}
+	ids, err := h.Store.TraceIDs(ctx, runs)
+	if err != nil {
+		return err
+	}
+	for _, t := range tasks {
+		if t.TraceId == "" {
+			t.TraceId = ids[t.RunId]
+		}
+	}
+	return nil
 }
 
 // MaxTaskWait bounds GetTask's wait_seconds.
@@ -418,6 +482,7 @@ const MaxTaskWait = 5 * time.Minute
 func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRequest]) (*connect.Response[agenv1.GetTaskResponse], error) {
 	wait := min(time.Duration(req.Msg.WaitSeconds)*time.Second, MaxTaskWait)
 	deadline := time.Now().Add(wait)
+	first, waiting := true, ""
 	for {
 		t, err := h.Store.GetTask(ctx, req.Msg.Id)
 		if err != nil {
@@ -426,8 +491,25 @@ func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRe
 		if err := requireNamespace(ctx, t.Namespace); err != nil {
 			return nil, err
 		}
-		if t.Terminal() || time.Now().After(deadline) {
-			return connect.NewResponse(&agenv1.GetTaskResponse{Task: TaskProto(t)}), nil
+		out := TaskProto(t)
+		if err := h.withTraceIDs(ctx, []*agenv1.Task{out}); err != nil {
+			return nil, connectErr(err)
+		}
+		if !t.Terminal() {
+			pending, err := h.Store.PendingApprovals(ctx, []string{t.ID})
+			if err != nil {
+				return nil, connectErr(err)
+			}
+			out.PendingApprovalId = pending[t.ID]
+		}
+		// A task that starts waiting for an approval during the wait returns
+		// early: someone has to act. (One already waiting keeps waiting, so
+		// a client that polls does not spin.)
+		if first {
+			waiting, first = out.PendingApprovalId, false
+		}
+		if t.Terminal() || (out.PendingApprovalId != "" && out.PendingApprovalId != waiting) || time.Now().After(deadline) {
+			return connect.NewResponse(&agenv1.GetTaskResponse{Task: out}), nil
 		}
 		select {
 		case <-ctx.Done():
@@ -457,12 +539,27 @@ func (h *Hub) ListTasks(ctx context.Context, req *connect.Request[agenv1.ListTas
 		}
 		return list[i].ID > list[j].ID
 	})
-	out := &agenv1.ListTasksResponse{}
-	for i, t := range list {
-		if i == limit {
-			break
+	if len(list) > limit {
+		list = list[:limit]
+	}
+	var open []string
+	for _, t := range list {
+		if !t.Terminal() {
+			open = append(open, t.ID)
 		}
-		out.Tasks = append(out.Tasks, TaskProto(t))
+	}
+	pending, err := h.Store.PendingApprovals(ctx, open)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out := &agenv1.ListTasksResponse{}
+	for _, t := range list {
+		pt := TaskProto(t)
+		pt.PendingApprovalId = pending[t.ID]
+		out.Tasks = append(out.Tasks, pt)
+	}
+	if err := h.withTraceIDs(ctx, out.Tasks); err != nil {
+		return nil, connectErr(err)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -659,6 +756,9 @@ func (h *Hub) ListApprovals(ctx context.Context, req *connect.Request[agenv1.Lis
 }
 
 func (h *Hub) DecideApproval(ctx context.Context, req *connect.Request[agenv1.DecideApprovalRequest]) (*connect.Response[agenv1.DecideApprovalResponse], error) {
+	if p := PrincipalFrom(ctx); p.ActingFor != "" {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("an agent acting for a person cannot decide approvals; the person decides them in the console or with agen approvals"))
+	}
 	a, err := h.Store.GetApproval(ctx, req.Msg.Id)
 	if err != nil {
 		return nil, connectErr(err)
@@ -767,36 +867,6 @@ func (h *Hub) ListTriggerEvents(ctx context.Context, req *connect.Request[agenv1
 
 // ---- observability ----
 
-func (h *Hub) ListRuns(ctx context.Context, req *connect.Request[agenv1.ListRunsRequest]) (*connect.Response[agenv1.ListRunsResponse], error) {
-	nss, err := namespacesFor(ctx, req.Msg.Namespace)
-	if err != nil {
-		return nil, err
-	}
-	limit := listLimit(req.Msg.Limit, 50)
-	var list []store.RunRow
-	for _, ns := range nss {
-		part, err := h.Store.ListRuns(ctx, ns, req.Msg.Deployment, limit)
-		if err != nil {
-			return nil, connectErr(err)
-		}
-		list = append(list, part...)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].StartedMs != list[j].StartedMs {
-			return list[i].StartedMs > list[j].StartedMs
-		}
-		return list[i].ID > list[j].ID
-	})
-	out := &agenv1.ListRunsResponse{}
-	for i, r := range list {
-		if i == limit {
-			break
-		}
-		out.Runs = append(out.Runs, runProto(r))
-	}
-	return connect.NewResponse(out), nil
-}
-
 func (h *Hub) GetTrace(ctx context.Context, req *connect.Request[agenv1.GetTraceRequest]) (*connect.Response[agenv1.GetTraceResponse], error) {
 	spans, runs, err := h.Store.Trace(ctx, req.Msg.TraceId)
 	if err != nil {
@@ -866,7 +936,7 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 			return nil, invalid("unknown scope " + s)
 		}
 	}
-	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000)
+	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf)
 	if err != nil {
 		return nil, connectErr(err)
 	}
@@ -874,7 +944,7 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 }
 
 func tokenProto(t store.APIToken) *agenv1.ApiToken {
-	return &agenv1.ApiToken{Id: t.ID, Name: t.Name, Scopes: t.Scopes, Namespaces: t.Namespaces, CreatedAt: ms(t.CreatedMs), ExpiresAt: ms(t.ExpiresMs), Revoked: t.Revoked}
+	return &agenv1.ApiToken{Id: t.ID, Name: t.Name, Scopes: t.Scopes, Namespaces: t.Namespaces, CreatedAt: ms(t.CreatedMs), ExpiresAt: ms(t.ExpiresMs), Revoked: t.Revoked, OnBehalf: t.OnBehalf}
 }
 
 func (h *Hub) ListApiTokens(ctx context.Context, _ *connect.Request[agenv1.ListApiTokensRequest]) (*connect.Response[agenv1.ListApiTokensResponse], error) {

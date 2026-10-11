@@ -9,6 +9,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/agen.v1.HubService": process.env.AGEN_HUB ?? "http://127.0.0.1:7070",
+      "/api": process.env.AGEN_HUB ?? "http://127.0.0.1:7070",
     },
   },
 });

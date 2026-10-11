@@ -25,13 +25,14 @@ var expectedScope = map[string]string{
 	"ListDeployments": ScopeViewer, "GetDeployment": ScopeViewer, "ListInstances": ScopeViewer, "ListNests": ScopeViewer,
 	"GetTask": ScopeViewer, "ListTasks": ScopeViewer, "Resolve": ScopeViewer, "ListDefinitions": ScopeViewer,
 	"GetDefinition": ScopeViewer, "ListTriggerEvents": ScopeViewer, "ListRuns": ScopeViewer, "GetTrace": ScopeViewer, "GetLogs": ScopeViewer,
-	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer,
+	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer,
 	"CreateDeployment": ScopeOperator, "UpdateDeployment": ScopeOperator, "ScaleDeployment": ScopeOperator, "DeleteDeployment": ScopeOperator,
 	"PauseDeployment": ScopeOperator, "SubmitTask": ScopeOperator, "CancelTask": ScopeOperator, "RequestWake": ScopeOperator,
 	"CreateWebhookSecret": ScopeOperator,
 	"ListApprovals":       ScopeApprover, "DecideApproval": ScopeApprover,
 	"SetSecret": ScopeAdmin, "ListSecrets": ScopeAdmin, "DeleteSecret": ScopeAdmin, "CreateJoinToken": ScopeAdmin,
 	"CreateApiToken": ScopeAdmin, "ListApiTokens": ScopeAdmin, "RevokeApiToken": ScopeAdmin, "RevokeNest": ScopeAdmin,
+	"SetNotificationTarget": ScopeAdmin, "ListNotificationTargets": ScopeAdmin, "DeleteNotificationTarget": ScopeAdmin,
 }
 
 // Every MCP tool enforces exactly the scope its API call needs (MCP is a

@@ -1,5 +1,80 @@
 # Changelog
 
+## v0.1.2
+
+### Console
+- A new web console. The overview shows what needs attention (approvals,
+  failures, budgets, full Nests, broken tool servers), a live map of who calls
+  whom, and activity as it happens. Updates arrive live instead of by polling.
+- Traces: a timeline of every span across agents, with an inspector that
+  shows what each model call sent and received and each tool call's arguments
+  and result, and a transcript of every run.
+- An inbox for approvals (with what the agent was doing) and failed tasks;
+  costs per deployment over 24 hours, 7 or 30 days; deployment pages with
+  limits, instances, live logs and the bundle's files; `Ctrl+K` to jump
+  anywhere; light and dark themes.
+- A chat assistant that answers questions about the fleet and makes changes
+  you confirm, with your permissions (see Templates). The chat shows each
+  step as it works; the panel resizes and keeps past chats.
+
+### Traces and metrics
+- `GetTranscript` returns a run's conversation, tool calls and results
+  included, and its system prompt; `agen transcript`.
+- `ListRuns` filters by status, labels, time and task, pages with
+  `pageToken`, and with `rootsOnly` lists one row per trace with the usage of
+  the whole run tree; `agen runs` (with `--since`, `--task` and each run's
+  error).
+- `GetMetrics`: runs, failures, duration percentiles, tokens and cost per
+  deployment over a window, and the delegation edges between deployments.
+- `GET /api/v1/events` streams changes (server-sent events).
+- Model-call, tool-call and approval spans are recorded when they start, so
+  a running trace shows what is in progress; model-call spans link to their
+  messages (`agen.message.seq`) and record their cost.
+- A task an agent submits through the Hub's API or MCP tools joins the
+  agent's trace and the fleet map, and counts towards the delegation depth.
+- The Hub deletes spans, log lines and trigger events older than 30 days
+  (`--retention`).
+
+### Limits
+- New limits with defaults: `maxRunDuration` (1 h, not counting approval
+  waits), `maxIdenticalToolCalls` (5), `modelRequestTimeout` (10 min),
+  `toolTimeout` (10 min) and `maxQueuedTasks` (1000). Delegation limits now
+  default to depth 3, 20 calls per run and 50 per tree; `maxOutputTokens`
+  defaults to 8192; `approvalTimeout` is at most 168 h. `0` turns a limit off.
+- Overriding one limit in `CreateDeployment`/`UpdateDeployment` keeps the
+  others.
+
+### Approvals and notifications
+- `GetTask` returns early when the task starts waiting for an approval, and
+  tasks show the approval they wait for (`agen run` says so).
+- Notification targets per namespace (`agen notify`): `approval.pending`,
+  `task.failed` and `budget.exhausted`, POSTed as signed JSON.
+- On-behalf tokens (`agen token create --on-behalf`) act for the person whose
+  task an agent works on, with the scopes both hold, and never decide
+  approvals.
+
+### Templates
+- Ten ready-made agents: hello, researcher, writer, editor (delegates to the
+  researcher and the writer), support triage, pull request reviewer, fleet
+  steward, cost watchdog, approval triage and the console assistant.
+  Each brings its tool servers and skills, which `agen init --list`, the
+  console's Templates page and `ListTemplates` show;
+  `agen init <dir> --template NAME`.
+- Agents that talk to the Hub each keep their own token
+  (`AGEN_TOKEN.<agent>`); deploying one no longer replaces another's token
+  or access to the shared `AGEN_HUB_URL`.
+
+### Fleet
+- An instance that crashes on start is reported with the host's error (for
+  example a missing secret), once per distinct error, until one starts: the
+  console and `agen ps --all` show why an agent does not start instead of
+  "starting".
+
+### MCP
+- The instructions MCP clients receive (and `get_bundle_guide`) cover
+  investigating failures (runs, transcripts, traces, metrics), templates,
+  the limits that end runs, per-agent Hub tokens and on-behalf tokens.
+
 ## v0.1.1
 
 ### Install and first run

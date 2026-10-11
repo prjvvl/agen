@@ -14,7 +14,7 @@ List the deployments an agent may call in its `x-agen/config.json`:
     { "name": "researcher", "description": "Reads web pages and answers factual questions" },
     { "name": "writer", "description": "Turns notes into a polished summary" }
   ],
-  "limits": { "maxDelegationDepth": 3, "maxFanOut": 10, "maxTotalDelegations": 50 }
+  "limits": { "maxDelegationDepth": 2, "maxFanOut": 10, "maxTotalDelegations": 30 }
 }
 ```
 
@@ -44,11 +44,13 @@ the researcher about all of them in the same turn."
 
 ## Limits
 
-| Limit | Checked by | Meaning |
-|---|---|---|
-| `maxDelegationDepth` | the receiving deployment | How deep a chain of delegations may go. |
-| `maxFanOut` | the calling engine | Delegated calls per run. |
-| `maxTotalDelegations` | the calling engine (shared counter) | Delegated calls in a whole tree, from its root run. |
+| Limit | Default | Checked by | Meaning |
+|---|---|---|---|
+| `maxDelegationDepth` | 3 | the receiving deployment | How deep a chain of delegations may go. |
+| `maxFanOut` | 20 | the calling engine | Delegated calls per run. |
+| `maxTotalDelegations` | 50 | the calling engine (shared counter) | Delegated calls in a whole tree, from its root run. |
+
+Set a limit to `0` to turn it off.
 
 Each delegate's own budget still applies to its runs.
 

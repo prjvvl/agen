@@ -1,0 +1,5 @@
+{
+  "name": "assistant",
+  "version": "0.1.0",
+  "description": "Answers questions about the fleet and makes changes for the person chatting"
+}

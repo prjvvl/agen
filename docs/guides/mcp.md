@@ -54,9 +54,24 @@ settings run in the cloud and cannot reach a Hub on `localhost`.)
 
 - Send bundles as text with `bundleText` (path → file content) instead of
   base64 `bundleFiles`, and check them first with `validateOnly: true`.
+- Start from `list_templates`: ready-made bundles, files included.
 - `submit_task` returns at once; `get_task` with `waitSeconds` (up to 300)
-  waits for the result.
+  waits for the result, and returns early with `pendingApprovalId` when the
+  task starts waiting for an approval.
 - Use `conversationKey` to continue a conversation, and `labels` to group
   the work.
-- `get_deployment` shows each instance's loaded tools and tool-server state;
+- `get_deployment` shows each instance's loaded tools and tool-server state,
+  and why a failed instance failed (for example a missing secret);
   `get_logs` shows instance and task lifecycle.
+- To find out what went wrong: `list_runs` with `status: "failed"` (and
+  `deployment`, `labels`, `since` or `taskId`), then `get_transcript` with
+  the run id (what it sent and received, tool calls included) and
+  `get_trace` with its trace id (every step across agents, with timings and
+  cost). `get_metrics` gives failure rates and p95 duration per deployment.
+- Runs end when they hit a limit (`maxRunDuration` 1 h, `toolTimeout` 10
+  min, `maxIdenticalToolCalls` 5 by default); the run's error says which.
+  See [Budgets and limits](budgets.md#limits).
+- An agent that calls the Hub keeps its own token as a platform secret with
+  `"key": "AGEN_TOKEN.<agent>"` in its `x-agen/secrets.json`. A token made
+  with `--on-behalf` acts for the person whose task the agent works on and
+  never decides approvals.

@@ -1,0 +1,35 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "5m"
+  },
+  "budget": {
+    "maxTokensPerRun": 60000,
+    "maxUsdPerDay": 1
+  },
+  "limits": {
+    "maxFanOut": 6,
+    "maxTotalDelegations": 12
+  },
+  "delegates": [
+    {
+      "name": "researcher",
+      "description": "Answers a question by reading web pages, with URLs"
+    },
+    {
+      "name": "writer",
+      "description": "Writes a draft from the request and the facts you give it"
+    }
+  ],
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "call_agent",
+        "action": "allow"
+      }
+    ]
+  }
+}

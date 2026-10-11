@@ -202,7 +202,8 @@ func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.
 func (s *Scheduler) fire(ctx context.Context, d store.Deployment, t *agenv1.Trigger, at time.Time, note string) error {
 	st := s.Hub.Store
 	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: t.Input, Source: "cron:" + t.Name,
-		IdempotencyKey: fmt.Sprintf("cron:%s:%d", t.Name, at.UnixMilli()), SubmittedBy: "trigger:cron:" + t.Name, Labels: t.Labels})
+		IdempotencyKey: fmt.Sprintf("cron:%s:%d", t.Name, at.UnixMilli()), SubmittedBy: "trigger:cron:" + t.Name, Labels: t.Labels,
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
 	if err != nil {
 		return err
 	}
@@ -319,7 +320,12 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		key := scopedKey("webhook:"+trig+":", k)
 		conversation := scopedKey("webhook:"+trig+":", ck)
 		task, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: input, Source: "webhook:" + trig,
-			IdempotencyKey: key, SubmittedBy: "trigger:webhook:" + trig, ConversationKey: conversation, Labels: t.Labels})
+			IdempotencyKey: key, SubmittedBy: "trigger:webhook:" + trig, ConversationKey: conversation, Labels: t.Labels,
+			MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+		if errors.Is(err, store.ErrQueueFull) {
+			reply(http.StatusTooManyRequests, map[string]string{"error": err.Error()})
+			return
+		}
 		if err != nil {
 			reply(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
