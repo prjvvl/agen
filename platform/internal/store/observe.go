@@ -33,9 +33,11 @@ type RunRow struct {
 	// verified A2A call token).
 	RequestedBy string
 	Labels      map[string]string
+	// Step is the number of model turns taken.
+	Step int64
 }
 
-const runCols = "id, session_id, conversation_id, namespace, deployment, definition_digest, parent_run_id, root_run_id, status, input, output, error, input_tokens, output_tokens, cost_usd, trace_id, started_ms, COALESCE(ended_ms, 0), task_id, requested_by, labels"
+const runCols = "id, session_id, conversation_id, namespace, deployment, definition_digest, parent_run_id, root_run_id, status, input, output, error, input_tokens, output_tokens, cost_usd, trace_id, started_ms, COALESCE(ended_ms, 0), task_id, requested_by, labels, step"
 
 func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]RunRow, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -49,7 +51,7 @@ func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]RunRow,
 		var labels string
 		if err := rows.Scan(&r.ID, &r.SessionID, &r.ConversationID, &r.Namespace, &r.Deployment, &r.DefinitionDigest, &r.ParentRunID,
 			&r.RootRunID, &r.Status, &r.Input, &r.Output, &r.Error, &r.InputTokens, &r.OutputTokens, &r.CostUSD, &r.TraceID,
-			&r.StartedMs, &r.EndedMs, &r.TaskID, &r.RequestedBy, &labels); err != nil {
+			&r.StartedMs, &r.EndedMs, &r.TaskID, &r.RequestedBy, &labels, &r.Step); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(labels), &r.Labels); err != nil {

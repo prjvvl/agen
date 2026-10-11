@@ -82,8 +82,8 @@ See [Giving agents tools](../guides/tools.md).
 |---|---|
 | `kind` | `pool` (default), `singleton` or `task`. |
 | `scale` | `min`, `max`, `targetQueuePerInstance`, `idleTimeout` (`30s`, `5m`, ...), `maxConcurrency` (tasks per instance). |
-| `budget` | `maxTokensPerRun`, `maxUsdPerRun`, `maxUsdPerDay`. See [Budgets](../guides/budgets.md). |
-| `limits` | `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`. See [Connecting agents](../guides/agents.md#limits). |
+| `budget` | `maxTokensPerRun`, `maxUsdPerRun`, `maxUsdPerDay`. See [Budgets and limits](../guides/budgets.md). |
+| `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
 | `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action"}]`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
 | `triggers` | Cron and webhook triggers. See [Triggers](../guides/triggers.md). |
 | `delegates` | `[{"name", "namespace", "url", "description"}]`: deployments the agent may call. |

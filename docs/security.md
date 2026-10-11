@@ -59,8 +59,9 @@ to set up, and what each control does and does not cover.
 | A2A call tokens (Hub-signed: users 10 min, agents 1 h; bound to one deployment) | Gateway calls, including while Hubs are down | A token is a bearer credential until it expires |
 | Per-instance host token | An instance's control API answers only its Manager | |
 | Approvals (`ask`) | The requester can never approve their own ask, whether submitted through the Hub or over A2A with a user token | Hosts of a namespace could tamper with that namespace's run records |
+| On-behalf tokens (`agen token create --on-behalf`, the console assistant) | Act only for the submitter of a running task named in the call, with the scopes and namespaces both hold, never admin, never deciding approvals | Anyone holding the token can act for anyone whose task is running, within the token's own scopes |
 | Host role and row-level security | The Store DSN given to Nests | Namespace isolation is real only with separate pods or OS users |
-| `AGEN_HUB_KEK` sealing | Hub keys and platform secrets at rest | Copies from before sealing may remain in backups: rotate after enabling |
+| `AGEN_HUB_KEK` sealing | Hub keys, platform secrets and notification signing secrets at rest | Copies from before sealing may remain in backups: rotate after enabling |
 
 ## Rotation
 

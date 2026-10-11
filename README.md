@@ -59,17 +59,23 @@ model and a real tool.
 - Remember conversations, and carry labels from a task to every run and tool
   call it causes.
 - Keep secrets out of logs, traces, storage and model input.
-- Be traced end to end, across agents.
+- Be traced end to end, across agents: the console shows every model call
+  and tool call, with what was sent and what came back.
+- Stay bounded: run time, turns, output, repeated calls, delegation and
+  spend all have limits by default.
 - Use any model through OpenRouter or an OpenAI-compatible API.
 
 ## Docs
 
 - [Install](docs/install.md), [Getting started](docs/getting-started.md),
   [Embed an agent](docs/embed.md), [Concepts](docs/concepts.md)
-- How-to guides: [tools](docs/guides/tools.md),
+- How-to guides: [the console](docs/guides/console.md),
+  [traces](docs/guides/traces.md), [templates](docs/guides/templates.md),
+  [tools](docs/guides/tools.md),
   [connecting agents](docs/guides/agents.md),
   [permissions and approvals](docs/guides/permissions.md),
-  [budgets](docs/guides/budgets.md), [triggers](docs/guides/triggers.md),
+  [budgets and limits](docs/guides/budgets.md),
+  [notifications](docs/guides/notifications.md), [triggers](docs/guides/triggers.md),
   [memory](docs/guides/memory.md), [MCP clients](docs/guides/mcp.md),
   [running a fleet](docs/deploy.md), [troubleshooting](docs/troubleshooting.md)
 - Reference: [bundle](docs/reference/bundle.md), [CLI](docs/reference/cli.md),

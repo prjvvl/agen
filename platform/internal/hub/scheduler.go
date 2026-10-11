@@ -31,6 +31,10 @@ type Scheduler struct {
 	// (autoscaler, triggers).
 	Steps []func(ctx context.Context, epoch int64) error
 	Log   *slog.Logger
+	// Retention deletes spans, log lines and trigger events older than this,
+	// once an hour (0 keeps them).
+	Retention time.Duration
+	pruned    time.Time
 }
 
 // NewScheduler returns a scheduler with default timings.
@@ -73,8 +77,16 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := st.RequeueExpiredLeases(ctx, s.MaxTaskAttempts); err != nil {
+	_, failed, err := st.RequeueExpiredLeases(ctx, s.MaxTaskAttempts)
+	if err != nil {
 		return epoch, err
+	}
+	for _, id := range failed {
+		go func() {
+			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			s.Hub.afterTaskEnded(c, id)
+		}()
 	}
 	if _, err := st.ExpireApprovals(ctx); err != nil {
 		return epoch, err
@@ -105,6 +117,16 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	for _, step := range s.Steps {
 		if err := step(ctx, epoch); err != nil {
 			return epoch, err
+		}
+	}
+	if s.Retention > 0 && time.Since(s.pruned) > time.Hour {
+		s.pruned = time.Now()
+		n, err := st.PruneObservability(ctx, store.NowMs()-s.Retention.Milliseconds())
+		if err != nil {
+			return epoch, err
+		}
+		if n > 0 {
+			s.Log.Info("pruned old trace data", "rows", n, "retention", s.Retention)
 		}
 	}
 	return epoch, nil

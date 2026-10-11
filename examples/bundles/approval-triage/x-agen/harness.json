@@ -1,0 +1,5 @@
+{
+  "provider": "openrouter",
+  "model": "deepseek/deepseek-v4-flash",
+  "maxOutputTokens": 2000
+}

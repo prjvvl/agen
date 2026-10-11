@@ -93,6 +93,9 @@ impl Resolver for ManagerResolver {
     }
 }
 
+/// Name of the tool [`CallAgent`] provides.
+pub const CALL_AGENT: &str = "call_agent";
+
 /// The `call_agent` tool.
 pub struct CallAgent {
     delegates: Vec<Delegate>,
@@ -260,7 +263,7 @@ impl Tool for CallAgent {
             })
             .collect();
         ToolSpec {
-            name: "call_agent".into(),
+            name: CALL_AGENT.into(),
             description: format!(
                 "Ask another agent to do something and wait for its answer. Available agents:\n{}",
                 listing.join("\n")
@@ -291,12 +294,11 @@ impl Tool for CallAgent {
             .find(|d| d.name == agent)
             .ok_or_else(|| ToolError::new(format!("unknown agent {agent:?}")))?;
         let depth = ctx.depth + 1;
-        if let Some(max) = self.limits.max_delegation_depth {
-            if max > 0 && depth > max {
-                return Err(ToolError::new(format!(
-                    "delegation depth {depth} exceeds max_delegation_depth {max}"
-                )));
-            }
+        let max = self.limits.delegation_depth();
+        if max > 0 && depth > max {
+            return Err(ToolError::new(format!(
+                "delegation depth {depth} exceeds max_delegation_depth {max}"
+            )));
         }
         let root = if ctx.root_run_id.is_empty() {
             ctx.run_id.clone()
@@ -312,12 +314,12 @@ impl Tool for CallAgent {
             .await
             .map_err(|e| ToolError::new(e.to_string()))?
         {
-            let over = match (self.limits.max_fan_out, self.limits.max_total_delegations) {
-                (Some(max), _) if max > 0 && per_run > i64::from(max) => Some(format!(
+            let over = match (self.limits.fan_out(), self.limits.total_delegations()) {
+                (max, _) if max > 0 && per_run > i64::from(max) => Some(format!(
                     "this run already made {} delegated calls (max_fan_out {max})",
                     per_run - 1
                 )),
-                (_, Some(max)) if max > 0 && total > i64::from(max) => Some(format!(
+                (_, max) if max > 0 && total > i64::from(max) => Some(format!(
                     "the run tree already made {} delegated calls (max_total_delegations {max})",
                     total - 1
                 )),

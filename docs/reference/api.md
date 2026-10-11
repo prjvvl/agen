@@ -32,6 +32,7 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/CreateApiToken` · MCP tool: `
 | `scopes` | list of string |  |
 | `namespaces` | list of string |  |
 | `ttlSeconds` | int32 |  |
+| `onBehalf` | bool | For an agent that works for people (the assistant): each MCP call must name the task it serves (_meta agen/taskId, which Agen sets), and runs with the scopes and namespaces that both this token and the task's submitter hold. It can never decide approvals. |
 
 ## CreateDeployment
 
@@ -95,6 +96,17 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/DeleteDeployment` · MCP to
 |---|---|---|
 | `ref` | DeploymentRef |  |
 
+## DeleteNotificationTarget
+
+Remove a notification target.
+
+Scope: `admin` · REST: `POST /agen.v1.HubService/DeleteNotificationTarget` · MCP tool: `delete_notification_target`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `name` | string |  |
+
 ## DeleteSecret
 
 Delete a platform secret.
@@ -145,6 +157,18 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetLogs` · MCP tool: `get_lo
 | `limit` | int32 |  |
 | `since` | Timestamp | Only lines after this time. |
 
+## GetMetrics
+
+Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetMetrics` · MCP tool: `get_metrics`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `windowSeconds` | int32 | Window length (default 86400, at most 30 days). |
+| `buckets` | int32 | Number of time buckets per deployment (default 24, at most 200). |
+
 ## GetTask
 
 A task and its result; waitSeconds (up to 300) waits for it to finish.
@@ -165,6 +189,17 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTrace` · MCP tool: `get_t
 | Field | Type | Description |
 |---|---|---|
 | `traceId` | string |  |
+
+## GetTranscript
+
+A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTranscript` · MCP tool: `get_transcript`
+
+| Field | Type | Description |
+|---|---|---|
+| `runId` | string |  |
+| `includeHistory` | bool | Also the earlier messages of the conversation the run continued. |
 
 ## ListApiTokens
 
@@ -221,9 +256,19 @@ Enrolled Nests (machines or clusters that run instances).
 
 Scope: `viewer` · REST: `POST /agen.v1.HubService/ListNests` · MCP tool: `list_nests`
 
+## ListNotificationTargets
+
+Notification targets (never their secrets).
+
+Scope: `admin` · REST: `POST /agen.v1.HubService/ListNotificationTargets` · MCP tool: `list_notification_targets`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+
 ## ListRuns
 
-Runs (one per task or A2A call), newest first, with usage and cost.
+Runs (one per task or A2A call), newest first, with usage and cost. Filter by status, labels and time; roots_only lists traces.
 
 Scope: `viewer` · REST: `POST /agen.v1.HubService/ListRuns` · MCP tool: `list_runs`
 
@@ -232,6 +277,12 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListRuns` · MCP tool: `list_
 | `namespace` | string |  |
 | `deployment` | string |  |
 | `limit` | int32 |  |
+| `status` | string | running, waiting_approval, succeeded, failed or cancelled. |
+| `rootsOnly` | bool | Only runs that started a trace (not delegated runs), with the usage of their whole run tree. |
+| `labels` | map&lt;string, string&gt; | Runs carrying all of these labels. |
+| `since` | Timestamp | Runs started at or after this time. |
+| `pageToken` | string | next_page_token of the previous page. |
+| `taskId` | string |  |
 
 ## ListSecrets
 
@@ -255,6 +306,12 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListTasks` · MCP tool: `list
 | `deployment` | string |  |
 | `state` | TaskState |  |
 | `limit` | int32 |  |
+
+## ListTemplates
+
+Ready-made agent bundles to start from.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListTemplates` · MCP tool: `list_templates`
 
 ## ListTriggerEvents
 
@@ -330,6 +387,16 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/ScaleDeployment` · MCP too
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `desired` | int32 |  |
+
+## SetNotificationTarget
+
+Add or replace a namespace's notification target: a URL the Hub POSTs events to, signed with a secret it returns once.
+
+Scope: `admin` · REST: `POST /agen.v1.HubService/SetNotificationTarget` · MCP tool: `set_notification_target`
+
+| Field | Type | Description |
+|---|---|---|
+| `target` | NotificationTarget |  |
 
 ## SetSecret
 

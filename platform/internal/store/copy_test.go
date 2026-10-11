@@ -49,7 +49,7 @@ func TestCopyToMovesEverythingDurable(t *testing.T) {
 	must(t, err)
 	task, err := src.SubmitTask(ctx, Task{Namespace: "default", Deployment: "hello", Input: "hi", SubmittedBy: "admin"})
 	must(t, err)
-	_, secret, err := src.CreateAPIToken(ctx, "ops", []string{"operator"}, nil, 0)
+	_, secret, err := src.CreateAPIToken(ctx, "ops", []string{"operator"}, nil, 0, false)
 	must(t, err)
 	_, err = src.CreateApproval(ctx, Approval{Namespace: "default", Deployment: "hello", RunID: "r1", Tool: "pay", Arguments: []byte(`{}`), RequestedBy: "admin"}, 60_000)
 	must(t, err)

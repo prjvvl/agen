@@ -2,53 +2,53 @@ package cli
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"sort"
 	"strings"
+	"text/tabwriter"
+
+	"github.com/prjvvl/agen/platform/internal/templates"
 )
 
-// The example bundles of the repository (examples/bundles, copied in by
-// scripts/gen.sh), so a release install can start without a clone.
-//
-//go:embed examples
-var exampleBundles embed.FS
-
-func exampleNames() []string {
-	entries, _ := exampleBundles.ReadDir("examples")
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-// cmdInit writes an example bundle into a new directory.
+// cmdInit writes a template bundle into a new directory.
 func (e *env) cmdInit(_ context.Context, args []string) error {
 	fset := flag.NewFlagSet("init", flag.ContinueOnError)
 	fset.SetOutput(e.stderr)
-	example := fset.String("example", "hello", "example to start from: "+strings.Join(exampleNames(), ", "))
+	names := strings.Join(templates.Names(), ", ")
+	name := fset.String("template", "hello", "template to start from: "+names)
+	example := fset.String("example", "", "same as --template")
+	list := fset.Bool("list", false, "list the templates")
 	pos, err := parse(fset, args)
 	if err != nil {
 		return err
 	}
+	if *list {
+		all, err := templates.List()
+		if err != nil {
+			return err
+		}
+		w := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tCATEGORY\tTOOLS\tSKILLS\tSECRETS\tDESCRIPTION")
+		for _, t := range all {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, t.Category, orDash(t.Tools), orDash(t.Skills), orDash(t.Secrets), t.Description)
+		}
+		return w.Flush()
+	}
 	if len(pos) > 1 {
-		return usageErr("agen init [dir] [--example NAME]")
+		return usageErr("agen init [dir] [--template NAME] | agen init --list")
 	}
-	src, err := fs.Sub(exampleBundles, path.Join("examples", *example))
-	if err != nil || !isDir(src) {
-		return fmt.Errorf("no example %q; examples: %s", *example, strings.Join(exampleNames(), ", "))
+	if *example != "" {
+		*name = *example
 	}
-	dir := *example
+	src, err := templates.FS(*name)
+	if err != nil {
+		return fmt.Errorf("no template %q; templates: %s", *name, names)
+	}
+	dir := *name
 	if len(pos) == 1 {
 		dir = pos[0]
 	}
@@ -74,11 +74,13 @@ func (e *env) cmdInit(_ context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(e.stdout, "wrote the %s example to %s\nnext: agen deploy %s --replicas 1\n", *example, dir, dir)
+	fmt.Fprintf(e.stdout, "wrote the %s template to %s\nnext: agen deploy %s --replicas 1\n", *name, dir, dir)
 	return nil
 }
 
-func isDir(f fs.FS) bool {
-	st, err := fs.Stat(f, ".")
-	return err == nil && st.IsDir()
+func orDash(list []string) string {
+	if len(list) == 0 {
+		return "-"
+	}
+	return strings.Join(list, ",")
 }

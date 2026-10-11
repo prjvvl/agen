@@ -334,7 +334,7 @@ func TestLifecycleLogs(t *testing.T) {
 	task, _ := e.store.SubmitTask(ctx, store.Task{Namespace: "default", Deployment: "hello", Input: "x"})
 	leased, _ := e.store.LeaseTasks(ctx, "n1", "default", "hello", 1, 1)
 	time.Sleep(5 * time.Millisecond)
-	if _, err := e.store.RequeueExpiredLeases(ctx, 3); err != nil {
+	if _, _, err := e.store.RequeueExpiredLeases(ctx, 3); err != nil {
 		t.Fatal(err)
 	}
 	leased, _ = e.store.LeaseTasks(ctx, "n1", "default", "hello", 1, 60_000)

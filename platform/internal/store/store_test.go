@@ -264,7 +264,7 @@ func TestTaskQueueLeasingAndFencing(t *testing.T) {
 		// The lease expires; the task is re-queued and re-leased elsewhere.
 		old := NowMs
 		NowMs = func() int64 { return old() + 120_000 }
-		n, err := s.RequeueExpiredLeases(ctx, 0)
+		n, _, err := s.RequeueExpiredLeases(ctx, 0)
 		NowMs = old
 		must(t, err)
 		// The sweep is global (a shared database may hold other tests' tasks);
@@ -336,9 +336,12 @@ func TestAttemptCapReleaseAndEnrolment(t *testing.T) {
 			}
 			base := old()
 			NowMs = func() int64 { return base + 10_000 }
-			_, err = s.RequeueExpiredLeases(ctx, 3)
+			_, failed, err := s.RequeueExpiredLeases(ctx, 3)
 			NowMs = old
 			must(t, err)
+			if (i == 3) != (len(failed) == 1 && failed[0] == tk.ID) {
+				t.Fatalf("lease %d failed %v", i, failed)
+			}
 		}
 		got, _ = s.GetTask(ctx, tk.ID)
 		if got.State != "failed" || got.Error == "" {
@@ -446,7 +449,7 @@ func TestTriggerEventsAndTokens(t *testing.T) {
 			t.Fatalf("%+v", missed)
 		}
 
-		tok, secret, err := s.CreateAPIToken(ctx, uniq("ci"), []string{"operator"}, []string{ns}, 0)
+		tok, secret, err := s.CreateAPIToken(ctx, uniq("ci"), []string{"operator"}, []string{ns}, 0, false)
 		must(t, err)
 		got, err := s.LookupAPIToken(ctx, secret)
 		must(t, err)

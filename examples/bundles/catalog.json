@@ -1,0 +1,62 @@
+[
+  {
+    "name": "hello",
+    "title": "Hello",
+    "category": "starter",
+    "description": "The smallest agent: a scripted model, no key needed. Use it to try deploying and running tasks."
+  },
+  {
+    "name": "researcher",
+    "title": "Web researcher",
+    "category": "research",
+    "description": "Answers questions by reading web pages and cites its sources. Needs uv for its fetch tool."
+  },
+  {
+    "name": "writer",
+    "title": "Writer",
+    "category": "content",
+    "description": "Turns notes and facts into a clear draft. No tools."
+  },
+  {
+    "name": "editor",
+    "title": "Editorial team",
+    "category": "multi-agent",
+    "description": "Plans a piece, asks the researcher for facts and the writer for a draft, then checks it. Deploy researcher and writer too."
+  },
+  {
+    "name": "support-triage",
+    "title": "Support triage",
+    "category": "support",
+    "description": "A webhook receives customer messages; the agent classifies each one and drafts a first reply as JSON."
+  },
+  {
+    "name": "pr-reviewer",
+    "title": "Pull request reviewer",
+    "category": "engineering",
+    "description": "GitHub sends pull request events to a signed webhook; the agent reads the change and comments. Needs a GitHub token."
+  },
+  {
+    "name": "fleet-steward",
+    "title": "Fleet steward",
+    "category": "operations",
+    "description": "Every 30 minutes, finds failed tasks, reads their logs and reports the likely cause. Read-only."
+  },
+  {
+    "name": "cost-watchdog",
+    "title": "Cost watchdog",
+    "category": "operations",
+    "description": "A daily report of model spend per deployment that flags sudden jumps and budgets running out. Read-only."
+  },
+  {
+    "name": "approval-triage",
+    "title": "Approval triage",
+    "category": "operations",
+    "description": "Summarizes each pending approval with a recommendation, so a person can decide quickly. Never decides itself."
+  },
+  {
+    "name": "assistant",
+    "title": "Console assistant",
+    "category": "operations",
+    "description": "The chat assistant in the console: answers questions about the fleet and makes changes you confirm, with your permissions."
+  }
+]

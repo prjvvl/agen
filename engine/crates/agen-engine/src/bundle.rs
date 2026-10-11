@@ -125,6 +125,48 @@ pub struct Limits {
     pub max_delegation_depth: Option<u32>,
     pub max_fan_out: Option<u32>,
     pub max_total_delegations: Option<u32>,
+    /// Wall-clock time a run may take, not counting approval waits ("1h").
+    pub max_run_duration: Option<String>,
+    /// How often a run may make the same tool call (name and arguments).
+    pub max_identical_tool_calls: Option<u32>,
+    /// How long one model request may take ("10m").
+    pub model_request_timeout: Option<String>,
+    /// How long one tool call may take ("10m"); delegated calls are bounded
+    /// by the callee's own limits instead.
+    pub tool_timeout: Option<String>,
+}
+
+/// Limit values used when a bundle does not set them. A limit set to 0 is
+/// off.
+pub mod default_limits {
+    use std::time::Duration;
+    pub const MAX_DELEGATION_DEPTH: u32 = 3;
+    pub const MAX_FAN_OUT: u32 = 20;
+    pub const MAX_TOTAL_DELEGATIONS: u32 = 50;
+    pub const MAX_IDENTICAL_TOOL_CALLS: u32 = 5;
+    pub const MAX_RUN_DURATION: Duration = Duration::from_secs(3600);
+    pub const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
+    pub const TOOL_TIMEOUT: Duration = Duration::from_secs(600);
+    pub const MAX_OUTPUT_TOKENS: u32 = 8192;
+    pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
+}
+
+impl Limits {
+    pub fn delegation_depth(&self) -> u32 {
+        self.max_delegation_depth
+            .unwrap_or(default_limits::MAX_DELEGATION_DEPTH)
+    }
+    pub fn fan_out(&self) -> u32 {
+        self.max_fan_out.unwrap_or(default_limits::MAX_FAN_OUT)
+    }
+    pub fn total_delegations(&self) -> u32 {
+        self.max_total_delegations
+            .unwrap_or(default_limits::MAX_TOTAL_DELEGATIONS)
+    }
+    pub fn identical_tool_calls(&self) -> u32 {
+        self.max_identical_tool_calls
+            .unwrap_or(default_limits::MAX_IDENTICAL_TOOL_CALLS)
+    }
 }
 
 /// Another deployment this agent may call (`call_agent`).

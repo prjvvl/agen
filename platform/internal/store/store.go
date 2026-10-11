@@ -49,6 +49,8 @@ var (
 	ErrFenced = errors.New("store: fenced (lease or epoch is stale)")
 	// ErrForbidden means the caller may not perform the action.
 	ErrForbidden = errors.New("store: forbidden")
+	// ErrQueueFull means a deployment already has its maximum of queued tasks.
+	ErrQueueFull = errors.New("store: queue full")
 )
 
 // Store is safe for concurrent use.

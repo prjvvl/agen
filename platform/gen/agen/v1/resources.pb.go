@@ -631,8 +631,10 @@ type Limits struct {
 	MaxFanOut int32 `protobuf:"varint,2,opt,name=max_fan_out,json=maxFanOut,proto3" json:"max_fan_out,omitempty"`
 	// Max delegated calls across the whole tree under one root run.
 	MaxTotalDelegations int32 `protobuf:"varint,3,opt,name=max_total_delegations,json=maxTotalDelegations,proto3" json:"max_total_delegations,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Max queued tasks; more are refused (RESOURCE_EXHAUSTED).
+	MaxQueuedTasks int32 `protobuf:"varint,4,opt,name=max_queued_tasks,json=maxQueuedTasks,proto3" json:"max_queued_tasks,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Limits) Reset() {
@@ -682,6 +684,13 @@ func (x *Limits) GetMaxFanOut() int32 {
 func (x *Limits) GetMaxTotalDelegations() int32 {
 	if x != nil {
 		return x.MaxTotalDelegations
+	}
+	return 0
+}
+
+func (x *Limits) GetMaxQueuedTasks() int32 {
+	if x != nil {
+		return x.MaxQueuedTasks
 	}
 	return 0
 }
@@ -1761,9 +1770,11 @@ type Task struct {
 	ConversationKey string `protobuf:"bytes,22,opt,name=conversation_key,json=conversationKey,proto3" json:"conversation_key,omitempty"`
 	// Free-form labels, copied to the task's runs, its tool calls and the
 	// tasks it delegates.
-	Labels        map[string]string `protobuf:"bytes,23,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Labels map[string]string `protobuf:"bytes,23,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The approval the task's run waits for, while it waits.
+	PendingApprovalId string `protobuf:"bytes,24,opt,name=pending_approval_id,json=pendingApprovalId,proto3" json:"pending_approval_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -1955,6 +1966,13 @@ func (x *Task) GetLabels() map[string]string {
 		return x.Labels
 	}
 	return nil
+}
+
+func (x *Task) GetPendingApprovalId() string {
+	if x != nil {
+		return x.PendingApprovalId
+	}
+	return ""
 }
 
 type Approval struct {
@@ -2361,10 +2379,12 @@ type ApiToken struct {
 	// viewer, operator, approver, admin.
 	Scopes []string `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	// Empty means all namespaces.
-	Namespaces    []string               `protobuf:"bytes,4,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	Revoked       bool                   `protobuf:"varint,7,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	Namespaces []string               `protobuf:"bytes,4,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ExpiresAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	Revoked    bool                   `protobuf:"varint,7,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	// Acts for whoever submitted the task it works on (see CreateApiToken).
+	OnBehalf      bool `protobuf:"varint,8,opt,name=on_behalf,json=onBehalf,proto3" json:"on_behalf,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2448,6 +2468,13 @@ func (x *ApiToken) GetRevoked() bool {
 	return false
 }
 
+func (x *ApiToken) GetOnBehalf() bool {
+	if x != nil {
+		return x.OnBehalf
+	}
+	return false
+}
+
 type Run struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2467,8 +2494,15 @@ type Run struct {
 	DefinitionDigest string                 `protobuf:"bytes,15,opt,name=definition_digest,json=definitionDigest,proto3" json:"definition_digest,omitempty"`
 	TaskId           string                 `protobuf:"bytes,16,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Labels           map[string]string      `protobuf:"bytes,17,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	Error            string                 `protobuf:"bytes,18,opt,name=error,proto3" json:"error,omitempty"`
+	// Model turns taken.
+	Steps int64 `protobuf:"varint,19,opt,name=steps,proto3" json:"steps,omitempty"`
+	// With ListRuns roots_only: usage and run count of the whole run tree
+	// (this run and every run it delegated to).
+	TreeUsage     *Usage `protobuf:"bytes,20,opt,name=tree_usage,json=treeUsage,proto3" json:"tree_usage,omitempty"`
+	TreeRuns      int32  `protobuf:"varint,21,opt,name=tree_runs,json=treeRuns,proto3" json:"tree_runs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -2620,6 +2654,34 @@ func (x *Run) GetLabels() map[string]string {
 	return nil
 }
 
+func (x *Run) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *Run) GetSteps() int64 {
+	if x != nil {
+		return x.Steps
+	}
+	return 0
+}
+
+func (x *Run) GetTreeUsage() *Usage {
+	if x != nil {
+		return x.TreeUsage
+	}
+	return nil
+}
+
+func (x *Run) GetTreeRuns() int32 {
+	if x != nil {
+		return x.TreeRuns
+	}
+	return 0
+}
+
 var File_agen_v1_resources_proto protoreflect.FileDescriptor
 
 const file_agen_v1_resources_proto_rawDesc = "" +
@@ -2648,11 +2710,12 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x06Budget\x12+\n" +
 	"\x12max_tokens_per_run\x18\x01 \x01(\x03R\x0fmaxTokensPerRun\x12%\n" +
 	"\x0fmax_usd_per_run\x18\x02 \x01(\x01R\fmaxUsdPerRun\x12%\n" +
-	"\x0fmax_usd_per_day\x18\x03 \x01(\x01R\fmaxUsdPerDay\"\x8e\x01\n" +
+	"\x0fmax_usd_per_day\x18\x03 \x01(\x01R\fmaxUsdPerDay\"\xb8\x01\n" +
 	"\x06Limits\x120\n" +
 	"\x14max_delegation_depth\x18\x01 \x01(\x05R\x12maxDelegationDepth\x12\x1e\n" +
 	"\vmax_fan_out\x18\x02 \x01(\x05R\tmaxFanOut\x122\n" +
-	"\x15max_total_delegations\x18\x03 \x01(\x05R\x13maxTotalDelegations\"\xbd\x03\n" +
+	"\x15max_total_delegations\x18\x03 \x01(\x05R\x13maxTotalDelegations\x12(\n" +
+	"\x10max_queued_tasks\x18\x04 \x01(\x05R\x0emaxQueuedTasks\"\xbd\x03\n" +
 	"\aTrigger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -2773,7 +2836,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xdb\x06\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x8b\a\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -2803,7 +2866,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x05depth\x18\x14 \x01(\x05R\x05depth\x12 \n" +
 	"\vtraceparent\x18\x15 \x01(\tR\vtraceparent\x12)\n" +
 	"\x10conversation_key\x18\x16 \x01(\tR\x0fconversationKey\x121\n" +
-	"\x06labels\x18\x17 \x03(\v2\x19.agen.v1.Task.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\x17 \x03(\v2\x19.agen.v1.Task.LabelsEntryR\x06labels\x12.\n" +
+	"\x13pending_approval_id\x18\x18 \x01(\tR\x11pendingApprovalId\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc8\x04\n" +
@@ -2851,7 +2915,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"instanceId\x12.\n" +
 	"\x04time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"\xf6\x01\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\x93\x02\n" +
 	"\bApiToken\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -2863,7 +2927,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x18\n" +
-	"\arevoked\x18\a \x01(\bR\arevoked\"\x8b\x05\n" +
+	"\arevoked\x18\a \x01(\bR\arevoked\x12\x1b\n" +
+	"\ton_behalf\x18\b \x01(\bR\bonBehalf\"\x83\x06\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -2886,7 +2951,12 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\vroot_run_id\x18\x0e \x01(\tR\trootRunId\x12+\n" +
 	"\x11definition_digest\x18\x0f \x01(\tR\x10definitionDigest\x12\x17\n" +
 	"\atask_id\x18\x10 \x01(\tR\x06taskId\x120\n" +
-	"\x06labels\x18\x11 \x03(\v2\x18.agen.v1.Run.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\x11 \x03(\v2\x18.agen.v1.Run.LabelsEntryR\x06labels\x12\x14\n" +
+	"\x05error\x18\x12 \x01(\tR\x05error\x12\x14\n" +
+	"\x05steps\x18\x13 \x01(\x03R\x05steps\x12-\n" +
+	"\n" +
+	"tree_usage\x18\x14 \x01(\v2\x0e.agen.v1.UsageR\ttreeUsage\x12\x1b\n" +
+	"\ttree_runs\x18\x15 \x01(\x05R\btreeRuns\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x84\x01\n" +
@@ -3027,11 +3097,12 @@ var file_agen_v1_resources_proto_depIdxs = []int32{
 	34, // 42: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
 	34, // 43: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
 	33, // 44: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	45, // [45:45] is the sub-list for method output_type
-	45, // [45:45] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	23, // 45: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	46, // [46:46] is the sub-list for method output_type
+	46, // [46:46] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }
