@@ -1217,6 +1217,12 @@ impl Agent {
         let mut span = tracer.start(ctx, "agen.tool");
         span.set("gen_ai.tool.name", call.name.clone());
         span.set("gen_ai.tool.call.id", call.id.clone());
+        if call.name == crate::delegate::CALL_AGENT || call.name == crate::delegate::START_AGENT {
+            // Which agent it waits for (live views draw the call).
+            if let Some(a) = call.arguments.get("agent").and_then(Value::as_str) {
+                span.set("agen.delegate.target", a.to_string());
+            }
+        }
         if self.cfg.trace_tool_arguments {
             let mut args = self.redactor.redact_json(&call.arguments).to_string();
             if args.len() > 4096 {

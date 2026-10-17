@@ -13,13 +13,21 @@ import (
 
 // Event tells a client that something changed; it refetches what it shows.
 type Event struct {
-	// Kind: task, run, approval, instance or deployment.
+	// Kind: task, run, step, approval, instance or deployment.
 	Kind       string `json:"kind"`
 	ID         string `json:"id"`
 	Namespace  string `json:"namespace"`
 	Deployment string `json:"deployment"`
 	State      string `json:"state,omitempty"`
 	TraceID    string `json:"traceId,omitempty"`
+	// Steps: a model call (gen_ai.chat) or tool call (agen.tool) starting
+	// (state "unfinished") or ending (its status).
+	RunID   string `json:"runId,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Tool    string `json:"tool,omitempty"`
+	Target  string `json:"target,omitempty"`
+	StartMs int64  `json:"startMs,omitempty"`
+	EndMs   int64  `json:"endMs,omitempty"`
 }
 
 // changeFeed fans changes out to subscribers. One watcher polls the Store while
@@ -97,7 +105,8 @@ func (e *changeFeed) watch(ctx context.Context) {
 					continue
 				}
 				if !first {
-					e.publish(Event{Kind: c.Kind, ID: c.ID, Namespace: c.Namespace, Deployment: c.Deployment, State: c.State, TraceID: c.TraceID})
+					e.publish(Event{Kind: c.Kind, ID: c.ID, Namespace: c.Namespace, Deployment: c.Deployment, State: c.State, TraceID: c.TraceID,
+						RunID: c.RunID, Name: c.Name, Tool: c.Tool, Target: c.Target, StartMs: c.StartMs, EndMs: c.EndMs})
 				}
 			}
 			for key, s := range seen {

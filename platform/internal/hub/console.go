@@ -239,6 +239,7 @@ func (h *Hub) GetMetrics(ctx context.Context, req *connect.Request[agenv1.GetMet
 	}
 	p := PrincipalFrom(ctx)
 	edges := map[string]*agenv1.CallEdge{}
+	durations := map[string][]int64{}
 	var order []string
 	for _, c := range calls {
 		if !p.AllowsNamespace(c.FromNamespace) || !p.AllowsNamespace(c.ToNamespace) {
@@ -256,10 +257,24 @@ func (h *Hub) GetMetrics(ctx context.Context, req *connect.Request[agenv1.GetMet
 		if c.Status == "failed" {
 			e.Failed++
 		}
+		if c.Async {
+			e.AsyncCalls++
+		}
+		if c.EndedMs == 0 {
+			e.Active++
+		} else {
+			durations[key] = append(durations[key], c.EndedMs-c.StartedMs)
+		}
 	}
 	sort.Strings(order)
 	for _, k := range order {
+		d := durations[k]
+		slices.Sort(d)
+		edges[k].P95Ms = percentile(d, 0.95)
 		out.Edges = append(out.Edges, edges[k])
+	}
+	if out.Models, err = h.modelMetrics(ctx, nss, since); err != nil {
+		return nil, connectErr(err)
 	}
 	return connect.NewResponse(out), nil
 }

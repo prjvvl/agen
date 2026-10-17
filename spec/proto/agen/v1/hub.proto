@@ -72,8 +72,10 @@ service HubService {
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
   // A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
   rpc GetTranscript(GetTranscriptRequest) returns (GetTranscriptResponse);
-  // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+  // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
   rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+  // What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
+  rpc GetActivity(GetActivityRequest) returns (GetActivityResponse);
   // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
 
@@ -460,6 +462,24 @@ message CallEdge {
   DeploymentRef to = 2;
   int32 calls = 3;
   int32 failed = 4;
+  // Of calls: started with start_agent (async; the result comes back later).
+  int32 async_calls = 5;
+  // Of calls: still running.
+  int32 active = 6;
+  int64 p95_ms = 7;
+}
+// Model calls by the model that served them (a routing model or provider
+// alias may serve another model than requested).
+message ModelMetrics {
+  string model = 1;
+  string provider = 2;
+  int32 calls = 3;
+  int32 failed = 4;
+  // Calls served by a fallback model.
+  int32 fallbacks = 5;
+  int64 p50_ms = 6;
+  int64 p95_ms = 7;
+  Usage usage = 8;
 }
 message GetMetricsResponse {
   repeated DeploymentMetrics deployments = 1;
@@ -467,6 +487,63 @@ message GetMetricsResponse {
   repeated CallEdge edges = 2;
   google.protobuf.Timestamp since = 3;
   int32 bucket_seconds = 4;
+  repeated ModelMetrics models = 5;
+}
+
+message GetActivityRequest {
+  // Empty: every namespace the caller may see.
+  string namespace = 1;
+}
+// An unfinished run and what it is doing now.
+message ActiveRun {
+  string run_id = 1;
+  DeploymentRef ref = 2;
+  string task_id = 3;
+  // The start of its input.
+  string input = 4;
+  google.protobuf.Timestamp started_at = 5;
+  int64 turns = 6;
+  // The agent's maxTurns.
+  int32 max_turns = 7;
+  Usage usage = 8;
+  string trace_id = 9;
+  string parent_run_id = 10;
+  string root_run_id = 11;
+  // "model" (waiting for the model), "tool", "agent" (waiting for another
+  // agent), "approval" (waiting for a decision) or "idle" (between steps).
+  string activity = 12;
+  // The tool, or the agent waited for.
+  string detail = 13;
+  google.protobuf.Timestamp activity_since = 14;
+  string approval_id = 15;
+  string conversation_key = 16;
+  // Where its task came from ("api", "cron:x", "reply:y"; empty over A2A).
+  string source = 17;
+  google.protobuf.Timestamp last_step_at = 18;
+}
+message QueueStatus {
+  DeploymentRef ref = 1;
+  // Due and waiting for an instance.
+  int32 queued = 2;
+  // Waiting for their start time.
+  int32 scheduled = 3;
+  google.protobuf.Timestamp oldest_queued_at = 4;
+}
+message ActivityWarning {
+  // near_turn_limit, near_run_budget, near_daily_budget, quiet_run,
+  // waiting_approval, queue_waiting, burst, model_errors, provider_held.
+  string kind = 1;
+  // "warning" or "critical".
+  string severity = 2;
+  DeploymentRef ref = 3;
+  string run_id = 4;
+  string message = 5;
+}
+message GetActivityResponse {
+  repeated ActiveRun runs = 1;
+  repeated QueueStatus queues = 2;
+  repeated ActivityWarning warnings = 3;
+  google.protobuf.Timestamp now = 4;
 }
 
 message GetTraceRequest {

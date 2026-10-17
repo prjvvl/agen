@@ -423,10 +423,41 @@ func TestEventStream(t *testing.T) {
 			var ev Event
 			_ = json.Unmarshal([]byte(data), &ev)
 			if ev.Kind == "task" && ev.ID == task.Msg.Task.Id && ev.State == "queued" && ev.Deployment == "hello" {
-				return
+				goto steps
 			}
 		case <-deadline:
 			t.Fatal("no task event")
+		}
+	}
+steps:
+	// A tool call starting is a step event naming the tool and its target.
+	now := store.NowMs()
+	for _, q := range []string{
+		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','x','default','hello','{}',$1,$1)",
+		"INSERT INTO conversations (id, session_id, created_ms) VALUES ('c1','s1',$1)",
+		"INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, trace_id, started_ms) VALUES ('r1','s1','c1','default','hello','running','x','t1',$1)",
+		`INSERT INTO spans (span_id, trace_id, run_id, name, start_ms, end_ms, status, attributes, seq) VALUES ('sp1','t1','r1','agen.tool',$1,$1,'unfinished','{"gen_ai.tool.name":"call_agent","agen.delegate.target":"writer"}',1)`,
+	} {
+		if _, err := e.store.DB().ExecContext(ctx, q, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline = time.After(10 * time.Second)
+	for {
+		ch := make(chan string, 1)
+		go func() { ch <- next() }()
+		select {
+		case data := <-ch:
+			var ev Event
+			_ = json.Unmarshal([]byte(data), &ev)
+			if ev.Kind == "step" && ev.ID == "sp1" {
+				if ev.RunID != "r1" || ev.Tool != "call_agent" || ev.Target != "writer" || ev.State != "unfinished" || ev.Name != "agen.tool" {
+					t.Fatalf("step event: %+v", ev)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("no step event")
 		}
 	}
 }

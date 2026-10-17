@@ -93,7 +93,9 @@ func (h *Hub) replyResult(ctx context.Context, t store.Task) {
 	input := fmt.Sprintf("[Result of the task you started on %s (task %s, %s)]\n\n%s", t.Deployment, t.ID, t.State, body)
 	_, err := h.Store.SubmitTask(ctx, store.Task{Namespace: t.Namespace, Deployment: t.ReplyDeployment, Input: input,
 		Source: "reply:" + t.Deployment, IdempotencyKey: "reply:" + t.ID, ConversationKey: t.ReplyConversationKey,
-		ParentTaskID: t.ID, ParentRunID: t.RunID, RootRunID: t.RootRunID, Depth: max(t.Depth-1, 0), Traceparent: t.Traceparent,
+		// Not a call from the child: no parent run or trace context, so the
+		// reply starts its own trace and draws no edge back to the caller.
+		ParentTaskID: t.ID, RootRunID: t.RootRunID, Depth: max(t.Depth-1, 0),
 		SubmittedBy: t.SubmittedBy, Labels: t.Labels})
 	if err != nil {
 		h.logger().Warn("could not deliver an async result", "task", t.ID, "to", t.Namespace+"/"+t.ReplyDeployment, "err", err)

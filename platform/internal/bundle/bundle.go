@@ -128,8 +128,10 @@ type Bundle struct {
 	Files    map[string][]byte
 
 	// What the agent can use, for warnings about likely mistakes.
-	Provider        string
-	Model           string
+	Provider string
+	Model    string
+	// MaxTurns is agent.md's maxTurns (0: the engine default, 16).
+	MaxTurns        int
 	ToolServers     []string
 	Delegates       []Delegate
 	Skills          int
@@ -243,6 +245,9 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 			}
 			if name, _ := front["name"].(string); name != "" {
 				b.Name = name
+			}
+			if mt, ok := front["maxTurns"].(int); ok {
+				b.MaxTurns = mt
 			}
 			skills, _ := front["skills"].([]any)
 			pre, _ := front["preloadSkills"].([]any)
