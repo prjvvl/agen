@@ -28,6 +28,25 @@ service ManagerService {
   rpc ResolveSecret(ResolveSecretRequest) returns (ResolveSecretResponse);
   // Resolve a deployment to A2A endpoints (sync delegation).
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // Queue a task on another deployment for the calling instance's run
+  // (async delegation); its result comes back as a task in the caller's
+  // conversation.
+  rpc StartTask(StartTaskRequest) returns (StartTaskResponse);
+}
+
+message StartTaskRequest {
+  DeploymentRef ref = 1;
+  string input = 2;
+  // The calling run; it must be a run of the calling instance.
+  string run_id = 3;
+  string traceparent = 4;
+  // Where the result goes: the caller's conversation key.
+  string reply_conversation_key = 5;
+  // The same key returns the same task (a retried or resumed call).
+  string idempotency_key = 6;
+}
+message StartTaskResponse {
+  Task task = 1;
 }
 
 message RequestApprovalRequest {

@@ -702,15 +702,9 @@ func (n *NestAPI) Resolve(ctx context.Context, req *connect.Request[agenv1.Resol
 // namespace.
 func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agenv1.SubmitChildTaskRequest]) (*connect.Response[agenv1.SubmitChildTaskResponse], error) {
 	m := req.Msg
-	if m.ParentTaskId == "" {
-		return nil, invalid("parent_task_id is required")
-	}
-	parent, err := n.requireNestTask(ctx, m.NestId, m.ParentTaskId)
+	parent, err := n.childParent(ctx, m)
 	if err != nil {
 		return nil, err
-	}
-	if parent.Terminal() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("parent task %s already finished", parent.ID))
 	}
 	ns, name := nsOr(m.GetRef().GetNamespace()), m.GetRef().GetName()
 	if ns != parent.Namespace {
@@ -721,7 +715,7 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 		return nil, connectErr(err)
 	}
 	parentRun := m.ParentRunId
-	if parentRun != "" {
+	if parentRun != "" && parent.ID != "" {
 		run, err := n.hub.Store.GetRun(ctx, parentRun)
 		if err != nil || run.TaskID != parent.ID {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("run %q is not the parent task's run", parentRun))
@@ -735,9 +729,13 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	if max := int(PolicyOf(d).Limits.MaxDelegationDepth); max > 0 && depth > max {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("delegation depth %d exceeds max_delegation_depth %d of %s/%s", depth, max, ns, name))
 	}
-	t, err := n.hub.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
+	child := store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
 		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
-		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+	if m.ReplyConversationKey != "" {
+		child.ReplyDeployment, child.ReplyConversationKey = parent.Deployment, m.ReplyConversationKey
+	}
+	t, err := n.hub.Store.SubmitTask(ctx, child)
 	if err != nil {
 		return nil, connectErr(err)
 	}

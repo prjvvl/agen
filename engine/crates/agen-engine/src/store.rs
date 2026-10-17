@@ -158,6 +158,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0022_provider_holds.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0022_provider_holds.sql"),
     },
+    Migration {
+        version: 23,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0023_task_reply.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0023_task_reply.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -544,6 +549,27 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// The conversation key of a conversation's session, giving the session
+    /// one ("async:<session id>") if it has none, so results of async
+    /// delegations can be sent back to it.
+    pub async fn ensure_conversation_key(&self, conversation_id: &str) -> Result<String> {
+        let row = sqlx::query("SELECT session_id FROM conversations WHERE id = $1")
+            .bind(conversation_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let session: String = row.get(0);
+        sqlx::query("UPDATE sessions SET conversation_key = $1 WHERE id = $2 AND conversation_key = ''")
+            .bind(format!("async:{session}"))
+            .bind(&session)
+            .execute(&self.pool)
+            .await?;
+        let row = sqlx::query("SELECT conversation_key FROM sessions WHERE id = $1")
+            .bind(&session)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get(0))
     }
 
     /// Close the session's open conversation (if any) and open a new one.

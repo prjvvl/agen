@@ -163,6 +163,7 @@ func (h *Hub) afterTaskEnded(ctx context.Context, taskID string) {
 		h.notifyTargets(ctx, t.Namespace, t.Deployment, "task.failed", "task", TaskProto(t))
 	}
 	h.providerTaskEnded(ctx, t)
+	h.replyResult(ctx, t)
 	d, err := h.Store.GetDeployment(ctx, t.Namespace, t.Deployment)
 	if err != nil {
 		return

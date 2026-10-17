@@ -185,8 +185,9 @@ message SubmitChildTaskRequest {
   string instance_id = 2;
   DeploymentRef ref = 3;
   string input = 4;
-  // Required: a task this Nest currently leases. Depth and root run are
-  // derived from it by the Hub.
+  // A task this Nest currently leases, or empty when parent_run_id is an
+  // unfinished run of instance_id on this Nest (a run started over A2A).
+  // Depth and root run are derived from the parent by the Hub.
   string parent_task_id = 5;
   string parent_run_id = 6;
   // Ignored (derived from the parent task); kept for wire compatibility.
@@ -195,6 +196,9 @@ message SubmitChildTaskRequest {
   int32 depth = 8;
   string traceparent = 9;
   string idempotency_key = 10;
+  // When set, the child's result is submitted as a task to the parent's
+  // deployment with this conversation key once the child ends.
+  string reply_conversation_key = 11;
 }
 message SubmitChildTaskResponse {
   Task task = 1;

@@ -93,8 +93,201 @@ impl Resolver for ManagerResolver {
     }
 }
 
+/// Queues tasks on other deployments for a run (managed mode: the Manager).
+#[async_trait]
+pub trait TaskStarter: Send + Sync {
+    /// Returns the new task's id.
+    async fn start(&self, req: StartRequest<'_>) -> Result<String, String>;
+}
+
+/// One async delegation.
+pub struct StartRequest<'a> {
+    pub namespace: &'a str,
+    pub name: &'a str,
+    pub input: &'a str,
+    pub run_id: &'a str,
+    pub traceparent: &'a str,
+    pub reply_conversation_key: &'a str,
+    pub idempotency_key: &'a str,
+}
+
+#[async_trait]
+impl TaskStarter for ManagerResolver {
+    async fn start(&self, req: StartRequest<'_>) -> Result<String, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/StartTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({
+                "ref": {"namespace": req.namespace, "name": req.name},
+                "input": req.input,
+                "runId": req.run_id,
+                "traceparent": req.traceparent,
+                "replyConversationKey": req.reply_conversation_key,
+                "idempotencyKey": req.idempotency_key,
+            }))
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "start {}/{}: {}",
+                req.namespace,
+                req.name,
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        v.pointer("/task/id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "manager answered without a task".into())
+    }
+}
+
 /// Name of the tool [`CallAgent`] provides.
 pub const CALL_AGENT: &str = "call_agent";
+/// Name of the tool [`StartAgent`] provides.
+pub const START_AGENT: &str = "start_agent";
+
+/// The `start_agent` tool: async delegation. The task is queued on the
+/// target and the tool returns at once; when it ends, its result arrives in
+/// this conversation as a new message (the Hub submits it as a task with the
+/// conversation's key), so long work does not hold the caller's run open.
+pub struct StartAgent {
+    delegates: Vec<Delegate>,
+    default_namespace: String,
+    starter: Arc<dyn TaskStarter>,
+    limits: Limits,
+    store: Arc<Store>,
+}
+
+impl StartAgent {
+    pub fn new(
+        delegates: Vec<Delegate>,
+        default_namespace: &str,
+        starter: Arc<dyn TaskStarter>,
+        limits: Limits,
+        store: Arc<Store>,
+    ) -> Self {
+        Self {
+            delegates,
+            default_namespace: default_namespace.to_string(),
+            starter,
+            limits,
+            store,
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for StartAgent {
+    fn spec(&self) -> ToolSpec {
+        let names: Vec<&str> = self
+            .delegates
+            .iter()
+            .filter(|d| d.url.is_none())
+            .map(|d| d.name.as_str())
+            .collect();
+        ToolSpec {
+            name: START_AGENT.into(),
+            description:
+                "Start another agent on a task without waiting for it (for long work). The tool returns at once; \
+                 the agent's answer arrives later in this conversation as a new message that begins with \
+                 \"[Result of the task you started on ...]\". After starting, finish your current turn; do not poll."
+                    .into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "agent": {"type": "string", "enum": names},
+                    "message": {"type": "string", "description": "What the agent should do"}
+                },
+                "required": ["agent", "message"],
+                "additionalProperties": false
+            }),
+        }
+    }
+
+    // A repeated call (retry, resume) is the same task: the idempotency key
+    // is derived from the run, step and call.
+    fn idempotency_key(&self, _args: &Value) -> Option<String> {
+        Some("start-agent-task".into())
+    }
+
+    async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError> {
+        let agent = args.get("agent").and_then(Value::as_str).unwrap_or_default();
+        let message = args.get("message").and_then(Value::as_str).unwrap_or_default();
+        let d = self
+            .delegates
+            .iter()
+            .find(|d| d.name == agent && d.url.is_none())
+            .ok_or_else(|| ToolError::new(format!("unknown agent {agent:?}")))?;
+        let max = self.limits.delegation_depth();
+        if max > 0 && ctx.depth + 1 > max {
+            return Err(ToolError::new(format!(
+                "delegation depth {} exceeds max_delegation_depth {max}",
+                ctx.depth + 1
+            )));
+        }
+        let root = if ctx.root_run_id.is_empty() {
+            ctx.run_id.clone()
+        } else {
+            ctx.root_run_id.clone()
+        };
+        let call_key = format!("{}.{}.{}", ctx.run_id, ctx.step, ctx.call_id);
+        if let Some((per_run, total)) = self
+            .store
+            .record_delegation(&call_key, &root, &ctx.run_id)
+            .await
+            .map_err(|e| ToolError::new(e.to_string()))?
+        {
+            let over = match (self.limits.fan_out(), self.limits.total_delegations()) {
+                (m, _) if m > 0 && per_run > i64::from(m) => Some(format!(
+                    "this run already made {} delegated calls (max_fan_out {m})",
+                    per_run - 1
+                )),
+                (_, m) if m > 0 && total > i64::from(m) => Some(format!(
+                    "the run tree already made {} delegated calls (max_total_delegations {m})",
+                    total - 1
+                )),
+                _ => None,
+            };
+            if let Some(msg) = over {
+                let _ = self.store.forget_delegation(&call_key).await;
+                return Err(ToolError::new(msg));
+            }
+        }
+        // The result needs a conversation to come back to.
+        let reply_key = if ctx.conversation_key.is_empty() {
+            self.store
+                .ensure_conversation_key(&ctx.conversation_id)
+                .await
+                .map_err(|e| ToolError::new(e.to_string()))?
+        } else {
+            ctx.conversation_key.clone()
+        };
+        let ns = d.namespace.clone().unwrap_or_else(|| self.default_namespace.clone());
+        let id = self
+            .starter
+            .start(StartRequest {
+                namespace: &ns,
+                name: &d.name,
+                input: message,
+                run_id: &ctx.run_id,
+                traceparent: &ctx.traceparent,
+                reply_conversation_key: &reply_key,
+                idempotency_key: &format!("start:{call_key}"),
+            })
+            .await
+            .map_err(ToolError::new)?;
+        Ok(format!(
+            "Started task {id} on {agent}. Its result will arrive in this conversation as a new message when it finishes; \
+             finish your current turn now."
+        ))
+    }
+}
 
 /// The `call_agent` tool.
 pub struct CallAgent {

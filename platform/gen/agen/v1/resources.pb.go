@@ -1883,8 +1883,12 @@ type Task struct {
 	// Set on a leased task when the deployment has spent most (80%) of its
 	// daily budget: routing models then use the bundle's router.budgetTier.
 	BudgetPressure bool `protobuf:"varint,27,opt,name=budget_pressure,json=budgetPressure,proto3" json:"budget_pressure,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Async delegation: when this task ends, its result is submitted as a task
+	// to reply_deployment with reply_conversation_key.
+	ReplyDeployment      string `protobuf:"bytes,28,opt,name=reply_deployment,json=replyDeployment,proto3" json:"reply_deployment,omitempty"`
+	ReplyConversationKey string `protobuf:"bytes,29,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -2104,6 +2108,20 @@ func (x *Task) GetBudgetPressure() bool {
 		return x.BudgetPressure
 	}
 	return false
+}
+
+func (x *Task) GetReplyDeployment() string {
+	if x != nil {
+		return x.ReplyDeployment
+	}
+	return ""
+}
+
+func (x *Task) GetReplyConversationKey() string {
+	if x != nil {
+		return x.ReplyConversationKey
+	}
+	return ""
 }
 
 type Approval struct {
@@ -2975,7 +2993,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x8e\b\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xef\b\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -3011,7 +3029,9 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"model_tier\x18\x19 \x01(\tR\tmodelTier\x129\n" +
 	"\n" +
 	"not_before\x18\x1a \x01(\v2\x1a.google.protobuf.TimestampR\tnotBefore\x12'\n" +
-	"\x0fbudget_pressure\x18\x1b \x01(\bR\x0ebudgetPressure\x1a9\n" +
+	"\x0fbudget_pressure\x18\x1b \x01(\bR\x0ebudgetPressure\x12)\n" +
+	"\x10reply_deployment\x18\x1c \x01(\tR\x0freplyDeployment\x124\n" +
+	"\x16reply_conversation_key\x18\x1d \x01(\tR\x14replyConversationKey\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc8\x04\n" +

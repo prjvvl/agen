@@ -309,6 +309,10 @@ message Task {
   // Set on a leased task when the deployment has spent most (80%) of its
   // daily budget: routing models then use the bundle's router.budgetTier.
   bool budget_pressure = 27;
+  // Async delegation: when this task ends, its result is submitted as a task
+  // to reply_deployment with reply_conversation_key.
+  string reply_deployment = 28;
+  string reply_conversation_key = 29;
 }
 
 enum ApprovalState {

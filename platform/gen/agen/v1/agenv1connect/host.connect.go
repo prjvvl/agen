@@ -51,6 +51,9 @@ const (
 	ManagerServiceResolveSecretProcedure = "/agen.v1.ManagerService/ResolveSecret"
 	// ManagerServiceResolveProcedure is the fully-qualified name of the ManagerService's Resolve RPC.
 	ManagerServiceResolveProcedure = "/agen.v1.ManagerService/Resolve"
+	// ManagerServiceStartTaskProcedure is the fully-qualified name of the ManagerService's StartTask
+	// RPC.
+	ManagerServiceStartTaskProcedure = "/agen.v1.ManagerService/StartTask"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -213,6 +216,10 @@ type ManagerServiceClient interface {
 	ResolveSecret(context.Context, *connect.Request[v1.ResolveSecretRequest]) (*connect.Response[v1.ResolveSecretResponse], error)
 	// Resolve a deployment to A2A endpoints (sync delegation).
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
+	// Queue a task on another deployment for the calling instance's run
+	// (async delegation); its result comes back as a task in the caller's
+	// conversation.
+	StartTask(context.Context, *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -244,6 +251,12 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("Resolve")),
 			connect.WithClientOptions(opts...),
 		),
+		startTask: connect.NewClient[v1.StartTaskRequest, v1.StartTaskResponse](
+			httpClient,
+			baseURL+ManagerServiceStartTaskProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("StartTask")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -252,6 +265,7 @@ type managerServiceClient struct {
 	requestApproval *connect.Client[v1.RequestApprovalRequest, v1.RequestApprovalResponse]
 	resolveSecret   *connect.Client[v1.ResolveSecretRequest, v1.ResolveSecretResponse]
 	resolve         *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
+	startTask       *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -269,6 +283,11 @@ func (c *managerServiceClient) Resolve(ctx context.Context, req *connect.Request
 	return c.resolve.CallUnary(ctx, req)
 }
 
+// StartTask calls agen.v1.ManagerService.StartTask.
+func (c *managerServiceClient) StartTask(ctx context.Context, req *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error) {
+	return c.startTask.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -277,6 +296,10 @@ type ManagerServiceHandler interface {
 	ResolveSecret(context.Context, *connect.Request[v1.ResolveSecretRequest]) (*connect.Response[v1.ResolveSecretResponse], error)
 	// Resolve a deployment to A2A endpoints (sync delegation).
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
+	// Queue a task on another deployment for the calling instance's run
+	// (async delegation); its result comes back as a task in the caller's
+	// conversation.
+	StartTask(context.Context, *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -304,6 +327,12 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("Resolve")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceStartTaskHandler := connect.NewUnaryHandler(
+		ManagerServiceStartTaskProcedure,
+		svc.StartTask,
+		connect.WithSchema(managerServiceMethods.ByName("StartTask")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -312,6 +341,8 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceResolveSecretHandler.ServeHTTP(w, r)
 		case ManagerServiceResolveProcedure:
 			managerServiceResolveHandler.ServeHTTP(w, r)
+		case ManagerServiceStartTaskProcedure:
+			managerServiceStartTaskHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -331,4 +362,8 @@ func (UnimplementedManagerServiceHandler) ResolveSecret(context.Context, *connec
 
 func (UnimplementedManagerServiceHandler) Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.Resolve is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) StartTask(context.Context, *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.StartTask is not implemented"))
 }

@@ -1506,8 +1506,9 @@ type SubmitChildTaskRequest struct {
 	InstanceId string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
 	Ref        *DeploymentRef         `protobuf:"bytes,3,opt,name=ref,proto3" json:"ref,omitempty"`
 	Input      string                 `protobuf:"bytes,4,opt,name=input,proto3" json:"input,omitempty"`
-	// Required: a task this Nest currently leases. Depth and root run are
-	// derived from it by the Hub.
+	// A task this Nest currently leases, or empty when parent_run_id is an
+	// unfinished run of instance_id on this Nest (a run started over A2A).
+	// Depth and root run are derived from the parent by the Hub.
 	ParentTaskId string `protobuf:"bytes,5,opt,name=parent_task_id,json=parentTaskId,proto3" json:"parent_task_id,omitempty"`
 	ParentRunId  string `protobuf:"bytes,6,opt,name=parent_run_id,json=parentRunId,proto3" json:"parent_run_id,omitempty"`
 	// Ignored (derived from the parent task); kept for wire compatibility.
@@ -1516,8 +1517,11 @@ type SubmitChildTaskRequest struct {
 	Depth          int32  `protobuf:"varint,8,opt,name=depth,proto3" json:"depth,omitempty"`
 	Traceparent    string `protobuf:"bytes,9,opt,name=traceparent,proto3" json:"traceparent,omitempty"`
 	IdempotencyKey string `protobuf:"bytes,10,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// When set, the child's result is submitted as a task to the parent's
+	// deployment with this conversation key once the child ends.
+	ReplyConversationKey string `protobuf:"bytes,11,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SubmitChildTaskRequest) Reset() {
@@ -1616,6 +1620,13 @@ func (x *SubmitChildTaskRequest) GetTraceparent() string {
 func (x *SubmitChildTaskRequest) GetIdempotencyKey() string {
 	if x != nil {
 		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *SubmitChildTaskRequest) GetReplyConversationKey() string {
+	if x != nil {
+		return x.ReplyConversationKey
 	}
 	return ""
 }
@@ -1770,7 +1781,7 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\x15ReportActivityRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x1c\n" +
 	"\tsaturated\x18\x02 \x01(\bR\tsaturated\"\x18\n" +
-	"\x16ReportActivityResponse\"\xdd\x02\n" +
+	"\x16ReportActivityResponse\"\x93\x03\n" +
 	"\x16SubmitChildTaskRequest\x12\x17\n" +
 	"\anest_id\x18\x01 \x01(\tR\x06nestId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -1783,7 +1794,8 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\x05depth\x18\b \x01(\x05R\x05depth\x12 \n" +
 	"\vtraceparent\x18\t \x01(\tR\vtraceparent\x12'\n" +
 	"\x0fidempotency_key\x18\n" +
-	" \x01(\tR\x0eidempotencyKey\"<\n" +
+	" \x01(\tR\x0eidempotencyKey\x124\n" +
+	"\x16reply_conversation_key\x18\v \x01(\tR\x14replyConversationKey\"<\n" +
 	"\x17SubmitChildTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task2\xee\t\n" +
 	"\vNestService\x129\n" +

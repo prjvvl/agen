@@ -317,6 +317,9 @@ pub struct BundleOptions {
     pub mcp: crate::mcp::McpOptions,
     /// Resolves `delegates` without a fixed url (managed mode: the Manager).
     pub resolver: Option<Arc<dyn crate::delegate::Resolver>>,
+    /// Queues async delegations (managed mode: the Manager); enables the
+    /// `start_agent` tool.
+    pub task_starter: Option<Arc<dyn crate::delegate::TaskStarter>>,
 }
 
 /// A run being driven by this process.
@@ -436,6 +439,17 @@ impl Agent {
                 bundle.config.limits.clone(),
                 store.clone(),
             )));
+            if let Some(starter) = opts.task_starter.clone() {
+                if bundle.config.delegates.iter().any(|d| d.url.is_none()) {
+                    b = b.tool(Arc::new(crate::delegate::StartAgent::new(
+                        bundle.config.delegates.clone(),
+                        &namespace,
+                        starter,
+                        bundle.config.limits.clone(),
+                        store.clone(),
+                    )));
+                }
+            }
         }
         if let Some(m) = &bundle.mcp {
             let redactor = Redactor::new();

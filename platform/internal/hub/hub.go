@@ -622,6 +622,8 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	// A cancelled child still answers the run that started it.
+	h.replyResult(ctx, t)
 	return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t)}), nil
 }
 

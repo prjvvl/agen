@@ -123,6 +123,8 @@ async fn build_agent(bundle_dir: &Path, common: &Common) -> anyhow::Result<Agent
         // raised through the Nest Manager.
         resolver: agen_engine::delegate::ManagerResolver::from_env()
             .map(|r| Arc::new(r) as Arc<dyn agen_engine::delegate::Resolver>),
+        task_starter: agen_engine::delegate::ManagerResolver::from_env()
+            .map(|r| Arc::new(r) as Arc<dyn agen_engine::delegate::TaskStarter>),
         approver: agen_engine::managed::ManagerApprover::from_env(
             bundle
                 .config
