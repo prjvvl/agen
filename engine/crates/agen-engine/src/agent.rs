@@ -76,6 +76,8 @@ pub struct AgentConfig {
     pub name: String,
     pub system_prompt: String,
     pub skills: Vec<Skill>,
+    /// Skills whose instructions are always in the system prompt.
+    pub preload_skills: Vec<String>,
     pub model: String,
     /// Models tried in order when `model` keeps failing or gives no answer.
     pub fallback_models: Vec<String>,
@@ -116,6 +118,7 @@ impl AgentConfig {
             name: name.into(),
             system_prompt: system_prompt.into(),
             skills: vec![],
+            preload_skills: vec![],
             model: model.into(),
             fallback_models: vec![],
             request_extra: Default::default(),
@@ -371,6 +374,10 @@ impl Agent {
         let provider = crate::provider::from_harness(bundle, &secrets)?;
         let mut cfg = AgentConfig::new(bundle.name(), &bundle.system_prompt, &bundle.harness.model);
         cfg.skills = bundle.skills.clone();
+        cfg.preload_skills = bundle.agent.preload_skills.clone();
+        if let Some(n) = bundle.harness.context_tokens {
+            cfg.context_tokens = n;
+        }
         cfg.temperature = bundle.harness.temperature;
         cfg.fallback_models = bundle.harness.fallback_models.clone();
         cfg.router = bundle.harness.router.clone();
@@ -929,7 +936,8 @@ impl Agent {
 
     /// Conversation history for the model: earlier runs' messages (trimmed
     /// oldest-first to fit `context_tokens`, starting at a user message) plus
-    /// all of the current run's messages, with orphaned tool calls answered.
+    /// the current run's messages (oldest tool results shortened when they
+    /// alone exceed it), with orphaned tool calls answered.
     async fn request_messages(&self, rec: &RunRecord) -> Result<Vec<Message>, AgentError> {
         let all = self.store.messages(&rec.conversation_id).await?;
         let current = self.store.run_messages(&rec.id).await?;
@@ -947,7 +955,7 @@ impl Agent {
             drop += 1;
         }
         history.drain(..drop);
-        history.extend(current);
+        history.extend(compact_run(current, self.cfg.context_tokens));
         Ok(answer_orphans(history))
     }
 
@@ -1141,9 +1149,17 @@ impl Agent {
 
     fn system_prompt(&self) -> String {
         let mut s = self.cfg.system_prompt.clone();
-        if !self.cfg.skills.is_empty() {
+        let (pre, lazy): (Vec<&Skill>, Vec<&Skill>) = self
+            .cfg
+            .skills
+            .iter()
+            .partition(|sk| self.cfg.preload_skills.contains(&sk.name));
+        for sk in pre {
+            s.push_str(&format!("\n\n## Skill: {}\n{}\n", sk.name, sk.body.trim()));
+        }
+        if !lazy.is_empty() {
             s.push_str("\n\n## Skills\nCall load_skill with a name to read a skill before using it.\n");
-            for sk in &self.cfg.skills {
+            for sk in lazy {
                 s.push_str(&format!("- {}: {}\n", sk.name, sk.description));
             }
         }
@@ -1459,6 +1475,56 @@ fn backoff(attempt: u32) -> Duration {
     Duration::from_millis(500u64.saturating_mul(1 << attempt.min(6))).min(Duration::from_secs(30))
 }
 
+/// Tool results always kept whole at the end of a run (the model is working
+/// with them).
+const KEEP_RECENT_RESULTS: usize = 4;
+/// Results are shortened in blocks, so the request prefix (and the provider's
+/// prompt cache) changes rarely.
+const COMPACT_BLOCK: usize = 8;
+/// A shortened result keeps this much of its start.
+const COMPACT_HEAD_CHARS: usize = 300;
+
+/// Shortens the oldest tool results of a run whose messages exceed `limit`
+/// tokens, until they fit in about two thirds of it: each keeps its start and
+/// says how much was left out. The latest results stay whole. Nothing is
+/// lost: the full results stay in the Store and the transcript.
+fn compact_run(mut msgs: Vec<Message>, limit: u64) -> Vec<Message> {
+    let total: u64 = msgs.iter().map(message_tokens).sum();
+    if limit == 0 || total <= limit {
+        return msgs;
+    }
+    let target = limit * 2 / 3;
+    let results: Vec<usize> = msgs
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.role == Role::Tool && m.content.len() > COMPACT_HEAD_CHARS * 2)
+        .map(|(i, _)| i)
+        .collect();
+    let candidates = results.len().saturating_sub(KEEP_RECENT_RESULTS);
+    let mut over = total.saturating_sub(target);
+    let mut n = 0;
+    while n < candidates && over > 0 {
+        let m = &msgs[results[n]];
+        over = over.saturating_sub(message_tokens(m).saturating_sub(COMPACT_HEAD_CHARS as u64 / 4 + 30));
+        n += 1;
+    }
+    // Round up to a whole block (within the candidates).
+    n = (n.div_ceil(COMPACT_BLOCK) * COMPACT_BLOCK).min(candidates);
+    for &i in &results[..n] {
+        let m = &mut msgs[i];
+        let mut cut = COMPACT_HEAD_CHARS;
+        while !m.content.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let left = m.content.len() - cut;
+        m.content = format!(
+            "{}\n[… {left} more characters of this older tool result were left out to keep the conversation within its context budget; call the tool again if you need them]",
+            &m.content[..cut]
+        );
+    }
+    msgs
+}
+
 fn message_tokens(m: &Message) -> u64 {
     let args: usize = m
         .tool_calls
@@ -1566,6 +1632,52 @@ mod tests {
         // Trailing orphans (end of list) are left for the loop to execute.
         let tail = answer_orphans(vec![Message::assistant("", vec![call("9")])]);
         assert_eq!(tail.len(), 1);
+    }
+
+    fn run_with_results(n: usize, size: usize) -> Vec<Message> {
+        let mut v = vec![Message::user("go")];
+        for i in 0..n {
+            let id = format!("c{i}");
+            v.push(Message::assistant(
+                "",
+                vec![ToolCall {
+                    id: id.clone(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({"i": i}),
+                }],
+            ));
+            v.push(Message::tool(&id, format!("{i}:{}", "x".repeat(size))));
+        }
+        v
+    }
+
+    #[test]
+    fn compaction_shortens_oldest_results_in_blocks() {
+        // Under the limit: untouched.
+        let small = run_with_results(5, 1000);
+        assert_eq!(compact_run(small.clone(), 64_000), small);
+        // 40 results of ~2.5k tokens each = ~100k tokens over a 40k limit.
+        let big = run_with_results(40, 10_000);
+        let out = compact_run(big.clone(), 40_000);
+        let total: u64 = out.iter().map(message_tokens).sum();
+        assert!(total <= 40_000 * 2 / 3 + 3_000, "still {total} tokens");
+        let shortened: Vec<usize> = out
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.content.contains("were left out"))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(shortened.len() % COMPACT_BLOCK, 0, "whole blocks");
+        // Oldest first, the latest results stay whole, calls are untouched.
+        assert_eq!(shortened[0], 2);
+        let tools: Vec<&Message> = out.iter().filter(|m| m.role == Role::Tool).collect();
+        assert!(tools[tools.len() - KEEP_RECENT_RESULTS..]
+            .iter()
+            .all(|m| !m.content.contains("left out")));
+        assert_eq!(out.len(), big.len());
+        assert!(out[shortened[0]].content.starts_with("0:xxx"));
+        // Deterministic: the same input gives the same request.
+        assert_eq!(compact_run(big, 40_000), out);
     }
 
     #[test]

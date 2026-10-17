@@ -52,6 +52,8 @@ pub struct AgentFront {
     pub description: String,
     #[serde(default)]
     pub skills: Vec<String>,
+    #[serde(default, rename = "preloadSkills")]
+    pub preload_skills: Vec<String>,
     #[serde(rename = "maxTurns")]
     pub max_turns: Option<u32>,
 }
@@ -68,6 +70,7 @@ pub struct Harness {
     pub router: Option<crate::provider::router::RouterSettings>,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
+    pub context_tokens: Option<u64>,
     pub parallel_tool_calls: Option<bool>,
     pub trace_tool_arguments: Option<bool>,
     pub base_url: Option<String>,
@@ -307,6 +310,15 @@ impl Bundle {
             }
         }
         if let Some((front, _)) = &agent {
+            for s in &front.preload_skills {
+                if !front.skills.contains(s) {
+                    v.issue(
+                        "x-agen/agent.md",
+                        "/preloadSkills",
+                        format!("preloaded skill {s:?} is not in skills"),
+                    );
+                }
+            }
             for s in &front.skills {
                 if !skills.iter().any(|k| &k.name == s) {
                     v.issue(

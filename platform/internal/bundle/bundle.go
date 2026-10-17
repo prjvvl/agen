@@ -244,6 +244,17 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 			if name, _ := front["name"].(string); name != "" {
 				b.Name = name
 			}
+			skills, _ := front["skills"].([]any)
+			pre, _ := front["preloadSkills"].([]any)
+			for _, p := range pre {
+				found := false
+				for _, s := range skills {
+					found = found || s == p
+				}
+				if !found {
+					add("x-agen/agent.md: preloaded skill %v is not in skills", p)
+				}
+			}
 		}
 		if strings.TrimSpace(string(m[2])) == "" {
 			add("x-agen/agent.md: system prompt body is empty")

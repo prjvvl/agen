@@ -15,6 +15,11 @@
     },
     "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
     "maxOutputTokens": { "type": "integer", "minimum": 1 },
+    "contextTokens": {
+      "type": "integer",
+      "minimum": 4000,
+      "description": "About how many tokens of conversation one model call may send (default 64000). Earlier runs are dropped first, then the oldest tool results of the current run are shortened."
+    },
     "reasoningEffort": {
       "enum": ["minimal", "low", "medium", "high"],
       "description": "Reasoning effort for models that reason (OpenRouter reasoning.effort, OpenAI reasoning_effort)"

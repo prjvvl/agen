@@ -96,3 +96,15 @@ func TestHarnessRouterSettings(t *testing.T) {
 		t.Errorf("auto-router offers max: %s", msg)
 	}
 }
+
+func TestPreloadSkillsMustBeSkills(t *testing.T) {
+	files := helloFiles(t)
+	files["x-agen/agent.md"] = []byte("---\nname: hello\ndescription: x\nskills: [greeting]\npreloadSkills: [greeting]\n---\nHi.\n")
+	if _, err := Parse(files); err != nil {
+		t.Fatal(err)
+	}
+	files["x-agen/agent.md"] = []byte("---\nname: hello\ndescription: x\nskills: [greeting]\npreloadSkills: [other]\n---\nHi.\n")
+	if _, err := Parse(files); err == nil || !strings.Contains(err.Error(), "preloaded skill other is not in skills") {
+		t.Fatalf("got %v", err)
+	}
+}
