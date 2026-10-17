@@ -106,6 +106,12 @@ const (
 	HubServiceGetMetricsProcedure = "/agen.v1.HubService/GetMetrics"
 	// HubServiceGetLogsProcedure is the fully-qualified name of the HubService's GetLogs RPC.
 	HubServiceGetLogsProcedure = "/agen.v1.HubService/GetLogs"
+	// HubServiceListProviderHoldsProcedure is the fully-qualified name of the HubService's
+	// ListProviderHolds RPC.
+	HubServiceListProviderHoldsProcedure = "/agen.v1.HubService/ListProviderHolds"
+	// HubServiceResumeProviderProcedure is the fully-qualified name of the HubService's ResumeProvider
+	// RPC.
+	HubServiceResumeProviderProcedure = "/agen.v1.HubService/ResumeProvider"
 	// HubServiceCreateJoinTokenProcedure is the fully-qualified name of the HubService's
 	// CreateJoinToken RPC.
 	HubServiceCreateJoinTokenProcedure = "/agen.v1.HubService/CreateJoinToken"
@@ -199,6 +205,10 @@ type HubServiceClient interface {
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
+	// End a provider hold now (e.g. after fixing the key or adding credit).
+	ResumeProvider(context.Context, *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error)
 	// A single-use token for enrolling a Nest (agen nest run --join-token).
 	CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error)
 	// Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
@@ -409,6 +419,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
 			connect.WithClientOptions(opts...),
 		),
+		listProviderHolds: connect.NewClient[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse](
+			httpClient,
+			baseURL+HubServiceListProviderHoldsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListProviderHolds")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeProvider: connect.NewClient[v1.ResumeProviderRequest, v1.ResumeProviderResponse](
+			httpClient,
+			baseURL+HubServiceResumeProviderProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ResumeProvider")),
+			connect.WithClientOptions(opts...),
+		),
 		createJoinToken: connect.NewClient[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse](
 			httpClient,
 			baseURL+HubServiceCreateJoinTokenProcedure,
@@ -509,6 +531,8 @@ type hubServiceClient struct {
 	getTranscript            *connect.Client[v1.GetTranscriptRequest, v1.GetTranscriptResponse]
 	getMetrics               *connect.Client[v1.GetMetricsRequest, v1.GetMetricsResponse]
 	getLogs                  *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
+	listProviderHolds        *connect.Client[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse]
+	resumeProvider           *connect.Client[v1.ResumeProviderRequest, v1.ResumeProviderResponse]
 	createJoinToken          *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
 	createApiToken           *connect.Client[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse]
 	listApiTokens            *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
@@ -667,6 +691,16 @@ func (c *hubServiceClient) GetLogs(ctx context.Context, req *connect.Request[v1.
 	return c.getLogs.CallUnary(ctx, req)
 }
 
+// ListProviderHolds calls agen.v1.HubService.ListProviderHolds.
+func (c *hubServiceClient) ListProviderHolds(ctx context.Context, req *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {
+	return c.listProviderHolds.CallUnary(ctx, req)
+}
+
+// ResumeProvider calls agen.v1.HubService.ResumeProvider.
+func (c *hubServiceClient) ResumeProvider(ctx context.Context, req *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error) {
+	return c.resumeProvider.CallUnary(ctx, req)
+}
+
 // CreateJoinToken calls agen.v1.HubService.CreateJoinToken.
 func (c *hubServiceClient) CreateJoinToken(ctx context.Context, req *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error) {
 	return c.createJoinToken.CallUnary(ctx, req)
@@ -782,6 +816,10 @@ type HubServiceHandler interface {
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
+	// End a provider hold now (e.g. after fixing the key or adding credit).
+	ResumeProvider(context.Context, *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error)
 	// A single-use token for enrolling a Nest (agen nest run --join-token).
 	CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error)
 	// Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
@@ -988,6 +1026,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceListProviderHoldsHandler := connect.NewUnaryHandler(
+		HubServiceListProviderHoldsProcedure,
+		svc.ListProviderHolds,
+		connect.WithSchema(hubServiceMethods.ByName("ListProviderHolds")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceResumeProviderHandler := connect.NewUnaryHandler(
+		HubServiceResumeProviderProcedure,
+		svc.ResumeProvider,
+		connect.WithSchema(hubServiceMethods.ByName("ResumeProvider")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceCreateJoinTokenHandler := connect.NewUnaryHandler(
 		HubServiceCreateJoinTokenProcedure,
 		svc.CreateJoinToken,
@@ -1114,6 +1164,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetMetricsHandler.ServeHTTP(w, r)
 		case HubServiceGetLogsProcedure:
 			hubServiceGetLogsHandler.ServeHTTP(w, r)
+		case HubServiceListProviderHoldsProcedure:
+			hubServiceListProviderHoldsHandler.ServeHTTP(w, r)
+		case HubServiceResumeProviderProcedure:
+			hubServiceResumeProviderHandler.ServeHTTP(w, r)
 		case HubServiceCreateJoinTokenProcedure:
 			hubServiceCreateJoinTokenHandler.ServeHTTP(w, r)
 		case HubServiceCreateApiTokenProcedure:
@@ -1259,6 +1313,14 @@ func (UnimplementedHubServiceHandler) GetMetrics(context.Context, *connect.Reque
 
 func (UnimplementedHubServiceHandler) GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetLogs is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListProviderHolds is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ResumeProvider(context.Context, *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ResumeProvider is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error) {

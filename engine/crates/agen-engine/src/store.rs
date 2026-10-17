@@ -148,6 +148,16 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0020_console.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0020_console.sql"),
     },
+    Migration {
+        version: 21,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0021_task_schedule_tier.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0021_task_schedule_tier.sql"),
+    },
+    Migration {
+        version: 22,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0022_provider_holds.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0022_provider_holds.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").

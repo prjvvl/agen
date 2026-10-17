@@ -29,6 +29,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen wait <task-id>             wait for a task submitted earlier and print its result
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
+  agen providers [resume ACCT]    provider accounts held after an account error
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
@@ -317,6 +318,8 @@ Usage of rm:
 
 ```text
 Usage of run:
+  -at string
+    	run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)
   -ca-hash string
     	pin the Hub CA of an https Hub
   -conversation string
@@ -325,6 +328,8 @@ Usage of run:
     	Hub URL
   -idempotency-key string
     	resubmitting the same key returns the same task
+  -in duration
+    	run no earlier than this long from now (e.g. 30m)
   -json
     	print the API response as JSON
   -label value
@@ -333,6 +338,8 @@ Usage of run:
     	namespace (default "default")
   -no-wait
     	print the task id and return
+  -tier string
+    	cost tier for a routing model: low, medium, high, xhigh or max
   -timeout duration
     	how long to wait for the result (0: no limit); the task keeps running after it (default 10m0s)
   -token string
@@ -387,6 +394,22 @@ Usage of tasks:
     	print the API response as JSON
   -limit int
     	tasks (default 20)
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen providers
+
+```text
+Usage of providers:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
   -n string
     	namespace (default "default")
   -token string

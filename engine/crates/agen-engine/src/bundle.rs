@@ -61,6 +61,11 @@ pub struct AgentFront {
 pub struct Harness {
     pub provider: String,
     pub model: String,
+    #[serde(default)]
+    pub fallback_models: Vec<String>,
+    pub reasoning_effort: Option<String>,
+    pub openrouter: Option<OpenRouterOptions>,
+    pub router: Option<crate::provider::router::RouterSettings>,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
     pub parallel_tool_calls: Option<bool>,
@@ -69,6 +74,13 @@ pub struct Harness {
     pub api_key_secret: Option<String>,
     pub script: Option<String>,
     pub cassette: Option<String>,
+}
+
+/// OpenRouter request settings sent as given (`harness.json` `openrouter`).
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+pub struct OpenRouterOptions {
+    pub provider: Option<serde_json::Value>,
+    pub plugins: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -319,6 +331,54 @@ impl Bundle {
                     "replay provider requires \"cassette\"".into(),
                 ),
                 _ => {}
+            }
+            if h.provider != "openrouter" {
+                for (field, set) in [("/openrouter", h.openrouter.is_some()), ("/router", h.router.is_some())] {
+                    if set {
+                        v.issue(
+                            "x-agen/harness.json",
+                            field,
+                            format!("{} applies to provider \"openrouter\" only", &field[1..]),
+                        );
+                    }
+                }
+            }
+            match (&h.router, crate::provider::router::router_for(&h.model)) {
+                (Some(_), None) => v.issue(
+                    "x-agen/harness.json",
+                    "/router",
+                    format!(
+                        "model {:?} is not a routing model (typesafe/jev-router, openrouter/auto, openrouter/auto-beta)",
+                        h.model
+                    ),
+                ),
+                (Some(r), Some(kind)) => {
+                    for (field, msg) in r.check(kind) {
+                        v.issue("x-agen/harness.json", field, msg);
+                    }
+                }
+                _ => {}
+            }
+            if let Some(plugins) = h.openrouter.as_ref().and_then(|o| o.plugins.as_ref()) {
+                if let (Some(kind), true) = (crate::provider::router::router_for(&h.model), h.router.is_some()) {
+                    if plugins
+                        .iter()
+                        .any(|p| p.get("id").and_then(|i| i.as_str()) == Some(kind.plugin_id))
+                    {
+                        v.issue(
+                            "x-agen/harness.json",
+                            "/openrouter/plugins",
+                            format!("plugin {:?} is set by \"router\"; configure it there", kind.plugin_id),
+                        );
+                    }
+                }
+            }
+            if h.fallback_models.iter().any(|m| m == &h.model) {
+                v.issue(
+                    "x-agen/harness.json",
+                    "/fallbackModels",
+                    "fallbackModels repeats the primary model".into(),
+                );
             }
             for (field, rel) in [("/script", &h.script), ("/cassette", &h.cassette)] {
                 if let Some(rel) = rel {
@@ -633,6 +693,57 @@ mod tests {
         std::fs::write(d.path().join("x-agen/agent.md~"), "backup").unwrap();
         assert_eq!(clean, Bundle::load(d.path()).unwrap().digest);
         assert!(is_ignored("a/.git/config") && is_ignored("x.pyc") && !is_ignored("skills/git/SKILL.md"));
+    }
+
+    #[test]
+    fn harness_router_and_openrouter_settings_are_checked() {
+        let d = temp_hello();
+        let h = d.path().join("x-agen/harness.json");
+        let issues = |json: &str| -> Vec<String> {
+            std::fs::write(&h, json).unwrap();
+            match Bundle::load(d.path()) {
+                Ok(_) => vec![],
+                Err(e) => e
+                    .issues
+                    .iter()
+                    .map(|i| format!("{}{}: {}", i.file, i.path, i.message))
+                    .collect(),
+            }
+        };
+        let ok = r#"{"provider":"openrouter","model":"typesafe/jev-router","fallbackModels":["deepseek/deepseek-v4-flash"],
+            "reasoningEffort":"low","router":{"tier":"low","maxTier":"high","allowedModels":["deepseek/*"]},
+            "openrouter":{"provider":{"sort":"throughput"},"plugins":[{"id":"web"}]}}"#;
+        assert!(issues(ok).is_empty(), "{:?}", issues(ok));
+        let b = Bundle::load(d.path()).unwrap();
+        assert_eq!(b.harness.router.unwrap().max_tier.as_deref(), Some("high"));
+        let has = |json: &str, want: &str| {
+            let got = issues(json);
+            assert!(got.iter().any(|i| i.contains(want)), "want {want:?} in {got:?}");
+        };
+        has(
+            r#"{"provider":"openrouter","model":"typesafe/jev-router","router":{"tier":"max"}}"#,
+            "/router/tier",
+        );
+        has(
+            r#"{"provider":"openrouter","model":"deepseek/deepseek-v4-flash","router":{"tier":"low"}}"#,
+            "not a routing model",
+        );
+        has(
+            r#"{"provider":"openai","model":"gpt-x","openrouter":{"provider":{}}}"#,
+            "applies to provider",
+        );
+        has(
+            r#"{"provider":"openrouter","model":"typesafe/jev-router","router":{"tier":"low"},"openrouter":{"plugins":[{"id":"jev-router"}]}}"#,
+            "configure it there",
+        );
+        has(
+            r#"{"provider":"openrouter","model":"a/b","fallbackModels":["a/b"]}"#,
+            "repeats the primary",
+        );
+        has(
+            r#"{"provider":"openrouter","model":"a/b","router":{"tier":"cheap"}}"#,
+            "/router/tier",
+        );
     }
 
     #[test]

@@ -540,3 +540,43 @@ func TestFencedDeploymentUpdates(t *testing.T) {
 		}
 	})
 }
+
+// A scheduled task waits for its time: it is not leased, not counted as
+// queued load, and does not hold up newer tasks of its conversation.
+func TestScheduledTasksWaitAndDoNotBlock(t *testing.T) {
+	ctx := context.Background()
+	each(t, func(t *testing.T, s *Store) {
+		ns := uniq("ns")
+		later, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "check again", ConversationKey: "api:c",
+			NotBeforeMs: NowMs() + 3_600_000, ModelTier: "low"})
+		must(t, err)
+		if later.ModelTier != "low" || later.NotBeforeMs == 0 {
+			t.Fatalf("stored: %+v", later)
+		}
+		now, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "new message", ConversationKey: "api:c"})
+		must(t, err)
+		q, err := s.Queue(ctx, ns, "d")
+		must(t, err)
+		if q.Queued != 1 {
+			t.Fatalf("queued load %d, want only the due task", q.Queued)
+		}
+		got, err := s.LeaseTasks(ctx, "n", ns, "d", 5, 60_000)
+		must(t, err)
+		if len(got) != 1 || got[0].ID != now.ID {
+			t.Fatalf("leased %+v, want only the due task", got)
+		}
+		// Once due it is leased (after the conversation's earlier task ends).
+		_, err = s.db.ExecContext(ctx, "UPDATE tasks SET not_before_ms = $1 WHERE id = $2", NowMs()-1, later.ID)
+		must(t, err)
+		if got, _ := s.LeaseTasks(ctx, "n", ns, "d", 5, 60_000); len(got) != 0 {
+			t.Fatalf("leased while the conversation has a task in flight: %+v", got)
+		}
+		_, err = s.db.ExecContext(ctx, "UPDATE tasks SET state = 'succeeded' WHERE id = $1", now.ID)
+		must(t, err)
+		got, err = s.LeaseTasks(ctx, "n", ns, "d", 5, 60_000)
+		must(t, err)
+		if len(got) != 1 || got[0].ID != later.ID {
+			t.Fatalf("due task not leased: %+v", got)
+		}
+	})
+}

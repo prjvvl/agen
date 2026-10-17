@@ -44,6 +44,9 @@ func (s *Scheduler) Autoscale(ctx context.Context, epoch int64) error {
 			continue
 		}
 		load := q.Queued + q.InFlight
+		if hold, held := s.Hub.providerHold(ctx, d); held && now < hold.RetryMs {
+			load = q.InFlight // queued work waits for the provider account
+		}
 		_, exhausted, err := s.Hub.spentToday(ctx, d)
 		if err != nil {
 			s.Log.Warn("autoscale: usage failed", "deployment", d.Namespace+"/"+d.Name, "err", err)

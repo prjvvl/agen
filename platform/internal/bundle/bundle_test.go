@@ -62,3 +62,37 @@ func TestReportsAllIssues(t *testing.T) {
 		}
 	}
 }
+
+func TestHarnessRouterSettings(t *testing.T) {
+	parse := func(harness string) string {
+		files := helloFiles(t)
+		files["x-agen/harness.json"] = []byte(harness)
+		_, err := Parse(files)
+		if err == nil {
+			return ""
+		}
+		return err.Error()
+	}
+	ok := `{"provider":"openrouter","model":"typesafe/jev-router","fallbackModels":["deepseek/deepseek-v4-flash"],"reasoningEffort":"low",
+		"router":{"tier":"low","maxTier":"high","budgetTier":"low","allowedModels":["deepseek/*"]},
+		"openrouter":{"provider":{"sort":"throughput"},"plugins":[{"id":"web"}]}}`
+	if msg := parse(ok); msg != "" {
+		t.Fatal(msg)
+	}
+	for harness, want := range map[string]string{
+		`{"provider":"openrouter","model":"typesafe/jev-router","router":{"tier":"max"}}`:                                    "not offered by jev-router",
+		`{"provider":"openrouter","model":"deepseek/deepseek-v4-flash","router":{"tier":"low"}}`:                             "not a routing model",
+		`{"provider":"openai","model":"gpt-x","openrouter":{"provider":{}}}`:                                                 `applies to provider "openrouter"`,
+		`{"provider":"openrouter","model":"openrouter/auto","router":{"tier":"high","maxTier":"low"}}`:                       "above maxTier",
+		`{"provider":"openrouter","model":"typesafe/jev-router","router":{},"openrouter":{"plugins":[{"id":"jev-router"}]}}`: "configure it there",
+		`{"provider":"openrouter","model":"a/b","fallbackModels":["a/b"]}`:                                                   "repeats the primary",
+		`{"provider":"openrouter","model":"typesafe/jev-router","router":{"tier":"cheap"}}`:                                  "/router/tier",
+	} {
+		if msg := parse(harness); !strings.Contains(msg, want) {
+			t.Errorf("%s: want %q in %q", harness, want, msg)
+		}
+	}
+	if msg := parse(`{"provider":"openrouter","model":"openrouter/auto","router":{"tier":"max"}}`); msg != "" {
+		t.Errorf("auto-router offers max: %s", msg)
+	}
+}

@@ -7,14 +7,54 @@
   "properties": {
     "provider": { "enum": ["openrouter", "openai", "fake", "replay"] },
     "model": { "type": "string", "minLength": 1 },
+    "fallbackModels": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "maxItems": 5,
+      "description": "Models tried in order when the model keeps failing (after retries) or returns no answer. Never used for account errors (invalid key, no credit)."
+    },
     "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
     "maxOutputTokens": { "type": "integer", "minimum": 1 },
+    "reasoningEffort": {
+      "enum": ["minimal", "low", "medium", "high"],
+      "description": "Reasoning effort for models that reason (OpenRouter reasoning.effort, OpenAI reasoning_effort)"
+    },
     "parallelToolCalls": { "type": "boolean", "description": "Run the tool calls of one model turn concurrently (default true)" },
     "traceToolArguments": { "type": "boolean", "description": "Record each tool call's arguments (secrets redacted, up to 4 KiB) on its trace span" },
     "baseUrl": { "type": "string" },
     "apiKeySecret": { "type": "string", "description": "Secret name holding the API key" },
+    "openrouter": {
+      "type": "object",
+      "description": "OpenRouter request settings, sent as given (provider: openrouter only)",
+      "properties": {
+        "provider": {
+          "type": "object",
+          "description": "Provider routing, e.g. {\"ignore\": [\"some-provider\"], \"sort\": \"throughput\", \"zdr\": true}"
+        },
+        "plugins": { "type": "array", "items": { "type": "object", "required": ["id"] } }
+      },
+      "additionalProperties": false
+    },
+    "router": {
+      "type": "object",
+      "description": "Settings for a routing model (typesafe/jev-router, openrouter/auto, openrouter/auto-beta): it picks the model per request, and the model that served each call is recorded.",
+      "properties": {
+        "tier": { "$ref": "#/$defs/tier", "description": "Default cost tier; a task may override it" },
+        "maxTier": { "$ref": "#/$defs/tier", "description": "Highest tier any task may ask for" },
+        "budgetTier": {
+          "$ref": "#/$defs/tier",
+          "description": "Tier used once the deployment has spent most (80%) of its daily budget (default low)"
+        },
+        "allowedModels": { "type": "array", "items": { "type": "string" }, "description": "Patterns such as \"deepseek/*\"" },
+        "excludedModels": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "script": { "type": "string", "description": "fake provider: path to script, relative to bundle" },
     "cassette": { "type": "string", "description": "replay provider: path to cassette, relative to bundle" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "tier": { "enum": ["low", "medium", "high", "xhigh", "max"] }
+  }
 }

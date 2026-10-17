@@ -511,7 +511,8 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 	// the same context id gets a conversation of its own.
 	conversationKey := "a2a:" + who.sub() + ":" + contextID
 	host := manager.HostTask{ID: taskID, Input: strings.Join(text, "\n"), ParentRunID: parentRun,
-		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth, ConversationKey: conversationKey, Labels: labels}
+		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth, ConversationKey: conversationKey, Labels: labels,
+		ModelTier: metaString(p, "agen.model_tier")}
 	// A person (user token) asking directly: the run is theirs, so they
 	// cannot approve its asks. The signed token itself is recorded, so the
 	// Hub can check it (a host cannot forge a requester). Agent calls

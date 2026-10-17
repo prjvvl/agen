@@ -165,6 +165,22 @@ message Deployment {
   // no leases, wake-ups refused) until the next UTC day.
   double spent_usd_today = 17;
   bool budget_exhausted = 18;
+  // Set while the deployment's provider account is held after an account
+  // error (invalid key, no credit): it takes no new work until it recovers.
+  ProviderHold provider_hold = 19;
+}
+
+// A provider account (provider + API key) held after an account error.
+message ProviderHold {
+  // "<provider>:<key secret name>[@<base url>]".
+  string account = 1;
+  string reason = 2;
+  int32 failures = 3;
+  google.protobuf.Timestamp held_at = 4;
+  // When one probe task may go through; any run of the account that
+  // succeeds after the hold began ends it.
+  google.protobuf.Timestamp retry_at = 5;
+  string probe_task_id = 6;
 }
 
 enum InstanceState {
@@ -285,6 +301,14 @@ message Task {
   map<string, string> labels = 23;
   // The approval the task's run waits for, while it waits.
   string pending_approval_id = 24;
+  // Cost tier for a routing model (harness router): low, medium, high,
+  // xhigh or max; capped by the bundle's router.maxTier. Empty: the default.
+  string model_tier = 25;
+  // Not leased before this time (a scheduled task).
+  google.protobuf.Timestamp not_before = 26;
+  // Set on a leased task when the deployment has spent most (80%) of its
+  // daily budget: routing models then use the bundle's router.budgetTier.
+  bool budget_pressure = 27;
 }
 
 enum ApprovalState {

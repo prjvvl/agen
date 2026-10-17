@@ -4,6 +4,7 @@
 pub mod fake;
 pub mod openai;
 pub mod replay;
+pub mod router;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -81,6 +82,10 @@ pub struct ModelRequest {
     pub temperature: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
+    /// Provider-specific request fields merged into the request body as
+    /// given (e.g. OpenRouter `provider`, `plugins`, `reasoning`).
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -114,6 +119,20 @@ pub struct ModelResponse {
     /// Provider stop reason, e.g. "stop", "tool_calls", "length".
     #[serde(default)]
     pub finish_reason: String,
+    /// The model that served the request, when the provider says (a router
+    /// or a provider alias may serve a different one than requested).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
+    /// A routing model's decision summary, when it reported one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<Value>,
+}
+
+impl ModelResponse {
+    /// No text and no tool calls: nothing to act on.
+    pub fn is_empty(&self) -> bool {
+        self.text.trim().is_empty() && self.tool_calls.is_empty()
+    }
 }
 
 /// Marker key the provider puts in tool-call arguments that were not valid
@@ -126,6 +145,10 @@ pub enum ProviderError {
     Config(String),
     #[error("provider request failed: {0}")]
     Request(String),
+    /// The account cannot be used: invalid or expired key, no credit, key
+    /// limit reached. Another model on the same account will not help.
+    #[error("provider account error: {0}")]
+    Account(String),
     #[error("provider rate limited or unavailable (retryable): {0}")]
     Retryable(String),
     #[error("scripted provider: {0}")]

@@ -129,6 +129,7 @@ type Bundle struct {
 
 	// What the agent can use, for warnings about likely mistakes.
 	Provider        string
+	Model           string
 	ToolServers     []string
 	Delegates       []Delegate
 	Skills          int
@@ -209,6 +210,10 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 
 	b := &Bundle{Files: clean, Kind: "pool", Scale: Scale{Min: 0, Max: 1}, Budget: json.RawMessage("{}"), Limits: json.RawMessage("{}")}
 	b.Provider, _ = harness["provider"].(string)
+	b.Model, _ = harness["model"].(string)
+	for _, msg := range checkHarness(harness) {
+		add("x-agen/harness.json: %s", msg)
+	}
 	if servers, ok := mcp["mcpServers"].(map[string]any); ok {
 		for name := range servers {
 			b.ToolServers = append(b.ToolServers, name)

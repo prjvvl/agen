@@ -89,6 +89,8 @@ impl ModelProvider for DupIds {
             tool_calls,
             usage: Usage::default(),
             finish_reason: String::new(),
+            model: String::new(),
+            route: None,
         })
     }
 }
@@ -419,6 +421,8 @@ impl ModelProvider for FlakyStream {
             tool_calls: vec![],
             usage: Usage::default(),
             finish_reason: "stop".into(),
+            model: String::new(),
+            route: None,
         })
     }
 }

@@ -6,6 +6,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
@@ -114,10 +115,22 @@ func checkWorkIdentity(key string, labels map[string]string) error {
 // sent to one entry point (API, a webhook, an A2A caller) can never name a
 // conversation of another.
 func scopedKey(prefix, key string) string {
-	if key == "" {
-		return ""
+	if key == "" || strings.HasPrefix(key, prefix) {
+		return key // a key read back from a task already carries its source
 	}
 	return prefix + key
+}
+
+// maxScheduleAhead bounds how far ahead a task may be scheduled.
+const maxScheduleAhead = 90 * 24 * time.Hour
+
+// checkTier accepts an empty tier or a routing model cost tier.
+func checkTier(t string) error {
+	switch t {
+	case "", "low", "medium", "high", "xhigh", "max":
+		return nil
+	}
+	return invalid(fmt.Sprintf("model_tier %q: use low, medium, high, xhigh or max", t))
 }
 
 // bundleFiles merges binary and text bundle files; a path may be given once.

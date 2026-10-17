@@ -65,6 +65,10 @@ type HostTask struct {
 	Labels          map[string]string `json:"labels,omitempty"`
 	// Attempts counts the tries at this task, this one included.
 	Attempts int `json:"attempts,omitempty"`
+	// ModelTier: cost tier for a routing model ("" = the bundle default).
+	ModelTier string `json:"modelTier,omitempty"`
+	// BudgetPressure: the deployment spent most of its daily budget.
+	BudgetPressure bool `json:"budgetPressure,omitempty"`
 }
 
 // HostRunResult is RunTask's response.

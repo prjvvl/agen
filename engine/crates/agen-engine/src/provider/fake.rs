@@ -42,6 +42,14 @@ pub struct FakeResponse {
     pub delay_ms: u64,
     /// Return this error instead of a response.
     pub error: Option<String>,
+    /// Kind of `error`: "retryable" (default), "request" or "account".
+    pub error_kind: Option<String>,
+    /// Report this as the serving model (default: the requested model).
+    pub model: Option<String>,
+    /// Assert the request asked for this model.
+    pub expect_model: Option<String>,
+    /// Assert these request extras (each key equal to the given value).
+    pub expect_extra: Option<serde_json::Map<String, Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,8 +144,28 @@ impl ModelProvider for FakeProvider {
         if r.delay_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(r.delay_ms)).await;
         }
+        if let Some(m) = &r.expect_model {
+            if &req.model != m {
+                return Err(ProviderError::Script(format!(
+                    "response {idx}: expected model {m:?}, got {:?}",
+                    req.model
+                )));
+            }
+        }
+        for (k, v) in r.expect_extra.iter().flatten() {
+            if req.extra.get(k) != Some(v) {
+                return Err(ProviderError::Script(format!(
+                    "response {idx}: expected extra {k} = {v}, got {:?}",
+                    req.extra.get(k)
+                )));
+            }
+        }
         if let Some(e) = &r.error {
-            return Err(ProviderError::Retryable(e.clone()));
+            return Err(match r.error_kind.as_deref() {
+                Some("request") => ProviderError::Request(e.clone()),
+                Some("account") => ProviderError::Account(e.clone()),
+                _ => ProviderError::Retryable(e.clone()),
+            });
         }
         if let Some(expect) = &r.expect {
             let last = req.messages.last().map(|m| m.content.as_str()).unwrap_or("");
@@ -177,6 +205,8 @@ impl ModelProvider for FakeProvider {
             text: r.text.clone(),
             tool_calls,
             usage,
+            model: r.model.clone().unwrap_or_else(|| req.model.clone()),
+            route: None,
         })
     }
 }
@@ -195,6 +225,7 @@ mod tests {
             tools: vec![],
             temperature: None,
             max_output_tokens: None,
+            extra: Default::default(),
         }
     }
 

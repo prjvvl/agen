@@ -266,6 +266,12 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/ListNotificationTargets` · MC
 |---|---|---|
 | `namespace` | string |  |
 
+## ListProviderHolds
+
+Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListProviderHolds` · MCP tool: `list_provider_holds`
+
 ## ListRuns
 
 Runs (one per task or A2A call), newest first, with usage and cost. Filter by status, labels and time; roots_only lists traces.
@@ -357,6 +363,16 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/Resolve` · MCP tool: `resolv
 | `ref` | DeploymentRef |  |
 | `caller` | DeploymentRef | NestService only: the deployment of the instance that will call (its Manager asks on its behalf); the call token names it as the caller. |
 
+## ResumeProvider
+
+End a provider hold now (e.g. after fixing the key or adding credit).
+
+Scope: `admin` · REST: `POST /agen.v1.HubService/ResumeProvider` · MCP tool: `resume_provider`
+
+| Field | Type | Description |
+|---|---|---|
+| `account` | string |  |
+
 ## RevokeApiToken
 
 Revoke an API token.
@@ -424,6 +440,8 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `idempotencyKey` | string | Optional client key; resubmitting the same key returns the same task. |
 | `conversationKey` | string | Tasks with the same key continue one conversation (and its memory). |
 | `labels` | map&lt;string, string&gt; | Free-form labels, copied to runs, tool calls and delegated tasks. |
+| `modelTier` | string | Cost tier for a routing model; see Task.model_tier. |
+| `notBefore` | Timestamp | Run no earlier than this (a scheduled task); unset: as soon as possible. |
 
 ## UpdateDeployment
 

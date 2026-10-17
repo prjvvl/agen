@@ -60,6 +60,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen wait <task-id>             wait for a task submitted earlier and print its result
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
+  agen providers [resume ACCT]    provider accounts held after an account error
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
@@ -94,7 +95,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		"init": e.cmdInit, "deploy": e.cmdDeploy, "scale": e.cmdScale, "ps": e.cmdPs, "logs": e.cmdLogs, "stop": e.cmdStop, "start": e.cmdStart, "rm": e.cmdRm,
 		"run": e.cmdRun, "wait": e.cmdWait, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
-		"runs": e.cmdRuns, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
+		"runs": e.cmdRuns, "providers": e.cmdProviders, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
 	}
 	switch args[0] {
 	case "version", "--version":

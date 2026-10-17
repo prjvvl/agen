@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
+use super::router;
 use super::{DeltaSink, Message, ModelProvider, ModelRequest, ModelResponse, ProviderError, Role, ToolCall, Usage};
 
 pub const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1";
@@ -100,6 +101,9 @@ pub fn request_body(req: &ModelRequest, openrouter: bool) -> (Value, BTreeMap<St
     if openrouter {
         body["usage"] = json!({"include": true});
     }
+    for (k, v) in &req.extra {
+        body[k] = v.clone();
+    }
     (body, names)
 }
 
@@ -136,6 +140,8 @@ pub struct StreamState {
     calls: BTreeMap<u64, PartialCall>,
     usage: Usage,
     finish_reason: String,
+    model: String,
+    metadata: Option<Value>,
 }
 
 impl StreamState {
@@ -148,11 +154,15 @@ impl StreamState {
                 .unwrap_or("unknown error")
                 .to_string();
             let code = err.get("code").and_then(Value::as_u64).unwrap_or(0);
-            return Err(if code == 429 || code >= 500 {
-                ProviderError::Retryable(msg)
-            } else {
-                ProviderError::Request(msg)
-            });
+            return Err(classify(code as u16, msg));
+        }
+        if let Some(m) = chunk.get("model").and_then(Value::as_str) {
+            if !m.is_empty() {
+                self.model = m.to_string();
+            }
+        }
+        if let Some(m) = chunk.get("openrouter_metadata").filter(|m| !m.is_null()) {
+            self.metadata = Some(m.clone());
         }
         if let Some(u) = chunk.get("usage").filter(|u| !u.is_null()) {
             self.usage = Usage {
@@ -191,7 +201,11 @@ impl StreamState {
         Ok(out)
     }
 
-    pub fn finish(self, names: &BTreeMap<String, String>) -> ModelResponse {
+    pub fn finish(self, names: &BTreeMap<String, String>, router_plugin: Option<&str>) -> ModelResponse {
+        let route = match (&self.metadata, router_plugin) {
+            (Some(m), Some(id)) => router::decision_summary(m, id),
+            _ => None,
+        };
         let tool_calls = self
             .calls
             .into_values()
@@ -217,7 +231,19 @@ impl StreamState {
             tool_calls,
             usage: self.usage,
             finish_reason: self.finish_reason,
+            model: self.model,
+            route,
         }
+    }
+}
+
+/// Maps an HTTP status (or stream error code) to an error kind: account
+/// problems (bad key, no credit, key limit) are not retried or failed over.
+fn classify(code: u16, msg: String) -> ProviderError {
+    match code {
+        401..=403 => ProviderError::Account(msg),
+        429 | 500..=599 => ProviderError::Retryable(msg),
+        _ => ProviderError::Request(msg),
     }
 }
 
@@ -229,6 +255,12 @@ impl ModelProvider for OpenAiCompatible {
 
     async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError> {
         let (body, names) = request_body(req, self.openrouter);
+        // A routing model reports its decision when asked.
+        let router_plugin = self
+            .openrouter
+            .then(|| router::router_for(&req.model))
+            .flatten()
+            .map(|k| k.plugin_id);
         let mut rb = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
@@ -238,6 +270,9 @@ impl ModelProvider for OpenAiCompatible {
             rb = rb
                 .header("X-Title", "Agen")
                 .header("HTTP-Referer", "https://github.com/prjvvl/agen");
+            if router_plugin.is_some() {
+                rb = rb.header("X-OpenRouter-Metadata", "enabled");
+            }
         }
         let resp = rb
             .send()
@@ -255,11 +290,7 @@ impl ModelProvider for OpenAiCompatible {
             if let (429, Some(secs)) = (status.as_u16(), retry_after) {
                 return Err(ProviderError::RetryAfter(msg, secs));
             }
-            return Err(if status.as_u16() == 429 || status.is_server_error() {
-                ProviderError::Retryable(msg)
-            } else {
-                ProviderError::Request(msg)
-            });
+            return Err(classify(status.as_u16(), msg));
         }
         let mut state = StreamState::default();
         let mut buf = String::new();
@@ -275,7 +306,7 @@ impl ModelProvider for OpenAiCompatible {
                 }; // comments/keepalives
                 let data = data.trim();
                 if data == "[DONE]" {
-                    return Ok(state.finish(&names));
+                    return Ok(state.finish(&names, router_plugin));
                 }
                 if data.is_empty() {
                     continue;
@@ -287,7 +318,7 @@ impl ModelProvider for OpenAiCompatible {
                 }
             }
         }
-        Ok(state.finish(&names))
+        Ok(state.finish(&names, router_plugin))
     }
 }
 
@@ -320,6 +351,9 @@ mod tests {
             }],
             temperature: Some(0.1),
             max_output_tokens: Some(20),
+            extra: [("provider".to_string(), json!({"ignore": ["x"]}))]
+                .into_iter()
+                .collect(),
         };
         let (b, names) = request_body(&req, true);
         assert_eq!(b["messages"][0]["role"], "system");
@@ -331,6 +365,7 @@ mod tests {
         assert_eq!(b["max_tokens"], 20);
         assert_eq!(b["usage"]["include"], true);
         assert_eq!(names["fs_read"], "fs.read");
+        assert_eq!(b["provider"]["ignore"][0], "x");
         assert!(request_body(&req, false).0.get("usage").is_none());
     }
 
@@ -349,7 +384,7 @@ mod tests {
         }
         let mut names = BTreeMap::new();
         names.insert("fs_read".to_string(), "fs.read".to_string());
-        let r = s.finish(&names);
+        let r = s.finish(&names, None);
         assert_eq!(r.text, "Hello");
         assert_eq!(r.tool_calls.len(), 2);
         assert_eq!(

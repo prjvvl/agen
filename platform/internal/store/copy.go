@@ -25,6 +25,7 @@ var skipTables = map[string]string{
 	"instances":         "Nests report their own",
 	"hub_ca":            "a new deployment has its own CA; Nests enrol again",
 	"hub_token_key":     "a new deployment signs call tokens with its own key (tokens are short-lived)",
+	"provider_holds":    "a provider account is held again if it still fails",
 }
 
 // CopyReport is the number of rows copied per table.

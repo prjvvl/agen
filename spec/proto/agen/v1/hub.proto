@@ -77,6 +77,11 @@ service HubService {
   // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
 
+  // Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+  rpc ListProviderHolds(ListProviderHoldsRequest) returns (ListProviderHoldsResponse);
+  // End a provider hold now (e.g. after fixing the key or adding credit).
+  rpc ResumeProvider(ResumeProviderRequest) returns (ResumeProviderResponse);
+
   // A single-use token for enrolling a Nest (agen nest run --join-token).
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
   // Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
@@ -102,6 +107,16 @@ service HubService {
   // Remove a notification target.
   rpc DeleteNotificationTarget(DeleteNotificationTargetRequest) returns (DeleteNotificationTargetResponse);
 }
+
+message ListProviderHoldsRequest {}
+message ListProviderHoldsResponse {
+  repeated ProviderHold holds = 1;
+}
+
+message ResumeProviderRequest {
+  string account = 1;
+}
+message ResumeProviderResponse {}
 
 message ListTemplatesRequest {}
 message Template {
@@ -282,6 +297,10 @@ message SubmitTaskRequest {
   string conversation_key = 4;
   // Free-form labels, copied to runs, tool calls and delegated tasks.
   map<string, string> labels = 5;
+  // Cost tier for a routing model; see Task.model_tier.
+  string model_tier = 6;
+  // Run no earlier than this (a scheduled task); unset: as soon as possible.
+  google.protobuf.Timestamp not_before = 7;
 }
 message SubmitTaskResponse {
   Task task = 1;

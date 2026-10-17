@@ -106,6 +106,9 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	if err := s.FireTriggers(ctx, epoch); err != nil {
 		return epoch, err
 	}
+	if err := s.Hub.checkProviderHolds(ctx); err != nil {
+		s.Log.Warn("provider holds check failed", "err", err)
+	}
 	if s.Autoscaling {
 		if err := s.Autoscale(ctx, epoch); err != nil {
 			return epoch, err

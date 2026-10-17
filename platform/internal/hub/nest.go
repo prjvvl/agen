@@ -337,9 +337,35 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 	if !assigned {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s/%s is not assigned to nest %s", ns, name, m.NestId))
 	}
+	pressure := false
 	if d, err := n.hub.Store.GetDeployment(ctx, ns, name); err == nil {
-		if _, exhausted, err := n.hub.spentToday(ctx, d); err == nil && exhausted {
+		spent, exhausted, err := n.hub.spentToday(ctx, d)
+		if err == nil && exhausted {
 			return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil // no new work today
+		}
+		if max := PolicyOf(d).Budget.MaxUsdPerDay; err == nil && max > 0 && spent >= BudgetPressure*max {
+			pressure = true
+		}
+		// A held provider account takes one probe task once its retry time
+		// has come, and nothing else.
+		if hold, held := n.hub.providerHold(ctx, d); held {
+			claim := "claim:" + m.NestId + ":" + store.NewID()
+			if ok, err := n.hub.Store.ClaimProbe(ctx, hold.Account, claim); err != nil || !ok {
+				return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
+			}
+			list, err := n.hub.Store.LeaseTasks(ctx, m.NestId, ns, name, 1, n.leaseMs(m.LeaseSeconds))
+			if err != nil || len(list) == 0 {
+				_ = n.hub.Store.ReleaseProbe(ctx, hold.Account, claim)
+				if err != nil {
+					return nil, connectErr(err)
+				}
+				return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
+			}
+			_ = n.hub.Store.SetProbeTask(ctx, hold.Account, claim, list[0].ID)
+			n.hub.logger().Info("probe task for held provider account", "account", hold.Account, "task", list[0].ID)
+			pt := TaskProto(list[0])
+			pt.BudgetPressure = pressure
+			return connect.NewResponse(&agenv1.LeaseTasksResponse{Tasks: []*agenv1.Task{pt}}), nil
 		}
 		if d.Paused {
 			return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
@@ -355,7 +381,9 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 	}
 	out := &agenv1.LeaseTasksResponse{}
 	for _, t := range list {
-		out.Tasks = append(out.Tasks, TaskProto(t))
+		pt := TaskProto(t)
+		pt.BudgetPressure = pressure
+		out.Tasks = append(out.Tasks, pt)
 	}
 	if len(list) > 0 {
 		_ = n.hub.Store.TouchActivity(ctx, ns, name)

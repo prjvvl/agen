@@ -145,6 +145,8 @@ mod tests {
             tools: vec![],
             temperature: Some(0.0),
             max_output_tokens: None,
+
+            extra: Default::default(),
         }
     }
 

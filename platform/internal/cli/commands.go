@@ -408,19 +408,35 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	conversation := fs.String("conversation", "", "continue the conversation of earlier tasks with this key")
 	labels := labelFlag{}
 	fs.Var(labels, "label", "label the task, key=value (repeatable)")
+	tier := fs.String("tier", "", "cost tier for a routing model: low, medium, high, xhigh or max")
+	at := fs.String("at", "", "run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)")
+	in := fs.Duration("in", 0, "run no earlier than this long from now (e.g. 30m)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--at TIME | --in D] [--no-wait] [--timeout D]")
+	}
+	var notBefore *timestamppb.Timestamp
+	switch {
+	case *at != "" && *in != 0:
+		return usageErr("use --at or --in, not both")
+	case *at != "":
+		ts, err := time.Parse(time.RFC3339, *at)
+		if err != nil {
+			return usageErr("--at: " + err.Error())
+		}
+		notBefore = timestamppb.New(ts)
+	case *in > 0:
+		notBefore = timestamppb.New(time.Now().Add(*in))
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
 	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
-		ConversationKey: *conversation, Labels: labels}))
+		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, NotBefore: notBefore}))
 	if err != nil {
 		return err
 	}

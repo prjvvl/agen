@@ -77,6 +77,13 @@ pub struct AgentConfig {
     pub system_prompt: String,
     pub skills: Vec<Skill>,
     pub model: String,
+    /// Models tried in order when `model` keeps failing or gives no answer.
+    pub fallback_models: Vec<String>,
+    /// Provider-specific request fields (OpenRouter `provider`, `plugins`,
+    /// `reasoning`), sent with every model request.
+    pub request_extra: serde_json::Map<String, Value>,
+    /// Settings for a routing model (cost tier, allowed models).
+    pub router: Option<crate::provider::router::RouterSettings>,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
     pub max_turns: u32,
@@ -110,6 +117,9 @@ impl AgentConfig {
             system_prompt: system_prompt.into(),
             skills: vec![],
             model: model.into(),
+            fallback_models: vec![],
+            request_extra: Default::default(),
+            router: None,
             temperature: None,
             max_output_tokens: None,
             max_turns: 16,
@@ -158,6 +168,12 @@ pub struct RunOptions {
     pub root_run_id: String,
     /// Delegation depth of this run (from the task or the A2A call).
     pub depth: u32,
+    /// Cost tier asked for this run (routing models only; capped by the
+    /// harness `router.maxTier`).
+    pub model_tier: Option<String>,
+    /// The deployment has spent most of its daily budget: routing models use
+    /// the harness `router.budgetTier` (low).
+    pub near_budget: bool,
     /// Who asked for the run when it is not a Hub task (from a verified A2A
     /// call token); recorded on the run for approvals.
     pub requested_by: String,
@@ -356,6 +372,9 @@ impl Agent {
         let mut cfg = AgentConfig::new(bundle.name(), &bundle.system_prompt, &bundle.harness.model);
         cfg.skills = bundle.skills.clone();
         cfg.temperature = bundle.harness.temperature;
+        cfg.fallback_models = bundle.harness.fallback_models.clone();
+        cfg.router = bundle.harness.router.clone();
+        cfg.request_extra = request_extra(&bundle.harness);
         cfg.max_output_tokens = Some(
             bundle
                 .harness
@@ -814,6 +833,7 @@ impl Agent {
                 tools: self.tools.specs(),
                 temperature: self.cfg.temperature,
                 max_output_tokens: self.output_cap(&live.rec.usage),
+                extra: Default::default(),
             };
             let mut span = tracer.start(ctx, "gen_ai.chat");
             span.set("gen_ai.operation.name", "chat");
@@ -822,13 +842,13 @@ impl Agent {
             span.set("agen.request.messages", req.messages.len() as u64);
             tracer.record_open(&span).await;
             let resp = tokio::select! {
-                r = self.complete_with_retry(&req, opts) => r,
+                r = self.complete_with_fallback(req, opts) => r,
                 _ = opts.cancel.cancelled() => {
                     tracer.end(span, "cancelled").await;
                     return Ok(Outcome::Cancelled);
                 }
             };
-            let resp = match resp {
+            let (resp, sent) = match resp {
                 Ok(r) => r,
                 Err(e) => {
                     span.set("error.type", e.to_string());
@@ -836,6 +856,39 @@ impl Agent {
                     return Err(e.into());
                 }
             };
+            if sent.model != self.cfg.model {
+                span.set("gen_ai.request.model", sent.model.clone());
+                span.set("agen.fallback", true);
+            }
+            if !resp.model.is_empty() {
+                span.set("gen_ai.response.model", resp.model.clone());
+            }
+            if let Some(t) = &sent.tier {
+                span.set("agen.router.tier", t.clone());
+            }
+            if let Some(route) = &resp.route {
+                for (k, v) in route.as_object().into_iter().flatten() {
+                    if let Some(v) = v.as_str() {
+                        span.set(&format!("agen.router.{k}"), v.to_string());
+                    }
+                }
+            }
+            if resp.is_empty() {
+                // Every model tried came back with nothing to act on.
+                let why = format!(
+                    "no_answer: the model returned no text and no tool calls (finish_reason {:?}{})",
+                    resp.finish_reason,
+                    if resp.finish_reason == "length" {
+                        "; raise maxOutputTokens, reasoning may have used it all"
+                    } else {
+                        ""
+                    }
+                );
+                live.rec.usage.add(resp.usage);
+                span.set("error.type", why.clone());
+                tracer.end(span, "error").await;
+                return Ok(Outcome::Failed(why));
+            }
             span.set("gen_ai.usage.input_tokens", resp.usage.input_tokens);
             span.set("gen_ai.usage.output_tokens", resp.usage.output_tokens);
             span.set("gen_ai.response.tool_calls", resp.tool_calls.len() as u64);
@@ -896,6 +949,87 @@ impl Agent {
         history.drain(..drop);
         history.extend(current);
         Ok(answer_orphans(history))
+    }
+
+    /// The request for one model (extras, and a routing model's tier).
+    fn request_for(&self, base: &ModelRequest, model: &str, opts: &RunOptions) -> (ModelRequest, Sent) {
+        let mut req = base.clone();
+        req.model = model.to_string();
+        req.extra = self.cfg.request_extra.clone();
+        let mut tier = None;
+        if let Some(kind) = crate::provider::router::router_for(model) {
+            let settings = self.cfg.router.clone().unwrap_or_default();
+            tier = settings.tier_for(opts.model_tier.as_deref(), opts.near_budget, kind);
+            if tier.is_some() || !settings.allowed_models.is_empty() || !settings.excluded_models.is_empty() {
+                let plugin = settings.plugin(kind, tier.as_deref());
+                match req.extra.get_mut("plugins").and_then(Value::as_array_mut) {
+                    Some(list) => list.push(plugin),
+                    None => {
+                        req.extra.insert("plugins".into(), Value::Array(vec![plugin]));
+                    }
+                }
+            }
+        }
+        (
+            req,
+            Sent {
+                model: model.to_string(),
+                tier,
+            },
+        )
+    }
+
+    /// One model turn: the configured model (retried), then each fallback
+    /// model, until one answers. An empty answer is asked once more before
+    /// moving on. Account errors (bad key, no credit) end it at once: another
+    /// model on the same account will not help.
+    async fn complete_with_fallback(
+        &self,
+        base: ModelRequest,
+        opts: &RunOptions,
+    ) -> Result<(provider::ModelResponse, Sent), ProviderError> {
+        let models: Vec<String> = std::iter::once(self.cfg.model.clone())
+            .chain(self.cfg.fallback_models.iter().cloned())
+            .collect();
+        let mut last: Option<Result<(provider::ModelResponse, Sent), ProviderError>> = None;
+        let mut spent = Usage::default();
+        for (i, model) in models.iter().enumerate() {
+            if i > 0 {
+                let why = match &last {
+                    Some(Err(e)) => e.to_string(),
+                    _ => "no answer".into(),
+                };
+                self.log(
+                    "warn",
+                    &format!("model {} failed ({why}); trying {model}", models[i - 1]),
+                )
+                .await;
+            }
+            let (req, sent) = self.request_for(&base, model, opts);
+            for attempt in 0..2 {
+                match self.complete_with_retry(&req, opts).await {
+                    Ok(mut r) if r.is_empty() => {
+                        spent.add(r.usage);
+                        if attempt == 0 {
+                            self.log("warn", &format!("model {model} returned no answer; asking again"))
+                                .await;
+                            continue;
+                        }
+                        r.usage = spent;
+                        last = Some(Ok((r, sent.clone())));
+                    }
+                    Ok(mut r) => {
+                        spent.add(r.usage);
+                        r.usage = spent;
+                        return Ok((r, sent));
+                    }
+                    Err(e @ ProviderError::Account(_)) => return Err(e),
+                    Err(e) => last = Some(Err(e)),
+                }
+                break;
+            }
+        }
+        last.expect("at least one model")
     }
 
     async fn complete_with_retry(
@@ -1286,6 +1420,39 @@ enum Outcome {
 
 fn duration_setting(name: &str, value: &str) -> Result<Duration, AgentError> {
     crate::bundle::parse_duration(value).ok_or_else(|| AgentError::Config(format!("invalid {name} {value:?}")))
+}
+
+/// What was sent for a model turn.
+#[derive(Debug, Clone)]
+struct Sent {
+    model: String,
+    tier: Option<String>,
+}
+
+/// Request extras from a bundle's harness: OpenRouter settings as given and
+/// the reasoning effort in the provider's wire form.
+fn request_extra(h: &crate::bundle::Harness) -> serde_json::Map<String, Value> {
+    let mut extra = serde_json::Map::new();
+    if let Some(o) = &h.openrouter {
+        if let Some(p) = &o.provider {
+            extra.insert("provider".into(), p.clone());
+        }
+        if let Some(p) = &o.plugins {
+            extra.insert("plugins".into(), Value::Array(p.clone()));
+        }
+    }
+    if let Some(e) = &h.reasoning_effort {
+        match h.provider.as_str() {
+            "openrouter" => {
+                extra.insert("reasoning".into(), serde_json::json!({"effort": e}));
+            }
+            "openai" => {
+                extra.insert("reasoning_effort".into(), Value::String(e.clone()));
+            }
+            _ => {}
+        }
+    }
+    extra
 }
 
 fn backoff(attempt: u32) -> Duration {

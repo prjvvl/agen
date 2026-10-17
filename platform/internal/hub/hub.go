@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -43,6 +44,16 @@ type Hub struct {
 
 	evOnce sync.Once
 	ev     *changeFeed
+
+	// Log receives operational messages (default: slog.Default()).
+	Log *slog.Logger
+}
+
+func (h *Hub) logger() *slog.Logger {
+	if h.Log != nil {
+		return h.Log
+	}
+	return slog.Default()
 }
 
 // New creates a Hub over a store; adminToken authenticates the admin.
@@ -409,9 +420,19 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkWorkIdentity(req.Msg.ConversationKey, req.Msg.Labels); err != nil {
 		return nil, err
 	}
+	if err := checkTier(req.Msg.ModelTier); err != nil {
+		return nil, err
+	}
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier}
+	if nb := req.Msg.GetNotBefore(); nb != nil {
+		at := nb.AsTime()
+		if at.After(time.Now().Add(maxScheduleAhead)) {
+			return nil, invalid(fmt.Sprintf("not_before is more than %s ahead", maxScheduleAhead))
+		}
+		task.NotBeforeMs = at.UnixMilli()
+	}
 	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
 		return nil, err
 	}
@@ -687,6 +708,9 @@ func (h *Hub) Wake(ctx context.Context, ns, name string) (store.Deployment, erro
 	}
 	if spent, exhausted, err := h.spentToday(ctx, d); err == nil && exhausted {
 		return d, budgetError(d, spent)
+	}
+	if hold, ok := h.providerHold(ctx, d); ok && store.NowMs() < hold.RetryMs {
+		return d, heldError(hold)
 	}
 	if max := int(PolicyOf(d).Scale.Max); d.Desired >= 1 || max < 1 {
 		return d, h.Store.TouchActivity(ctx, ns, name)
