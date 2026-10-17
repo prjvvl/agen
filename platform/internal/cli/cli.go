@@ -57,6 +57,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen start <name>               resume a stopped deployment
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
+  agen wait <task-id>             wait for a task submitted earlier and print its result
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
@@ -91,7 +92,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	cmds := map[string]func(context.Context, []string) error{
 		"up": e.cmdUp, "down": e.cmdDown, "ui": e.cmdUI, "migrate": e.cmdMigrate, "store": e.cmdStore, "secret": e.cmdSecret, "hub": e.cmdHub, "nest": e.cmdNest,
 		"init": e.cmdInit, "deploy": e.cmdDeploy, "scale": e.cmdScale, "ps": e.cmdPs, "logs": e.cmdLogs, "stop": e.cmdStop, "start": e.cmdStart, "rm": e.cmdRm,
-		"run": e.cmdRun, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
+		"run": e.cmdRun, "wait": e.cmdWait, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
 		"runs": e.cmdRuns, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
 	}

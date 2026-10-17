@@ -26,6 +26,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen start <name>               resume a stopped deployment
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
+  agen wait <task-id>             wait for a task submitted earlier and print its result
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
@@ -333,7 +334,25 @@ Usage of run:
   -no-wait
     	print the task id and return
   -timeout duration
-    	how long to wait for the result (default 10m0s)
+    	how long to wait for the result (0: no limit); the task keeps running after it (default 10m0s)
+  -token string
+    	API token
+```
+
+## agen wait
+
+```text
+Usage of wait:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -timeout duration
+    	how long to wait (0: no limit)
   -token string
     	API token
 ```

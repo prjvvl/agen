@@ -228,7 +228,14 @@ func (s *Store) DeleteDeployment(ctx context.Context, ns, name string) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM webhook_secrets WHERE namespace = $1 AND deployment = $2", ns, name); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE namespace = $2 AND deployment = $3 AND state IN ('queued', 'leased', 'running')", NowMs(), ns, name)
+		now := NowMs()
+		if _, err := tx.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE namespace = $2 AND deployment = $3 AND state IN ('queued', 'leased', 'running')", now, ns, name); err != nil {
+			return err
+		}
+		// Every unfinished run goes with it (task or A2A), fenced like a
+		// cancelled task's run, so none is left "running" forever.
+		_, err = tx.ExecContext(ctx, "UPDATE runs SET status = 'cancelled', error = 'deployment deleted', ended_ms = $1, epoch = epoch + 1 "+
+			"WHERE namespace = $2 AND deployment = $3 AND ended_ms IS NULL", now, ns, name)
 		return err
 	})
 }

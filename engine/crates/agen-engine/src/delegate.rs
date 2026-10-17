@@ -122,7 +122,9 @@ impl CallAgent {
             limits,
             store,
             http: reqwest::Client::new(),
-            timeout: Duration::from_secs(600),
+            // A Gateway lets a call wait up to 10 min for a free instance and
+            // run for up to 1 h.
+            timeout: Duration::from_secs(75 * 60),
         }
     }
 

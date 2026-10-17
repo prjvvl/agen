@@ -554,3 +554,30 @@ async fn provider_retry_then_success() {
     let r = agent.run("x", RunOptions::default()).await.unwrap();
     assert_eq!((r.status, r.output.as_str()), (RunStatus::Succeeded, "recovered"));
 }
+
+#[tokio::test]
+async fn failed_tool_span_says_why() {
+    let (s, _d) = store().await;
+    let broken: Arc<dyn Tool> = Arc::new(FnTool::new(
+        "fetch",
+        "Fetch a page",
+        json!({"type":"object"}),
+        false,
+        |_a: Value, _| async move { Err::<String, _>(ToolError::new("upstream answered 502")) },
+    ));
+    let p = Arc::new(FakeProvider::new(vec![
+        call("fetch", json!({})),
+        say("could not fetch", Some("502")),
+    ]));
+    let agent = Agent::builder(cfg(), s.clone())
+        .provider(p)
+        .tool(broken)
+        .build()
+        .unwrap();
+    let r = agent.run("get it", RunOptions::default()).await.unwrap();
+    let spans = s.trace(&r.trace_id).await.unwrap();
+    let tool = spans.iter().find(|s| s.name == "agen.tool").unwrap();
+    assert_eq!(tool.status, "error");
+    let msg = tool.attributes["error.message"].as_str().unwrap_or_default();
+    assert!(msg.contains("upstream answered 502"), "{:?}", tool.attributes);
+}

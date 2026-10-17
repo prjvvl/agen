@@ -114,9 +114,25 @@ func TestDefinitionsAndDeployments(t *testing.T) {
 		}
 		task, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "hello", Input: "x"})
 		must(t, err)
+		// An A2A run in flight (no task) and a finished one.
+		now := NowMs()
+		sid, cid, live, done := uniq("s"), uniq("c"), uniq("r"), uniq("r")
+		_, err = s.db.ExecContext(ctx, "INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ($1,'a',$2,'hello','{}',$3,$3)", sid, ns, now)
+		must(t, err)
+		_, err = s.db.ExecContext(ctx, "INSERT INTO conversations (id, session_id, created_ms) VALUES ($1,$2,$3)", cid, sid, now)
+		must(t, err)
+		_, err = s.db.ExecContext(ctx, "INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, trace_id, started_ms, ended_ms) "+
+			"VALUES ($1,$3,$4,$5,'hello','running','hi','t',$6,NULL), ($2,$3,$4,$5,'hello','succeeded','hi','t',$6,$6)", live, done, sid, cid, ns, now)
+		must(t, err)
 		must(t, s.DeleteDeployment(ctx, ns, "hello"))
 		if got, _ := s.GetTask(ctx, task.ID); got.State != "cancelled" {
 			t.Fatalf("queued task not cancelled on delete: %s", got.State)
+		}
+		if r, err := s.GetRun(ctx, live); err != nil || r.Status != "cancelled" || r.EndedMs == 0 {
+			t.Fatalf("running run after delete: %+v %v", r, err)
+		}
+		if r, _ := s.GetRun(ctx, done); r.Status != "succeeded" {
+			t.Fatalf("finished run changed on delete: %+v", r)
 		}
 		if err := s.DeleteDeployment(ctx, ns, "hello"); !errors.Is(err, ErrNotFound) {
 			t.Fatal(err)

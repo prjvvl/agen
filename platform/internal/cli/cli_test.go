@@ -277,6 +277,11 @@ func TestLocalFleetThroughTheCLI(t *testing.T) {
 		out := agen(t, 0, "tasks", "hello")
 		return strings.Contains(out, queuedID+"  default/hello  succeeded")
 	})
+	// agen wait picks up a task submitted earlier.
+	if out := agen(t, 0, "wait", queuedID); strings.TrimSpace(out) != "Hi from v2." {
+		t.Fatalf("wait: %q", out)
+	}
+	agen(t, 2, "wait")
 	_ = busyID
 	// The local admin token is never sent to another Hub.
 	var eb bytes.Buffer

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
+	"github.com/prjvvl/agen/platform/gen/agen/v1/agenv1connect"
 	"github.com/prjvvl/agen/platform/internal/definition"
 )
 
@@ -402,7 +403,7 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("run", &cf)
 	noWait := fs.Bool("no-wait", false, "print the task id and return")
-	timeout := fs.Duration("timeout", 10*time.Minute, "how long to wait for the result")
+	timeout := fs.Duration("timeout", 10*time.Minute, "how long to wait for the result (0: no limit); the task keeps running after it")
 	key := fs.String("idempotency-key", "", "resubmitting the same key returns the same task")
 	conversation := fs.String("conversation", "", "continue the conversation of earlier tasks with this key")
 	labels := labelFlag{}
@@ -431,10 +432,38 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		fmt.Fprintln(e.stdout, t.Id)
 		return nil
 	}
-	deadline := time.Now().Add(*timeout)
+	return e.waitTask(ctx, c, t, *timeout, cf.json)
+}
+
+// cmdWait waits for a task submitted earlier (agen run --no-wait, or one
+// that outlasted agen run's timeout) and prints its result.
+func (e *env) cmdWait(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("wait", &cf)
+	timeout := fs.Duration("timeout", 0, "how long to wait (0: no limit)")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen wait <task-id> [--timeout D]")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: pos[0]}))
+	if err != nil {
+		return err
+	}
+	return e.waitTask(ctx, c, r.Msg.Task, *timeout, cf.json)
+}
+
+func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t *agenv1.Task, timeout time.Duration, asJSON bool) error {
+	deadline := time.Now().Add(timeout)
 	for !terminal(t.State) {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("task %s still %s after %s", t.Id, stateName(t.State, "TASK_STATE_"), *timeout)
+		if timeout > 0 && time.Now().After(deadline) {
+			return fmt.Errorf("task %s still %s after %s; it keeps running (agen wait %s)", t.Id, stateName(t.State, "TASK_STATE_"), timeout, t.Id)
 		}
 		r, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: t.Id, WaitSeconds: 30}))
 		if err != nil {
@@ -445,7 +474,7 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		}
 		t = r.Msg.Task
 	}
-	if cf.json {
+	if asJSON {
 		return e.printJSON(t)
 	}
 	if t.State != agenv1.TaskState_TASK_STATE_SUCCEEDED {

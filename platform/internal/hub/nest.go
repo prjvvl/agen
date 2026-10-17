@@ -267,10 +267,30 @@ func (n *NestAPI) ReportStatus(ctx context.Context, req *connect.Request[agenv1.
 	if err := n.hub.Store.Heartbeat(ctx, m.NestId, int(m.Capacity), m.GatewayUrl); err != nil {
 		return nil, connectErr(err)
 	}
+	// Instance rows vouch for a deployment running on this Nest (Resolve
+	// trusts them for draining instances), so a Nest may add an instance only
+	// for a deployment it may run; known instances keep reporting as they drain.
+	known := map[string]bool{}
+	if prev, err := n.hub.Store.ListInstances(ctx, "", "", m.NestId); err == nil {
+		for _, in := range prev {
+			known[in.ID] = true
+		}
+	} else {
+		return nil, connectErr(err)
+	}
 	list := make([]store.Instance, 0, len(m.Instances))
 	for _, in := range m.Instances {
 		if in.Id == "" || in.Deployment == "" {
 			return nil, invalid("every instance needs an id and a deployment")
+		}
+		if !known[in.Id] {
+			ok, err := n.eligible(ctx, m.NestId, nsOr(in.Namespace), in.Deployment)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return nil, connectErr(err)
+			}
+			if !ok {
+				continue
+			}
 		}
 		si := store.Instance{ID: in.Id, Namespace: nsOr(in.Namespace), Deployment: in.Deployment, NestID: m.NestId,
 			DefinitionDigest: in.DefinitionDigest, State: InstanceStateName(in.State), Endpoint: in.Endpoint,
@@ -502,6 +522,23 @@ func (n *NestAPI) assigned(ctx context.Context, nestID, ns, deployment string) b
 	return false
 }
 
+// runsThere reports whether a deployment runs on a nest: it is assigned
+// there, or it still has a live instance there (one draining after a scale
+// down or redeploy keeps finishing its runs, and those may delegate).
+func (n *NestAPI) runsThere(ctx context.Context, nestID, ns, deployment string) bool {
+	if n.assigned(ctx, nestID, ns, deployment) {
+		return true
+	}
+	insts, _ := n.hub.Store.ListInstances(ctx, ns, deployment, nestID)
+	for _, in := range insts {
+		switch in.State {
+		case "starting", "ready", "busy", "draining":
+			return true
+		}
+	}
+	return false
+}
+
 // eligible reports whether a nest may run a deployment: it is assigned, or
 // the nest is active and matches the deployment's placement labels (a
 // Gateway waking a deployment that has no instances yet).
@@ -620,7 +657,7 @@ func (n *NestAPI) Resolve(ctx context.Context, req *connect.Request[agenv1.Resol
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("delegation stays within a namespace (%s -> %s)", cns, ns))
 		}
 		nest := callerNest(ctx)
-		if nest == "" || !n.assigned(ctx, nest, cns, c.GetName()) {
+		if nest == "" || !n.runsThere(ctx, nest, cns, c.GetName()) {
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s/%s is not assigned to this nest", cns, c.GetName()))
 		}
 		if err := n.hub.issueCallToken(ctx, out, "agent:"+cns+"/"+c.GetName(), nest, ns, name, agentCallTokenTTL); err != nil {

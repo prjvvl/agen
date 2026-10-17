@@ -1068,6 +1068,20 @@ impl Agent {
         tracer.record_open(&span).await;
         let (result, status) = self.execute_call_inner(live, call, tracer, &mut span, opts).await?;
         span.set("agen.tool.result_chars", result.len() as u64);
+        if status != "ok" {
+            // Why it failed, on the span itself (the tool message is in the
+            // transcript, but a trace should explain a failure on its own).
+            let mut msg = self.redactor.redact(result.trim_start_matches("error: "));
+            if msg.len() > 1000 {
+                let mut cut = 1000;
+                while !msg.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                msg.truncate(cut);
+                msg.push('…');
+            }
+            span.set("error.message", msg);
+        }
         tracer.end(span, status).await;
         Ok(result)
     }
