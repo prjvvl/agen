@@ -104,7 +104,7 @@ export function Timeline({ active = [] }: { active?: ActiveRun[] }) {
       ) : !rows.length ? (
         <Empty title="No runs in this window">Each run shows up as a bar on its agent's row.</Empty>
       ) : (
-        <svg width={width} height={rows.length * ROW_H + 26} role="img" aria-label={`Runs of ${rows.length} agents over the last ${win}`}>
+        <svg width={width} height={rows.length * ROW_H + 26} role="group" aria-label={`Runs of ${rows.length} agents over the last ${win}`}>
           {ticks.map((t) => (
             <g key={t} className="tl-tick">
               <line x1={x(t)} x2={x(t)} y1={0} y2={rows.length * ROW_H} />
