@@ -1103,3 +1103,39 @@
 .map-edge[data-kind="reply"]:focus-visible text {
   opacity: 1;
 }
+
+/* ---- map at scale ---- */
+
+.map {
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.map:active {
+  cursor: grabbing;
+}
+.map svg {
+  user-select: none;
+}
+.map-find {
+  width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+.map-zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+.map-node[data-dim],
+.map-edge[data-dim] {
+  opacity: 0.18;
+}
+.map-node[data-match] rect {
+  stroke: var(--brand);
+  stroke-width: 2.5;
+}

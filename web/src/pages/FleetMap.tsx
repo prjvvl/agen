@@ -1,12 +1,17 @@
-import { useMemo, useState } from "react";
+import { Maximize2, Minus, Plus } from "lucide-react";
+import { PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ActiveRun, CallEdge, Deployment, DeploymentMetrics, EntryEdge, num, QueueStatus } from "../api";
 import { Flight } from "../activity";
 import { compact, duration, money } from "../format";
 import { deploymentStatus, Segmented } from "../ui";
 import { depKey } from "./Deployments";
 
-const W = 212;
-const H = 74;
+// Card size: full, or compact for a big fleet.
+const FULL = { w: 212, h: 74 };
+const COMPACT = { w: 176, h: 52 };
+/** Above this many agents the map uses compact cards and hides quiet ones. */
+const BIG_FLEET = 12;
+const FRAME_H = 560;
 const EW = 132; // entry node width
 const EH = 44;
 const GAP_X = 104;
@@ -48,7 +53,10 @@ interface MapNode {
 }
 
 /** Entry nodes in the first column, then agents layered along call edges. */
-function layout(deps: Deployment[], entryKeys: string[], edges: MapEdge[]): { nodes: MapNode[]; width: number; height: number } {
+function layout(deps: Deployment[], entryKeys: string[], edges: MapEdge[], size = FULL, frameWidth = 0): { nodes: MapNode[]; width: number; height: number } {
+  const W = size.w;
+  const H = size.h;
+  const maxRows = size === COMPACT ? 9 : 7;
   const keys = deps.map(depKey);
   const rank = new Map(keys.map((k) => [k, 0]));
   const calls = edges.filter((e) => (e.kind === "call" || e.kind === "async") && rank.has(e.from) && rank.has(e.to) && e.from !== e.to);
@@ -71,16 +79,22 @@ function layout(deps: Deployment[], entryKeys: string[], edges: MapEdge[]): { no
     else alone.push(d);
   }
   columns.forEach((col) => col.sort((a, b) => a.name.localeCompare(b.name)));
+  // A tall column wraps into several side by side (a fan-out of 20 agents
+  // stays on screen).
+  const wrapped: Deployment[][] = [];
+  for (const col of columns) for (let i = 0; i < (col?.length ?? 0); i += maxRows) wrapped.push(col.slice(i, i + maxRows));
   const nodes: MapNode[] = [];
   const left = entryKeys.length ? 12 + EW + GAP_X : 12;
   entryKeys.forEach((k, i) => nodes.push({ key: k, entry: ENTRIES[k] ?? k, x: 12, y: 12 + i * (EH + GAP_Y) + (H - EH) / 2, w: EW, h: EH }));
-  columns.forEach((col, c) => col.forEach((d, r) => nodes.push({ key: depKey(d), d, x: left + c * (W + GAP_X), y: 12 + r * (H + GAP_Y), w: W, h: H })));
-  const rows = Math.max(entryKeys.length ? Math.ceil((entryKeys.length * (EH + GAP_Y)) / (H + GAP_Y)) : 0, ...columns.map((c) => c.length));
-  const perRow = Math.max(3, columns.length * 2);
+  wrapped.forEach((col, c) => col.forEach((d, r) => nodes.push({ key: depKey(d), d, x: left + c * (W + GAP_X), y: 12 + r * (H + GAP_Y), w: W, h: H })));
+  const rows = Math.max(entryKeys.length ? Math.ceil((entryKeys.length * (EH + GAP_Y)) / (H + GAP_Y)) : 0, ...wrapped.map((c) => c.length));
+  // Agents without lines: a grid as wide as the frame (or the graph).
+  const graphWidth = left + wrapped.length * (W + GAP_X);
+  const perRow = Math.max(3, Math.floor((Math.max(frameWidth, graphWidth) - 12) / (W + 24)));
   const top = 12 + rows * (H + GAP_Y) + (rows ? 16 : 0);
   alone
     .sort((a, b) => a.name.localeCompare(b.name))
-    .forEach((d, i) => nodes.push({ key: depKey(d), d, x: left + (i % perRow) * (W + 24), y: top + Math.floor(i / perRow) * (H + GAP_Y), w: W, h: H }));
+    .forEach((d, i) => nodes.push({ key: depKey(d), d, x: 12 + (i % perRow) * (W + 24), y: top + Math.floor(i / perRow) * (H + GAP_Y), w: W, h: H }));
   const width = 12 + Math.max(...nodes.map((n) => n.x + n.w));
   const height = 12 + Math.max(...nodes.map((n) => n.y + n.h));
   return { nodes, width, height };
@@ -180,11 +194,100 @@ interface MapProps {
  * when it failed). Agents ring their success share and pulse during a model
  * call.
  */
-export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }: MapProps) {
+export function FleetMap({ deps: allDeps, edges: allEdges, metrics, live, flights, onNode, onEdge }: MapProps) {
   const [label, setLabel] = useState<EdgeLabel>("calls");
   const reduced = useMemo(() => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches, []);
+  const big = allDeps.length > BIG_FLEET;
+  const size = big ? COMPACT : FULL;
+  // Quiet agents (nothing in 24h, nothing running or waiting, no lines) can
+  // be hidden on a big fleet.
+  const [showQuiet, setShowQuiet] = useState(true);
+  const quiet = useMemo(() => {
+    const touched = new Set(allEdges.flatMap((e) => [e.from, e.to]));
+    return new Set(
+      allDeps
+        .filter((d) => {
+          const k = depKey(d);
+          const l = live.get(k);
+          return !touched.has(k) && !(metrics.get(k)?.runs ?? 0) && !l?.running && !l?.queued && !l?.scheduled && !d.providerHold;
+        })
+        .map(depKey),
+    );
+  }, [allDeps, allEdges, metrics, live]);
+  const hideQuiet = big && !showQuiet && quiet.size > 0;
+  const deps = hideQuiet ? allDeps.filter((d) => !quiet.has(depKey(d))) : allDeps;
+  const edges = allEdges;
+  // Find: the matching agents and their direct neighbours stand out.
+  const [find, setFind] = useState("");
+  const focus = useMemo(() => {
+    const q = find.trim().toLowerCase();
+    if (!q) return undefined;
+    const hit = new Set(allDeps.filter((d) => d.name.toLowerCase().includes(q)).map(depKey));
+    const near = new Set(hit);
+    for (const e of allEdges) {
+      if (hit.has(e.from)) near.add(e.to);
+      if (hit.has(e.to)) near.add(e.from);
+    }
+    return { hit, near };
+  }, [find, allDeps, allEdges]);
   const entryKeys = useMemo(() => Object.keys(ENTRIES).filter((k) => edges.some((e) => e.from === k)), [edges]);
-  const { nodes, width, height } = useMemo(() => layout(deps, entryKeys, edges), [deps, entryKeys, edges]);
+  const frame = useRef<HTMLDivElement>(null);
+  const [frameWidth, setFrameWidth] = useState(0);
+  useEffect(() => {
+    if (!frame.current) return;
+    const ro = new ResizeObserver((e) => setFrameWidth(Math.round(e[0].contentRect.width / 50) * 50));
+    ro.observe(frame.current);
+    return () => ro.disconnect();
+  }, []);
+  const { nodes, width, height } = useMemo(() => layout(deps, entryKeys, edges, size, frameWidth - 24), [deps, entryKeys, edges, size, frameWidth]);
+  const W = size.w;
+  const H = size.h;
+  // Pan and zoom inside a fixed frame once the map is taller than it.
+  const frameH = Math.min(FRAME_H, height + 52);
+  const [view, setView] = useState({ k: 1, x: 0, y: 40 });
+  const fit = () => {
+    const fw = frame.current?.clientWidth ?? width;
+    const k = Math.min(1, (fw - 16) / width, (frameH - 16) / (height + 40));
+    setView({ k, x: 8, y: 8 + 40 * k });
+  };
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (fitted.current || !nodes.length || !frameWidth) return;
+    fitted.current = true;
+    if (height + 52 > FRAME_H || width > (frame.current?.clientWidth ?? width)) fit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length, frameWidth]);
+  const zoom = (f: number, cx = (frame.current?.clientWidth ?? 0) / 2, cy = frameH / 2) =>
+    setView((v) => {
+      const k = Math.min(2, Math.max(0.3, v.k * f));
+      return { k, x: cx - ((cx - v.x) * k) / v.k, y: cy - ((cy - v.y) * k) / v.k };
+    });
+  const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  const onDown = (e: ReactPointerEvent) => {
+    if ((e.target as Element).closest(".map-node, .map-edge")) return;
+    drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+  };
+  const onMove = (e: ReactPointerEvent) => {
+    const d = drag.current;
+    if (d) setView((v) => ({ ...v, x: d.vx + e.clientX - d.x, y: d.vy + e.clientY - d.y }));
+  };
+  useEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      // Ctrl/Cmd + wheel zooms; the plain wheel keeps scrolling the page
+      // (drag to pan).
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const r = el.getBoundingClientRect();
+        zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [height, width, frameH]);
   const at = new Map(nodes.map((n) => [n.key, n]));
   // Lines into one node get their labels one above the other.
   const labelRow = new Map<string, number>();
@@ -240,6 +343,23 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
             ["latency", "Latency"],
           ]}
         />
+        <input className="map-find" type="search" placeholder="Find an agent" aria-label="Find an agent" value={find} onChange={(e) => setFind(e.target.value)} />
+        {big && quiet.size > 0 && (
+          <button className="btn sm" onClick={() => setShowQuiet((v) => !v)} aria-pressed={showQuiet}>
+            {showQuiet ? "Hide" : "Show"} {quiet.size} quiet {quiet.size === 1 ? "agent" : "agents"}
+          </button>
+        )}
+        <span className="map-zoom">
+          <button className="btn sm icon" aria-label="Zoom in" onClick={() => zoom(1.2)}>
+            <Plus size={14} />
+          </button>
+          <button className="btn sm icon" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}>
+            <Minus size={14} />
+          </button>
+          <button className="btn sm icon" aria-label="Fit the map" title="Fit the map (drag to move, Ctrl + wheel to zoom)" onClick={fit}>
+            <Maximize2 size={14} />
+          </button>
+        </span>
         <span className="map-legend" aria-hidden>
           <span className="lg-line" /> calls
           <span className="lg-line dashed" /> started without waiting
@@ -249,8 +369,19 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
           <span className="lg-ring" /> success share (24h)
         </span>
       </div>
-      <div className="map" role="group" aria-label={`Map of ${deps.length} deployments and ${edges.length} paths`}>
-        <svg width={width} height={height + 40} viewBox={`0 -40 ${width} ${height + 40}`}>
+      <div
+        className="map"
+        ref={frame}
+        role="group"
+        aria-label={`Map of ${deps.length} deployments and ${edges.length} paths${hideQuiet ? ` (${quiet.size} quiet hidden)` : ""}`}
+        style={{ height: frameH }}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={() => (drag.current = null)}
+        data-focus={focus ? true : undefined}
+      >
+        <svg width="100%" height={frameH - 18}>
+          <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
           <defs>
             <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
               <path d="M0 0 8 4 0 8z" className="map-arrow" />
@@ -289,6 +420,7 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
                 data-kind={e.kind}
                 data-tone={tone}
                 data-live={live > 0 || undefined}
+                data-dim={focus && !(focus.hit.has(e.from) || focus.hit.has(e.to)) ? true : undefined}
                 role="button"
                 tabIndex={0}
                 aria-label={`${e.from} to ${e.to} (${e.kind}): ${plural(e.calls, noun)}, ${e.failed} failed${live ? `, ${live} in flight` : ""}`}
@@ -362,8 +494,8 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
                 : st.label;
             const backlog = [l?.queued ? `${l.queued} queued` : "", l?.scheduled ? `${l.scheduled} scheduled` : ""].filter(Boolean).join(" · ");
             const day = `${compact(runs)} ${runs === 1 ? "run" : "runs"} in 24h${m?.failed ? ` · ${m.failed} failed` : ""}${m?.usage?.costUsd ? ` · ${money(m.usage.costUsd)}` : ""}`;
-            const cx = x + W - 22;
-            const cy = y + 22;
+            const cx = x + W - (big ? 18 : 22);
+            const cy = y + (big ? 18 : 22);
             return (
               <g
                 key={n.key}
@@ -373,6 +505,8 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
                 data-thinking={(l?.thinking ?? 0) > 0 || undefined}
                 data-asleep={asleep || undefined}
                 data-held={d.providerHold ? true : undefined}
+                data-match={focus?.hit.has(n.key) || undefined}
+                data-dim={focus && !focus.near.has(n.key) ? true : undefined}
                 role="button"
                 tabIndex={0}
                 aria-label={`${d.name}: ${now}${backlog ? `, ${backlog}` : ""}`}
@@ -384,25 +518,39 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
                 <circle cx={x + 16} cy={y + 20} r={4} className="map-dot" />
                 <g clipPath={`url(#${clipId(n.key)})`}>
                   <text x={x + 28} y={y + 24} className="map-name">
-                    {cut(d.name, 20)}
+                    {cut(d.name, big ? 16 : 20)}
                   </text>
-                  <text x={x + 16} y={y + 44} className="map-now">
-                    {cut(now, 30)}
-                  </text>
-                  <text x={x + 16} y={y + 61} className="map-sub" data-backlog={backlog ? true : undefined}>
-                    {cut(backlog || day, 32)}
-                  </text>
+                  {big ? (
+                    <text x={x + 16} y={y + 40} className={l?.running ? "map-now" : "map-sub"} data-backlog={!l?.running && backlog ? true : undefined}>
+                      {cut(
+                        l?.running
+                          ? [`${l.running} active`, l.approvals ? `${l.approvals} approval` : "", l.waitingAgent ? `${l.waitingAgent} waiting` : ""].filter(Boolean).join(" · ")
+                          : backlog || `${st.label} · ${compact(runs)} in 24h`,
+                        24,
+                      )}
+                    </text>
+                  ) : (
+                    <>
+                      <text x={x + 16} y={y + 44} className="map-now">
+                        {cut(now, 30)}
+                      </text>
+                      <text x={x + 16} y={y + 61} className="map-sub" data-backlog={backlog ? true : undefined}>
+                        {cut(backlog || day, 32)}
+                      </text>
+                    </>
+                  )}
                 </g>
                 {runs > 0 && (
                   <g className="map-ring" aria-hidden>
-                    <circle cx={cx} cy={cy} r={9} className="ring-track" />
-                    <path d={arc(cx, cy, 9, 0, 1 - failShare)} className="ring-ok" />
-                    {failShare > 0 && <path d={arc(cx, cy, 9, 1 - failShare, 1)} className="ring-err" />}
+                    <circle cx={cx} cy={cy} r={big ? 7 : 9} className="ring-track" />
+                    <path d={arc(cx, cy, big ? 7 : 9, 0, 1 - failShare)} className="ring-ok" />
+                    {failShare > 0 && <path d={arc(cx, cy, big ? 7 : 9, 1 - failShare, 1)} className="ring-err" />}
                   </g>
                 )}
               </g>
             );
           })}
+          </g>
         </svg>
       </div>
     </div>
