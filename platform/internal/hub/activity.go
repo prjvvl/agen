@@ -67,6 +67,24 @@ func clip(s string, n int) string {
 
 func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
 
+// human writes a duration in ms the way people say it: "40 min", "3 h 5 min", "2 days".
+func human(msecs int64) string {
+	m := msecs / 60_000
+	switch {
+	case m < 1:
+		return "under a minute"
+	case m < 60:
+		return fmt.Sprintf("%d min", m)
+	case m < 48*60:
+		if m%60 == 0 {
+			return fmt.Sprintf("%d h", m/60)
+		}
+		return fmt.Sprintf("%d h %d min", m/60, m%60)
+	default:
+		return fmt.Sprintf("%d days", m/(24*60))
+	}
+}
+
 func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetActivityRequest]) (*connect.Response[agenv1.GetActivityResponse], error) {
 	nss, err := visibleNamespaces(ctx, req.Msg.Namespace)
 	if err != nil {
@@ -125,7 +143,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 			a.Activity, a.ApprovalId, since = "approval", ap.ID, ap.CreatedMs
 			if now-ap.CreatedMs > approvalWaitAfter.Milliseconds() {
 				warn("waiting_approval", "warning", r.Namespace, r.Deployment, r.ID,
-					fmt.Sprintf("waiting %s for approval %s", (time.Duration(now-ap.CreatedMs)*time.Millisecond).Round(time.Minute), ap.ID))
+					fmt.Sprintf("waiting %s for approval %s", human(now-ap.CreatedMs), ap.ID))
 			}
 		case len(children[r.ID]) > 0:
 			a.Activity, a.Detail, since = "agent", children[r.ID][0].Deployment, children[r.ID][0].StartedMs
@@ -156,7 +174,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 		}
 		if (a.Activity == "idle" || a.Activity == "model" || a.Activity == "tool") && now-last > quietAfter.Milliseconds() {
 			warn("quiet_run", "warning", r.Namespace, r.Deployment, r.ID,
-				fmt.Sprintf("no step finished for %s (%s)", (time.Duration(now-last)*time.Millisecond).Round(time.Minute), a.Activity))
+				fmt.Sprintf("no step finished for %s (%s)", human(now-last), a.Activity))
 		}
 	}
 
@@ -169,7 +187,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 			Queued: int32(q.Queued), Scheduled: int32(q.Scheduled), OldestQueuedAt: ms(q.OldestQueuedMs)})
 		if q.Queued > 0 && q.OldestQueuedMs > 0 && now-q.OldestQueuedMs > queueWaitAfter.Milliseconds() {
 			warn("queue_waiting", "warning", q.Namespace, q.Deployment, "",
-				fmt.Sprintf("%d tasks waiting, the oldest for %s", q.Queued, (time.Duration(now-q.OldestQueuedMs)*time.Millisecond).Round(time.Minute)))
+				fmt.Sprintf("%d tasks waiting, the oldest for %s", q.Queued, human(now-q.OldestQueuedMs)))
 		}
 	}
 	bursts, err := h.Store.Bursts(ctx, nss, now-burstWindow.Milliseconds(), burstTasks)

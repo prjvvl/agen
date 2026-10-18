@@ -6,6 +6,7 @@ import { enumName } from "../format";
 import { useQuery } from "../live";
 import { deploymentHref, go, traceHref } from "../router";
 import { Alert, Badge, Empty, Json, SkeletonRows, Status, taskStatus, Tabs, Time } from "../ui";
+import { AttentionList } from "./Attention";
 import { TaskPanel } from "./Tasks";
 
 export function Inbox({ tab }: { tab?: string }) {
@@ -19,7 +20,7 @@ export function Inbox({ tab }: { tab?: string }) {
       <div className="page-head">
         <div className="titles">
           <h1>Inbox</h1>
-          <p className="facts">Approvals agents wait for, and work that failed.</p>
+          <p className="facts">What needs a person: warnings, approvals agents wait for, and work that failed.</p>
         </div>
       </div>
       <Tabs
@@ -34,6 +35,7 @@ export function Inbox({ tab }: { tab?: string }) {
         <DecidedApprovals />
       ) : (
         <>
+          <AttentionList />
           {can("approver") ? (
             <PendingApprovals />
           ) : (

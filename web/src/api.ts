@@ -109,6 +109,7 @@ export interface Deployment {
   paused?: boolean;
   budgetExhausted?: boolean;
   spentUsdToday?: number;
+  providerHold?: ProviderHold;
   budget?: { maxTokensPerRun?: Int; maxUsdPerRun?: number; maxUsdPerDay?: number };
   limits?: Limits;
   triggers?: Trigger[];
@@ -282,6 +283,22 @@ export interface CallEdge {
   to: Ref;
   calls?: number;
   failed?: number;
+  /** Of calls: started with start_agent (the result comes back later). */
+  asyncCalls?: number;
+  /** Of calls: still running. */
+  active?: number;
+  p95Ms?: Int;
+}
+
+export interface ModelMetrics {
+  model: string;
+  provider?: string;
+  calls?: number;
+  failed?: number;
+  fallbacks?: number;
+  p50Ms?: Int;
+  p95Ms?: Int;
+  usage?: Usage;
 }
 
 export interface Metrics {
@@ -289,6 +306,60 @@ export interface Metrics {
   edges?: CallEdge[];
   since?: string;
   bucketSeconds?: number;
+  models?: ModelMetrics[];
+}
+
+export interface ProviderHold {
+  account: string;
+  reason?: string;
+  failures?: number;
+  heldAt?: string;
+  retryAt?: string;
+  probeTaskId?: string;
+}
+
+/** What an unfinished run is doing now. */
+export interface ActiveRun {
+  runId: string;
+  ref: Ref;
+  taskId?: string;
+  input?: string;
+  startedAt?: string;
+  turns?: Int;
+  maxTurns?: number;
+  usage?: Usage;
+  traceId?: string;
+  parentRunId?: string;
+  rootRunId?: string;
+  activity?: "model" | "tool" | "agent" | "approval" | "idle";
+  detail?: string;
+  activitySince?: string;
+  approvalId?: string;
+  conversationKey?: string;
+  source?: string;
+  lastStepAt?: string;
+}
+
+export interface QueueStatus {
+  ref: Ref;
+  queued?: number;
+  scheduled?: number;
+  oldestQueuedAt?: string;
+}
+
+export interface ActivityWarning {
+  kind: string;
+  severity: "warning" | "critical";
+  ref?: Ref;
+  runId?: string;
+  message: string;
+}
+
+export interface Activity {
+  runs?: ActiveRun[];
+  queues?: QueueStatus[];
+  warnings?: ActivityWarning[];
+  now?: string;
 }
 
 export interface Template {

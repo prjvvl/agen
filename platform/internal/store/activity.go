@@ -17,7 +17,7 @@ type ActiveRun struct {
 func (s *Store) ActiveRuns(ctx context.Context, namespaces []string) ([]ActiveRun, error) {
 	var q query
 	q.in("r.namespace", namespaces)
-	q.where = append(q.where, "r.ended_ms IS NULL", "r.status = 'running'")
+	q.where = append(q.where, "r.ended_ms IS NULL", "r.status IN ('running', 'waiting_approval')")
 	cols := "r.id, r.session_id, r.conversation_id, r.namespace, r.deployment, r.definition_digest, r.parent_run_id, r.root_run_id, r.status, r.input, r.output, r.error, " +
 		"r.input_tokens, r.output_tokens, r.cost_usd, r.trace_id, r.started_ms, COALESCE(r.ended_ms, 0), r.task_id, r.requested_by, r.labels, r.step, " +
 		"COALESCE(t.source, ''), COALESCE(t.conversation_key, '')"

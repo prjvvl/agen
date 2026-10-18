@@ -390,6 +390,58 @@
 
 /* ---- map ---- */
 
+.map-wrap {
+  display: grid;
+  gap: 8px;
+}
+.map-tools,
+.section-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.map-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+.lg-line {
+  display: inline-block;
+  width: 18px;
+  border-top: 2px solid var(--border-strong);
+  margin-left: 4px;
+}
+.lg-line.dashed {
+  border-top-style: dashed;
+}
+.lg-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info);
+  margin-left: 4px;
+}
+.lg-diamond {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--err);
+  transform: rotate(45deg);
+  margin-left: 4px;
+}
+.lg-bar {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  margin-left: 4px;
+  background: var(--fg-muted);
+}
 .map {
   overflow: auto;
   padding: 8px;
@@ -400,6 +452,11 @@
 .map svg {
   display: block;
 }
+.map-node,
+.map-edge {
+  cursor: pointer;
+  outline: none;
+}
 .map-node rect {
   fill: var(--surface-2);
   stroke: var(--border-strong);
@@ -409,12 +466,25 @@
 .map-node:focus-visible rect {
   stroke: var(--brand);
 }
-.map-node:focus-visible {
-  outline: none;
-}
 .map-node[data-live] rect {
   stroke: var(--info);
   stroke-width: 2;
+}
+.map-node[data-thinking] rect {
+  animation: think 1.6s ease-in-out infinite;
+}
+@keyframes think {
+  50% {
+    stroke: var(--kind-model);
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--kind-model) 55%, transparent));
+  }
+}
+.map-node[data-asleep] {
+  opacity: 0.6;
+}
+.map-node[data-held] rect {
+  stroke: var(--err);
+  stroke-dasharray: 5 4;
 }
 .map-node .map-dot {
   fill: var(--fg-muted);
@@ -435,34 +505,183 @@
   fill: var(--fg);
   font: 600 13px var(--font-sans);
 }
+.map-now {
+  fill: var(--fg-soft);
+  font: 500 12px var(--font-sans);
+}
+.map-node[data-held] .map-now {
+  fill: var(--err);
+}
 .map-sub {
   fill: var(--fg-muted);
   font: 400 11px var(--font-sans);
+}
+.map-ring .ring-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 3;
+}
+.map-ring .ring-ok {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 3;
+}
+.map-ring .ring-err {
+  fill: none;
+  stroke: var(--err);
+  stroke-width: 3;
 }
 .map-edge path {
   fill: none;
   stroke: var(--border-strong);
   stroke-width: 1.5;
 }
-.map-edge[data-failed] path {
-  stroke: color-mix(in srgb, var(--err) 70%, transparent);
+.map-edge path.hit {
+  stroke: transparent;
+  stroke-width: 14 !important;
 }
-.map-edge[data-live] path {
-  stroke: var(--info);
+.map-edge:hover path:not(.hit),
+.map-edge:focus-visible path:not(.hit) {
+  stroke: var(--brand);
+}
+.map-edge[data-tone="warn"] path:not(.hit) {
+  stroke: color-mix(in srgb, var(--warn) 75%, transparent);
+}
+.map-edge[data-tone="err"] path:not(.hit) {
+  stroke: color-mix(in srgb, var(--err) 80%, transparent);
+}
+.map-edge[data-async] path:not(.hit) {
   stroke-dasharray: 6 5;
-  animation: flow 0.8s linear infinite;
 }
-@keyframes flow {
-  to {
-    stroke-dashoffset: -11;
-  }
+.map-edge[data-live] path:not(.hit) {
+  stroke: var(--info);
 }
 .map-edge text {
   fill: var(--fg-muted);
   font: 400 11px var(--font-sans);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+}
+.map-flight {
+  fill: var(--info);
+}
+.map-flight[data-failed] {
+  fill: var(--err);
 }
 .map-arrow {
   fill: var(--border-strong);
+}
+
+/* ---- now ---- */
+
+.doing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.doing[data-kind="model"] svg {
+  color: var(--kind-model);
+}
+.doing[data-kind="tool"] svg {
+  color: var(--kind-tool);
+}
+.doing[data-kind="agent"] svg {
+  color: var(--kind-agent);
+}
+.doing[data-kind="wait"] svg {
+  color: var(--kind-wait);
+}
+.doing[data-kind="idle"] svg {
+  color: var(--fg-muted);
+}
+.now-table .now-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.now-table .tree-elbow {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+.now-table .now-task {
+  max-width: 280px;
+}
+.now-table .now-task .truncate {
+  display: block;
+}
+.now-table td[data-tone="warn"] {
+  color: var(--warn);
+}
+.now-table tr[data-flagged] td:first-child {
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+/* ---- timeline ---- */
+
+.timeline {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.timeline svg {
+  display: block;
+  overflow: visible;
+}
+.tl-label {
+  fill: var(--fg-soft);
+  font: 500 12px var(--font-sans);
+}
+.tl-row {
+  stroke: var(--border);
+}
+.tl-tick line {
+  stroke: var(--border);
+  stroke-dasharray: 2 4;
+}
+.tl-tick text {
+  fill: var(--fg-muted);
+  font: 400 11px var(--font-sans);
+}
+.tl-now {
+  stroke: var(--brand);
+  stroke-width: 1.5;
+}
+.tl-bar,
+.lg-bar {
+  fill: var(--fg-muted);
+}
+.tl-bar[data-tone="ok"],
+.lg-bar[data-tone="ok"] {
+  fill: var(--ok);
+  background: var(--ok);
+}
+.tl-bar[data-tone="err"],
+.lg-bar[data-tone="err"] {
+  fill: var(--err);
+  background: var(--err);
+}
+.tl-bar[data-tone="run"],
+.lg-bar[data-tone="run"] {
+  fill: var(--info);
+  background: var(--info);
+}
+.tl-bar[data-tone="run"] {
+  animation: think 1.6s ease-in-out infinite;
+}
+.tl-bar[data-tone="wait"],
+.lg-bar[data-tone="wait"] {
+  fill: var(--kind-wait);
+  background: var(--kind-wait);
+}
+.tl-bar[data-tone="muted"] {
+  fill: var(--border-strong);
+}
+.tl-bar:hover {
+  stroke: var(--fg);
+  stroke-width: 1;
 }
 
 /* ---- overview, inbox ---- */
@@ -768,4 +987,48 @@
 }
 .steps-done[open] summary {
   margin-bottom: 4px;
+}
+
+/* ---- attention ---- */
+
+.attention {
+  display: grid;
+  gap: 8px;
+}
+.attention-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-soft);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+.chip:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.chip[data-tone="warn"] b {
+  color: var(--warn);
+}
+.chip[data-tone="err"] b {
+  color: var(--err);
+}
+.attention .more {
+  font-size: var(--text-sm);
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--text-sm);
 }
