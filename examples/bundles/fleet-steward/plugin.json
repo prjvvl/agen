@@ -1,5 +1,5 @@
 {
   "name": "fleet-steward",
   "version": "0.1.0",
-  "description": "Watches the fleet and reports failed tasks with their likely cause"
+  "description": "Watches the fleet: new failures and warnings every 30 minutes, a cost report every morning"
 }

@@ -118,6 +118,16 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/DeleteSecret` · MCP tool: `de
 | `namespace` | string |  |
 | `name` | string |  |
 
+## GetActivity
+
+What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetActivity` · MCP tool: `get_activity`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string | Empty: every namespace the caller may see. |
+
 ## GetBundleGuide
 
 How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
@@ -159,7 +169,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetLogs` · MCP tool: `get_lo
 
 ## GetMetrics
 
-Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 
 Scope: `viewer` · REST: `POST /agen.v1.HubService/GetMetrics` · MCP tool: `get_metrics`
 

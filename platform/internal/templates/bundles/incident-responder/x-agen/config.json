@@ -1,0 +1,42 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "15m"
+  },
+  "budget": {
+    "maxTokensPerRun": 120000,
+    "maxUsdPerDay": 2
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "workspace.*",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_*",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_*",
+        "action": "allow"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "webhook",
+      "name": "alert",
+      "input": "An alert fired:",
+      "auth": {
+        "type": "bearer"
+      },
+      "labels": {
+        "team": "oncall"
+      }
+    }
+  ]
+}

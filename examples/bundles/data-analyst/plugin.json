@@ -1,0 +1,5 @@
+{
+  "name": "data-analyst",
+  "version": "0.1.0",
+  "description": "Answers questions about your data with read-only SQL, showing the queries it ran"
+}

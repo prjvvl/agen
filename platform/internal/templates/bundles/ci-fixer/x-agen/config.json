@@ -1,0 +1,50 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 1,
+    "idleTimeout": "15m"
+  },
+  "budget": {
+    "maxUsdPerRun": 1.0,
+    "maxUsdPerDay": 5
+  },
+  "limits": {
+    "maxRunDuration": "45m",
+    "maxIdenticalToolCalls": 6,
+    "maxQueuedTasks": 20
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "load_skill",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.*",
+        "action": "allow"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "webhook",
+      "name": "ci",
+      "input": "A CI job failed:",
+      "auth": {
+        "type": "hmac",
+        "header": "X-Hub-Signature-256",
+        "algorithm": "sha256",
+        "prefix": "sha256=",
+        "secret": "CI_WEBHOOK_SECRET"
+      },
+      "idempotencyKey": {
+        "header": "X-GitHub-Delivery"
+      },
+      "labels": {
+        "team": "engineering"
+      }
+    }
+  ]
+}

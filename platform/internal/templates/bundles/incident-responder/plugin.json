@@ -1,0 +1,5 @@
+{
+  "name": "incident-responder",
+  "version": "0.1.0",
+  "description": "Turns an alert into a first assessment: what is affected, likely cause, the runbook steps"
+}

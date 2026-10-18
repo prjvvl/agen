@@ -1,0 +1,21 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "15m"
+  },
+  "budget": {
+    "maxUsdPerRun": 0.3,
+    "maxUsdPerDay": 2
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "sql.*",
+        "action": "allow"
+      }
+    ]
+  }
+}

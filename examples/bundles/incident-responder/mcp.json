@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "workspace": {
+      "command": "agen",
+      "args": [
+        "mcp",
+        "workspace",
+        "--root",
+        "/path/to/your/runbooks",
+        "--no-run"
+      ]
+    },
+    "agen": {
+      "url": "${AGEN_HUB_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AGEN_TOKEN}"
+      }
+    }
+  }
+}

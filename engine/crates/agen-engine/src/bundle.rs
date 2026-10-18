@@ -667,6 +667,21 @@ mod tests {
     }
 
     #[test]
+    fn every_example_bundle_loads() {
+        let dir = example("");
+        let mut n = 0;
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            if e.path().join("plugin.json").is_file() {
+                if let Err(err) = Bundle::load(e.path()) {
+                    panic!("{err}");
+                }
+                n += 1;
+            }
+        }
+        assert!(n >= 10, "{n} example bundles");
+    }
+
+    #[test]
     fn loads_hello_example() {
         let b = Bundle::load(example("hello")).unwrap();
         assert_eq!(b.name(), "hello");

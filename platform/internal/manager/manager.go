@@ -711,7 +711,7 @@ func (m *Manager) start(ctx context.Context, a *agenv1.Assignment) error {
 		env: []string{"AGEN_STORE=" + m.storeFor(in.ns), "AGEN_INSTANCE_ID=" + in.id, "AGEN_MANAGER_URL=" + m.managerURL, "AGEN_MANAGER_TOKEN=" + token, "AGEN_HOST_TOKEN=" + in.hostToken,
 			// Tool servers may write into the shared definition directory, so
 			// the host must not re-derive the digest from what is on disk.
-			"AGEN_DEFINITION_DIGEST=" + in.digest}})
+			"AGEN_DEFINITION_DIGEST=" + in.digest, "AGEN_BIN=" + agenBin()}})
 	if err != nil {
 		m.mu.Lock()
 		delete(m.instanceTokens, token)
@@ -1123,4 +1123,17 @@ func hostEnviron() []string {
 		}
 	}
 	return out
+}
+
+// agenBin is this binary's path: bundles may run "agen" as a tool server
+// (agen mcp workspace) without agen being on the hosts' PATH.
+func agenBin() string {
+	if p := os.Getenv("AGEN_BIN"); p != "" {
+		return p // set by whoever started this process (tests, wrappers)
+	}
+	p, err := os.Executable()
+	if err != nil {
+		return "agen"
+	}
+	return p
 }

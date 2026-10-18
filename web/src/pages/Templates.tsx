@@ -82,7 +82,7 @@ const HUB_TOKEN: Record<string, { scopes: string[]; onBehalf?: boolean }> = {
   assistant: { scopes: ["operator", "approver"], onBehalf: true },
   "approval-triage": { scopes: ["approver"] },
   "fleet-steward": { scopes: ["viewer"] },
-  "cost-watchdog": { scopes: ["viewer"] },
+  "incident-responder": { scopes: ["viewer"] },
 };
 
 function secretSources(t: Template): Record<string, string> {

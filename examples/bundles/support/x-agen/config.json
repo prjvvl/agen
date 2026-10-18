@@ -1,0 +1,34 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 3,
+    "idleTimeout": "10m"
+  },
+  "budget": {
+    "maxTokensPerRun": 60000,
+    "maxUsdPerDay": 1
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "workspace.*",
+        "action": "allow"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "webhook",
+      "name": "message",
+      "input": "A support message arrived:",
+      "idempotencyKey": {
+        "header": "Idempotency-Key"
+      },
+      "labels": {
+        "team": "support"
+      }
+    }
+  ]
+}

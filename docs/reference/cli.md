@@ -30,6 +30,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks
   agen providers [resume ACCT]    provider accounts held after an account error
+  agen mcp workspace --root DIR  a built-in MCP tool server: files and a shell in one folder
+  agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
@@ -414,6 +416,12 @@ Usage of providers:
     	namespace (default "default")
   -token string
     	API token
+```
+
+## agen mcp
+
+```text
+usage: agen mcp workspace --root DIR [--no-run] [--run-timeout D] | agen mcp sql [--dsn-env NAME]
 ```
 
 ## agen runs
