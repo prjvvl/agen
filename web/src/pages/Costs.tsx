@@ -229,7 +229,7 @@ function ProviderHolds() {
 function CostChart({ metrics }: { metrics: Metrics }) {
   const deps = [...(metrics.deployments ?? [])].sort((a, b) => (b.usage?.costUsd ?? 0) - (a.usage?.costUsd ?? 0));
   const byCost = deps.some((d) => (d.usage?.costUsd ?? 0) > 0);
-  const top = deps.slice(0, 4);
+  const top = deps.slice(0, 8);
   const rest = deps.slice(4);
   const n = deps[0]?.buckets?.length ?? 0;
   const value = (b?: { costUsd?: number; runs?: number }) => (byCost ? (b?.costUsd ?? 0) : (b?.runs ?? 0));
@@ -277,7 +277,7 @@ function CostChart({ metrics }: { metrics: Metrics }) {
       <div className="chart-x" aria-hidden>
         <span>{label(0)}</span>
         <span>{label(Math.floor(n / 2))}</span>
-        <span>{label(n - 1)}</span>
+        <span>now</span>
       </div>
       <div className="legend toolbar">
         {series.map((s) => (

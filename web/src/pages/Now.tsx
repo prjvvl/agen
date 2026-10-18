@@ -15,7 +15,11 @@ export function useNow(every = 1000): number {
   return now;
 }
 
-const since = (t: string | undefined, now: number) => duration(Math.max(0, now - (Date.parse(t ?? "") || now)));
+/** Whole seconds, so the text does not flicker on every tick. */
+const since = (t: string | undefined, now: number) => {
+  const ms = Math.max(0, now - (Date.parse(t ?? "") || now));
+  return ms < 1000 ? "<1 s" : duration(Math.floor(ms / 1000) * 1000);
+};
 
 /** What a run is doing, in words, with how long it has been at it. */
 export function Doing({ r, now }: { r: ActiveRun; now: number }) {
@@ -77,6 +81,7 @@ export function NowTable({ runs, flagged }: { runs: ActiveRun[]; flagged: Set<st
   const now = useNow();
   if (!runs.length) return <Empty title="Nothing is running">Runs appear here the moment they start, with what each is doing.</Empty>;
   return (
+    <div className="now-scroll">
     <div className="table-wrap">
       <table className="table now-table">
         <thead>
@@ -121,13 +126,14 @@ export function NowTable({ runs, flagged }: { runs: ActiveRun[]; flagged: Set<st
                   {max ? <span className="muted">/{max}</span> : null}
                 </td>
                 <td className="num">{compact(tokens(r.usage))}</td>
-                <td className="num">{money(r.usage?.costUsd)}</td>
+                <td className="num">{r.usage?.costUsd ? money(r.usage.costUsd) : "–"}</td>
                 <td className="num">{since(r.startedAt, now)}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }

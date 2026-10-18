@@ -233,7 +233,7 @@ function DeploymentLivePanel({
         </dd>
         <dt>p50 / p95</dt>
         <dd>
-          {duration(num(m?.p50Ms))} / {duration(num(m?.p95Ms))}
+          {num(m?.p50Ms) ? `${duration(num(m?.p50Ms))} / ${duration(num(m?.p95Ms))}` : "–"}
         </dd>
         <dt>Tokens</dt>
         <dd>{compact(tokens(m?.usage))}</dd>

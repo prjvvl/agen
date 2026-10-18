@@ -73,7 +73,7 @@ export function taskStatus(state: string, pendingApproval?: string): StatusSpec 
 export function deploymentStatus(d: Deployment): StatusSpec {
   if (d.paused) return { tone: "muted", label: "stopped", icon: CirclePause };
   if (d.budgetExhausted) return { tone: "warn", label: "daily budget used", icon: AlertTriangle };
-  if ((d.ready ?? 0) > 0) return { tone: "ok", label: `running · ${d.ready}`, icon: CircleDot };
+  if ((d.ready ?? 0) > 0) return { tone: "ok", label: `up · ${d.ready} ${d.ready === 1 ? "instance" : "instances"}`, icon: CircleDot };
   if ((d.desired ?? 0) > 0) return { tone: "info", label: "starting", icon: Loader2, active: true };
   return { tone: "muted", label: "asleep", icon: Moon };
 }

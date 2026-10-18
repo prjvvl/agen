@@ -142,7 +142,9 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
       return { d: `M${a.x + W / 2} ${a.y} C${a.x + W / 2} ${a.y - lift}, ${b.x + W / 2} ${b.y - lift}, ${b.x + W / 2} ${b.y}`, mx: (a.x + b.x + W) / 2, my: Math.min(a.y, b.y) - lift * 0.75 };
     }
     const mid = (x1 + x2) / 2;
-    return { d: `M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`, mx: mid, my: (y1 + y2) / 2 };
+    // The label sits just before the target, where edges into different
+    // targets are apart (at the midpoint, edges from one node bunch up).
+    return { d: `M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`, mx: x2 - Math.min(56, (x2 - x1) / 3), my: y2 };
   };
 
   return (
@@ -163,12 +165,13 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
           <span className="lg-line dashed" /> async
           <span className="lg-dot" /> in flight
           <span className="lg-diamond" /> failed
+          <span className="lg-ring" /> share of runs that succeeded
         </span>
       </div>
       <div className="map" role="group" aria-label={`Map of ${deps.length} deployments and ${allEdges.length} call paths`}>
         <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
           <defs>
-            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
               <path d="M0 0 8 4 0 8z" className="map-arrow" />
             </marker>
           </defs>
@@ -239,8 +242,9 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
             const runs = m?.runs ?? 0;
             const failShare = runs ? (m?.failed ?? 0) / runs : 0;
             const asleep = !l?.running && !(d.ready ?? 0) && !(d.desired ?? 0);
+            const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
             const now = l?.running
-              ? `${l.running} running${l.waiting ? ` (${l.waiting} waiting)` : ""}${l.queued ? ` · ${l.queued} queued` : ""}`
+              ? `${plural(l.running, "run")} active${l.waiting ? ` (${l.waiting} waiting)` : ""}${l.queued ? ` · ${l.queued} queued` : ""}`
               : l?.queued
                 ? `${l.queued} queued · ${st.label}`
                 : st.label;
@@ -270,7 +274,7 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
                   {d.providerHold ? "provider held" : now}
                 </text>
                 <text x={x + 16} y={y + 61} className="map-sub">
-                  {compact(runs)} runs{m?.failed ? ` · ${m.failed} failed` : ""}
+                  {compact(runs)} {runs === 1 ? "run" : "runs"} in 24h{m?.failed ? ` · ${m.failed} failed` : ""}
                   {m?.usage?.costUsd ? ` · ${money(m.usage.costUsd)}` : ""}
                 </text>
                 {runs > 0 && (

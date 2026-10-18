@@ -100,7 +100,7 @@ func TestActivityAndModelMetrics(t *testing.T) {
 	for _, w := range res.Msg.Warnings {
 		kinds[w.Kind+"/"+w.Ref.Name] = w.Message
 	}
-	for _, want := range []string{"near_turn_limit/lead", "waiting_approval/gate", "quiet_run/writer", "burst/gate", "queue_waiting/gate"} {
+	for _, want := range []string{"near_turn_limit/lead", "waiting_approval/gate", "quiet_run/writer", "burst/gate", "queue_waiting/gate", "blocked_by_approval/gate"} {
 		if _, ok := kinds[want]; !ok {
 			t.Errorf("missing warning %s in %v", want, kinds)
 		}

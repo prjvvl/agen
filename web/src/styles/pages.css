@@ -561,7 +561,30 @@
   font: 400 11px var(--font-sans);
   paint-order: stroke;
   stroke: var(--surface);
-  stroke-width: 3px;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+.lg-ring {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ok);
+  border-right-color: var(--err);
+  border-radius: 50%;
+  margin-left: 4px;
+}
+/* Live lists keep their size, so what is under the pointer stays put. */
+.attention .list {
+  min-height: calc(3 * 41px);
+}
+.now-scroll {
+  height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.now-scroll .table-wrap {
+  border: 0;
 }
 .map-flight {
   fill: var(--info);

@@ -37,16 +37,23 @@ const GROUPS: [string, string][] = [
   ["inst-", "instances"],
 ];
 
-const GROUP_NAMES: Record<string, string> = {
-  near_turn_limit: "near turn limits",
-  near_run_budget: "near run budgets",
-  near_daily_budget: "near daily budgets",
-  quiet_run: "quiet runs",
-  waiting_approval: "long approval waits",
-  queue_waiting: "queues waiting",
-  burst: "bursts",
-  model_errors: "model errors",
-  provider_held: "held providers",
+// Group labels, singular and plural.
+const GROUP_NAMES: Record<string, [string, string]> = {
+  approvals: ["approval item", "approval items"],
+  failures: ["deployment with failures", "deployments with failures"],
+  budgets: ["budget used up", "budgets used up"],
+  capacity: ["capacity problem", "capacity problems"],
+  instances: ["instance problem", "instance problems"],
+  near_turn_limit: ["run near its turn limit", "runs near their turn limit"],
+  near_run_budget: ["run near its budget", "runs near their budget"],
+  near_daily_budget: ["daily budget nearly used", "daily budgets nearly used"],
+  quiet_run: ["quiet run", "quiet runs"],
+  waiting_approval: ["long approval wait", "long approval waits"],
+  queue_waiting: ["queue waiting", "queues waiting"],
+  blocked_by_approval: ["queue blocked by an approval", "queues blocked by approvals"],
+  burst: ["burst", "bursts"],
+  model_errors: ["model error rate", "model error rates"],
+  provider_held: ["held provider", "held providers"],
 };
 
 /** Everything that needs a person now, most serious first. */
@@ -77,6 +84,7 @@ export function buildAttention({ approvals, metrics, nests, instances, activity,
       text: (
         <>
           <b>{m.ref.name}</b>: {m.failed} of {m.runs} runs failed in the last 24 hours
+          <span className="muted"> (calls from other agents included)</span>
         </>
       ),
       action: (
@@ -154,6 +162,8 @@ export function buildAttention({ approvals, metrics, nests, instances, activity,
     const trace = w.runId ? runTrace.get(w.runId) : undefined;
     attention.push({
       key: `w-${w.kind}-${dep}-${w.runId ?? ""}-${w.message}`,
+      group: w.kind,
+      severity: w.severity,
       icon: warnIcon(w),
       text: (
         <>
@@ -235,7 +245,7 @@ export function AttentionSummary({ items, top = 3 }: { items: Attention[]; top?:
       <div className="attention-chips">
         {[...counts.entries()].map(([g, c]) => (
           <a key={g} className="chip" data-tone={c.critical ? "err" : "warn"} href="#/inbox">
-            <b>{c.n}</b> {GROUP_NAMES[g] ?? g}
+            <b>{c.n}</b> {(GROUP_NAMES[g] ?? [g, g])[c.n === 1 ? 0 : 1]}
           </a>
         ))}
       </div>

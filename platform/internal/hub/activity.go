@@ -182,7 +182,20 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	// Deployments whose every run waits for an approval: their queue cannot move.
+	waitingOnly := map[[2]string]bool{}
+	for _, r := range out.Runs {
+		k := [2]string{r.Ref.Namespace, r.Ref.Name}
+		if _, seen := waitingOnly[k]; !seen {
+			waitingOnly[k] = true
+		}
+		waitingOnly[k] = waitingOnly[k] && r.Activity == "approval"
+	}
 	for _, q := range queues {
+		if q.Queued > 0 && waitingOnly[[2]string{q.Namespace, q.Deployment}] {
+			warn("blocked_by_approval", "warning", q.Namespace, q.Deployment, "",
+				fmt.Sprintf("%d tasks queued behind a pending approval", q.Queued))
+		}
 		out.Queues = append(out.Queues, &agenv1.QueueStatus{Ref: &agenv1.DeploymentRef{Namespace: q.Namespace, Name: q.Deployment},
 			Queued: int32(q.Queued), Scheduled: int32(q.Scheduled), OldestQueuedAt: ms(q.OldestQueuedMs)})
 		if q.Queued > 0 && q.OldestQueuedMs > 0 && now-q.OldestQueuedMs > queueWaitAfter.Milliseconds() {
@@ -196,7 +209,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 	}
 	for _, b := range bursts {
 		warn("burst", "critical", b.Namespace, b.Deployment, "",
-			fmt.Sprintf("%d tasks in conversation %q in %s: a loop?", b.Tasks, b.ConversationKey, burstWindow))
+			fmt.Sprintf("%d tasks in conversation %q in the last %s: a loop?", b.Tasks, b.ConversationKey, human(burstWindow.Milliseconds())))
 	}
 
 	// Model errors per deployment, recent window.
@@ -224,7 +237,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 	for _, k := range keys {
 		t := errs[k]
 		if t.calls >= modelErrMinCalls && float64(t.failed) >= modelErrShare*float64(t.calls) {
-			warn("model_errors", "critical", k[0], k[1], "", fmt.Sprintf("%d of %d model calls failed in %s", t.failed, t.calls, modelErrWindow))
+			warn("model_errors", "critical", k[0], k[1], "", fmt.Sprintf("%d of %d model calls failed in the last %s", t.failed, t.calls, human(modelErrWindow.Milliseconds())))
 		}
 	}
 

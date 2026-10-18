@@ -23,7 +23,8 @@ export function ago(t?: string, now = Date.now()): string {
   const diff = (now - ms(t)) / 1000;
   const d = Math.abs(diff);
   const span = d < 3600 ? `${Math.max(1, Math.round(d / 60))}m` : d < 86400 ? `${Math.round(d / 3600)}h` : `${Math.round(d / 86400)}d`;
-  if (d < 45) return diff >= 0 ? "just now" : "in a moment";
+  if (d < 10) return diff >= 0 ? "just now" : "in a moment";
+  if (d < 60) return diff >= 0 ? `${Math.round(d)}s ago` : `in ${Math.round(d)}s`;
   return diff >= 0 ? `${span} ago` : `in ${span}`;
 }
 

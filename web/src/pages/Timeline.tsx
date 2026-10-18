@@ -33,6 +33,7 @@ const tone = (status: string) =>
  */
 export function Timeline({ active = [] }: { active?: ActiveRun[] }) {
   const [win, setWin] = useState<Window>("1h");
+  const [chosen, setChosen] = useState(false);
   const now = useNow(5000);
   const span = WINDOWS[win];
   const runs = useQuery(
@@ -65,6 +66,12 @@ export function Timeline({ active = [] }: { active?: ActiveRun[] }) {
   const plot = width - LABEL_W - 8;
   const x = (t: number) => LABEL_W + ((Math.max(t, start) - start) / span) * plot;
   const ticks = Array.from({ length: 5 }, (_, i) => start + (span * i) / 4);
+  // Until the operator picks a window: a young fleet's runs fit in 15 minutes.
+  useEffect(() => {
+    if (chosen || win !== "1h" || !runs.data?.runs?.length) return;
+    const first = Math.min(...runs.data.runs.map((r) => Date.parse(r.startedAt ?? "") || now));
+    if (now - first < WINDOWS["15m"] * 0.9) setWin("15m");
+  }, [runs.data, chosen, win, now]);
   const truncated = (runs.data?.runs?.length ?? 0) >= 500;
 
   return (
@@ -73,7 +80,10 @@ export function Timeline({ active = [] }: { active?: ActiveRun[] }) {
         <Segmented<Window>
           label="Time window"
           value={win}
-          onChange={setWin}
+          onChange={(w) => {
+            setChosen(true);
+            setWin(w);
+          }}
           options={[
             ["15m", "15 min"],
             ["1h", "1 hour"],
