@@ -1,8 +1,10 @@
-import { call, Instance, Nest } from "../api";
+import { useState } from "react";
+import { call, errorText, Instance, Nest } from "../api";
+import { useSession } from "../App";
 import { enumName } from "../format";
 import { useQuery } from "../live";
 import { deploymentHref } from "../router";
-import { Alert, Badge, Empty, instanceStatus, Meter, SkeletonRows, Status, Time } from "../ui";
+import { Alert, Badge, ConfirmButton, Copy, Empty, instanceStatus, Meter, SkeletonRows, Status, Time } from "../ui";
 
 export function Fleet() {
   const nests = useQuery(() => call<{ nests?: Nest[] }>("ListNests"), [], { on: ["instance"], every: 15_000 });
@@ -10,14 +12,45 @@ export function Fleet() {
   const byNest = new Map<string, Instance[]>();
   for (const i of instances.data?.instances ?? []) (byNest.get(i.nestId) ?? byNest.set(i.nestId, []).get(i.nestId)!).push(i);
   const list = nests.data?.nests ?? [];
+  const { can } = useSession();
+  const [join, setJoin] = useState<string>();
+  const [msg, setMsg] = useState("");
+  const addNest = async () => {
+    try {
+      const r = await call<{ token: string; caHash?: string }>("CreateJoinToken", { ttlSeconds: 3600 });
+      const hub = location.origin;
+      setJoin(`agen nest run --hub ${hub} --join-token ${r.token}${r.caHash ? ` --ca-hash ${r.caHash}` : ""} --name <machine name>`);
+      setMsg("");
+    } catch (e) {
+      setMsg(errorText(e));
+    }
+  };
+  const revoke = (n: Nest) =>
+    call("RevokeNest", { id: n.id })
+      .then(() => (setMsg(`Nest ${n.name} revoked; its instances move to other nests.`), nests.reload()))
+      .catch((e) => setMsg(errorText(e)));
   return (
     <div className="page">
       <div className="page-head">
         <div className="titles">
           <h1>Fleet</h1>
-          <p className="facts">Nests are the machines and clusters that run instances. Add one with agen join-token and agen nest run.</p>
+          <p className="facts">Nests are the machines and clusters that run instances.</p>
         </div>
+        {can("admin") && (
+          <button className="btn" onClick={addNest}>
+            Add a nest
+          </button>
+        )}
       </div>
+      {msg && <Alert tone="info">{msg}</Alert>}
+      {join && (
+        <Alert tone="info">
+          Run this on the machine to add (the join token works once, for an hour):
+          <div style={{ marginTop: 6 }}>
+            <Copy text={join} />
+          </div>
+        </Alert>
+      )}
       {(nests.error || instances.error) && <Alert>{nests.error || instances.error}</Alert>}
       {nests.loading ? (
         <SkeletonRows rows={2} cols={4} />
@@ -35,6 +68,11 @@ export function Fleet() {
                 <span className="hint">
                   {n.backend} · heartbeat <Time t={n.lastHeartbeat} />
                 </span>
+                {can("admin") && state !== "revoked" && (
+                  <span style={{ marginLeft: "auto" }}>
+                    <ConfirmButton className="btn sm" label="Revoke" confirm={`Revoke ${n.name}`} onConfirm={() => revoke(n)} />
+                  </span>
+                )}
               </div>
               {(n.capacity ?? 0) > 0 && <Meter label="Capacity" value={n.used ?? 0} max={n.capacity} />}
               {inst.length === 0 ? (
@@ -71,7 +109,7 @@ export function Fleet() {
                                   {s.name}
                                 </Badge>
                               ))}
-                              {!(i.toolServers ?? []).length && <span className="muted">{(i.tools ?? []).length} tools</span>}
+                              {!(i.toolServers ?? []).length && <span className="muted">{(i.tools ?? []).length} {(i.tools ?? []).length === 1 ? "tool" : "tools"}</span>}
                             </span>
                           </td>
                           <td>

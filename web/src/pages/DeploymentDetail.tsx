@@ -125,7 +125,7 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
       ) : tab === "logs" ? (
         <Logs namespace={namespace} name={name} />
       ) : tab === "bundle" ? (
-        <BundleFiles digest={d.definitionDigest} />
+        <BundleTab d={d} />
       ) : tab === "triggers" ? (
         <Triggers d={d} />
       ) : (
@@ -190,7 +190,26 @@ function OverviewTab({ d, instances, onOpenTask }: { d: Deployment; instances: I
             <span className="hint">Where this deployment stands against what its bundle allows.</span>
           </div>
           <Meter label="Spend today" value={d.spentUsdToday ?? 0} max={d.budget?.maxUsdPerDay} format={money} />
-          <Meter label="Queued tasks" value={queued.data?.tasks?.length ?? 0} max={l.maxQueuedTasks} />
+          {(() => {
+            const all = queued.data?.tasks ?? [];
+            const now = Date.now();
+            const later = all.filter((t) => t.notBefore && Date.parse(t.notBefore) > now);
+            const due = all.filter((t) => !later.includes(t));
+            const oldest = due.reduce((m, t) => Math.min(m, Date.parse(t.createdAt ?? "") || now), now);
+            return (
+              <Meter
+                label={
+                  <>
+                    Queued tasks
+                    {later.length > 0 && <span className="muted"> · {later.length} scheduled for later</span>}
+                    {due.length > 0 && now - oldest > 60_000 && <span className="muted"> · oldest waiting {duration(now - oldest)}</span>}
+                  </>
+                }
+                value={all.length}
+                max={l.maxQueuedTasks}
+              />
+            );
+          })()}
           <Meter label="Instances" value={d.desired ?? 0} max={d.scale?.max ?? 1} neutral />
           <dl className="kv">
             <dt>Per run</dt>
@@ -418,6 +437,75 @@ function Logs({ namespace, name }: { namespace: string; name: string }) {
         </pre>
       )}
     </div>
+  );
+}
+
+/** The bundle's files, any earlier version of them, and rolling back. */
+function BundleTab({ d }: { d: Deployment }) {
+  const { can } = useSession();
+  const [view, setView] = useState<string>();
+  const [msg, setMsg] = useState("");
+  const cur = useQuery(() => call<{ definition: Definition }>("GetDefinition", { digest: d.definitionDigest }), [d.definitionDigest]);
+  const bundleName = cur.data?.definition.name;
+  const versions = useQuery(
+    () => (bundleName ? call<{ definitions?: Definition[] }>("ListDefinitions", { name: bundleName }) : Promise.resolve({ definitions: [] })),
+    [bundleName, d.definitionDigest],
+  );
+  const list = [...(versions.data?.definitions ?? [])].sort((a, b) => Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? ""));
+  const shown = view ?? d.definitionDigest;
+  const rollBack = async (digest: string) => {
+    try {
+      const def = await call<{ definition: Definition }>("GetDefinition", { digest });
+      await call("UpdateDeployment", { ref: { namespace: d.namespace, name: d.name }, bundleFiles: def.definition.files });
+      setMsg(`${d.name} now runs version ${digest.replace("sha256:", "").slice(0, 12)}; instances restart on it.`);
+      setView(undefined);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      {msg && <Alert tone="info">{msg}</Alert>}
+      {list.length > 1 && (
+        <section className="section" aria-labelledby="versions">
+          <h3 id="versions">Versions</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Created</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {list.slice(0, 20).map((v) => (
+                  <tr key={v.digest} data-selected={v.digest === shown || undefined}>
+                    <td>
+                      <code>{v.digest.replace("sha256:", "").slice(0, 12)}</code>
+                      {v.digest === d.definitionDigest && <Badge tone="ok">running</Badge>}
+                    </td>
+                    <td>
+                      <Time t={v.createdAt} />
+                    </td>
+                    <td className="actions">
+                      <button className="btn sm" onClick={() => setView(v.digest)} disabled={v.digest === shown}>
+                        View
+                      </button>
+                      {can("operator") && v.digest !== d.definitionDigest && (
+                        <ConfirmButton className="btn sm" label="Roll back to this" confirm="Roll back" onConfirm={() => rollBack(v.digest)} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+      {view && view !== d.definitionDigest && <Alert tone="info">Showing an earlier version, not the one that runs.</Alert>}
+      <BundleFiles digest={shown} />
+    </>
   );
 }
 
