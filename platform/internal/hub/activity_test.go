@@ -132,6 +132,18 @@ func TestActivityAndModelMetrics(t *testing.T) {
 	if edge == nil || edge.Active != 1 {
 		t.Fatalf("edges: %v", m.Msg.Edges)
 	}
+	if c := by["r-writer"].Caller; c.GetName() != "lead" {
+		t.Fatalf("caller of the delegated run: %v", c)
+	}
+	entries := map[string]int32{}
+	for _, x := range m.Msg.Entries {
+		entries[x.Source+">"+x.To.Name] = x.Runs
+	}
+	// Runs with no task and no parent came from A2A callers outside the fleet;
+	// the delegated writer run is an edge, not an entry.
+	if entries["a2a>lead"] != 1 || entries["a2a>gate"] != 1 || entries["a2a>writer"] != 1 {
+		t.Fatalf("entries: %v", m.Msg.Entries)
+	}
 	if !strings.Contains(kinds["burst/gate"], "loop") {
 		t.Fatalf("burst message: %q", kinds["burst/gate"])
 	}

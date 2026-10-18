@@ -133,6 +133,9 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 			Input: clip(r.Input, 200), StartedAt: ms(r.StartedMs), Turns: r.Step, MaxTurns: int32(h.maxTurns(ctx, r.DefinitionDigest)),
 			Usage: &agenv1.Usage{InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUsd: r.CostUSD}, TraceId: r.TraceID,
 			ParentRunId: r.ParentRunID, RootRunId: r.RootRunID, ConversationKey: r.ConversationKey, Source: r.Source}
+		if r.CallerDeployment != "" {
+			a.Caller = &agenv1.DeploymentRef{Namespace: r.CallerNamespace, Name: r.CallerDeployment}
+		}
 		st := steps[r.ID]
 		last := max(st.LastEndMs, r.StartedMs)
 		a.LastStepAt = ms(last)
@@ -315,5 +318,51 @@ func (h *Hub) modelMetrics(ctx context.Context, nss []string, since int64) ([]*a
 		}
 		return out[i].Model < out[j].Model
 	})
+	return out, nil
+}
+
+// entryEdges groups runs without a parent run by where their work came from.
+func (h *Hub) entryEdges(ctx context.Context, nss []string, since int64) ([]*agenv1.EntryEdge, error) {
+	entries, err := h.Store.Entries(ctx, nss, since)
+	if err != nil {
+		return nil, err
+	}
+	byKey := map[string]*agenv1.EntryEdge{}
+	var order []string
+	for _, e := range entries {
+		kind, from := e.Source, ""
+		if i := strings.IndexByte(kind, ':'); i >= 0 {
+			kind, from = kind[:i], kind[i+1:]
+		}
+		switch kind {
+		case "":
+			kind = "a2a" // no task: an A2A call from outside the fleet
+		case "api", "cron", "webhook", "reply":
+		default:
+			continue // a2a child tasks are calls between agents (edges)
+		}
+		k := kind + ">" + e.Namespace + "/" + e.Deployment
+		if kind == "reply" {
+			k = from + ">" + k
+		}
+		edge := byKey[k]
+		if edge == nil {
+			edge = &agenv1.EntryEdge{Source: kind, To: &agenv1.DeploymentRef{Namespace: e.Namespace, Name: e.Deployment}}
+			if kind == "reply" {
+				edge.From = &agenv1.DeploymentRef{Namespace: e.Namespace, Name: from}
+			}
+			byKey[k] = edge
+			order = append(order, k)
+		}
+		edge.Runs++
+		if e.Status == "failed" {
+			edge.Failed++
+		}
+	}
+	sort.Strings(order)
+	out := make([]*agenv1.EntryEdge, 0, len(order))
+	for _, k := range order {
+		out = append(out, byKey[k])
+	}
 	return out, nil
 }

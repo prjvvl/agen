@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { useActivity, useFlights } from "../activity";
-import { ActiveRun, ActivityWarning, Approval, call, CallEdge, Deployment, DeploymentMetrics, Instance, Nest, num, QueueStatus, Task } from "../api";
+import { ActiveRun, ActivityWarning, Run, Approval, call, Deployment, DeploymentMetrics, Instance, Nest, num, QueueStatus, Task } from "../api";
 import { useSession } from "../App";
 import { compact, duration, money, tokens } from "../format";
 import { LiveEvent, useLiveEvents, useQuery } from "../live";
 import { deploymentHref, traceHref } from "../router";
 import { Alert, Badge, deploymentStatus, Empty, MiniBars, Panel, SkeletonRows, Status, taskStatus, Time } from "../ui";
 import { depKey, useFleet } from "./Deployments";
-import { FleetMap, liveByDeployment } from "./FleetMap";
+import { FleetMap, liveByDeployment, MapEdge, mapEdges } from "./FleetMap";
 import { Doing, NowTable, useNow } from "./Now";
 import { RunsTable } from "./Runs";
 import { TaskPanel } from "./Tasks";
@@ -28,6 +28,7 @@ export function Overview() {
   const activity = useActivity();
   const flights = useFlights(activity.data);
   const live = liveByDeployment(activity.data?.runs, activity.data?.queues);
+  const edges = mapEdges(metrics.data?.edges ?? [], metrics.data?.entries ?? [], flights);
   const [selected, setSelected] = useState<{ kind: "node" | "edge"; key: string }>();
 
   const list = deps.data?.deployments ?? [];
@@ -43,7 +44,7 @@ export function Overview() {
   const queued = (activity.data?.queues ?? []).reduce((a, q) => a + (q.queued ?? 0), 0);
   const flagged = new Set((activity.data?.warnings ?? []).map((w) => w.runId ?? "").filter(Boolean));
   const openDep = selected?.kind === "node" ? list.find((d) => depKey(d) === selected.key) : undefined;
-  const openEdge = selected?.kind === "edge" ? (metrics.data?.edges ?? []).find((e) => `${depKey(e.from)}>${depKey(e.to)}` === selected.key) : undefined;
+  const openEdge = selected?.kind === "edge" ? edges.find((e) => e.key === selected.key) : undefined;
 
   return (
     <div className="page">
@@ -100,12 +101,12 @@ export function Overview() {
         ) : (
           <FleetMap
             deps={list}
-            edges={metrics.data?.edges ?? []}
+            edges={edges}
             metrics={byDep}
             live={live}
             flights={flights}
             onNode={(d) => setSelected({ kind: "node", key: depKey(d) })}
-            onEdge={(e) => setSelected({ kind: "edge", key: `${depKey(e.from)}>${depKey(e.to)}` })}
+            onEdge={(e) => setSelected({ kind: "edge", key: e.key })}
           />
         )}
       </section>
@@ -153,7 +154,7 @@ export function Overview() {
           onClose={() => setSelected(undefined)}
         />
       )}
-      {openEdge && <EdgePanel e={openEdge} live={flights.filter((f) => !f.endedAt && f.from === depKey(openEdge.from) && f.to === depKey(openEdge.to)).length} onClose={() => setSelected(undefined)} />}
+      {openEdge && <EdgePanel e={openEdge} live={flights.filter((f) => !f.endedAt && f.from === openEdge.from && f.to === openEdge.to).length} onClose={() => setSelected(undefined)} />}
     </div>
   );
 }
@@ -245,32 +246,76 @@ function DeploymentLivePanel({
   );
 }
 
-function EdgePanel({ e, live, onClose }: { e: CallEdge; live: number; onClose: () => void }) {
+const ENTRY_NAMES: Record<string, string> = {
+  "entry:api": "API & CLI",
+  "entry:cron": "Schedules",
+  "entry:webhook": "Webhooks",
+  "entry:a2a": "Outside callers",
+};
+const nodeName = (k: string) => ENTRY_NAMES[k] ?? k.split("/").slice(1).join("/");
+
+const EDGE_KINDS: Record<MapEdge["kind"], string> = {
+  call: "Calls (the caller waits for the answer)",
+  async: "Work started without waiting (start_agent); results come back as new tasks",
+  reply: "Results of work it started, coming back to it",
+  entry: "Work from outside the fleet",
+};
+
+/** One line of the map: its counts and the latest failures behind it. */
+function EdgePanel({ e, live, onClose }: { e: MapEdge; live: number; onClose: () => void }) {
+  const target = nodeName(e.to);
+  const failures = useQuery(
+    () => call<{ runs?: Run[] }>("ListRuns", { deployment: target, status: "failed", limit: 5 }),
+    [target],
+    { on: ["run"] },
+  );
   return (
     <Panel
-      title={`${e.from.name} → ${e.to.name}`}
+      title={`${nodeName(e.from)} → ${target}`}
       onClose={onClose}
       footer={
-        <a className="btn" href={`#/runs?deployment=${encodeURIComponent(e.to.name)}&all=1`}>
-          Runs of {e.to.name}
+        <a className="btn" href={`#/runs?deployment=${encodeURIComponent(target)}&all=1`}>
+          Runs of {target}
         </a>
       }
     >
+      <p className="soft">{EDGE_KINDS[e.kind]}</p>
       <dl className="kv">
-        <dt>Calls (24h)</dt>
-        <dd>{e.calls ?? 0}</dd>
+        <dt>{e.kind === "reply" ? "Results" : e.kind === "entry" ? "Runs" : "Calls"} (24h)</dt>
+        <dd>{e.calls}</dd>
         <dt>Failed</dt>
         <dd>
-          {e.failed ?? 0}
-          {e.calls ? ` (${Math.round(((e.failed ?? 0) / e.calls) * 100)}%)` : ""}
+          {e.failed}
+          {e.calls ? ` (${Math.round((e.failed / e.calls) * 100)}%)` : ""}
         </dd>
-        <dt>Async (start_agent)</dt>
-        <dd>{e.asyncCalls ?? 0}</dd>
+        {e.kind === "call" || e.kind === "async" ? (
+          <>
+            <dt>Started without waiting</dt>
+            <dd>{e.asyncCalls ?? 0}</dd>
+            <dt>p95 duration</dt>
+            <dd>{e.p95Ms ? duration(e.p95Ms) : "—"}</dd>
+          </>
+        ) : null}
         <dt>In flight</dt>
         <dd>{live || e.active || 0}</dd>
-        <dt>p95 duration</dt>
-        <dd>{num(e.p95Ms) ? duration(num(e.p95Ms)) : "—"}</dd>
       </dl>
+      <h3>Latest failures of {target}</h3>
+      {failures.loading ? (
+        <SkeletonRows rows={2} cols={1} />
+      ) : (failures.data?.runs ?? []).length ? (
+        <ul className="list">
+          {(failures.data?.runs ?? []).map((r) => (
+            <li key={r.id}>
+              <a className="grow truncate" style={{ flex: 1, minWidth: 0 }} href={r.traceId ? traceHref(r.traceId) : undefined} title={r.error}>
+                {r.error || r.input}
+              </a>
+              <Time t={r.startedAt} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No failed runs.</p>
+      )}
     </Panel>
   );
 }
@@ -312,7 +357,7 @@ function ActivityFeed({ onOpenTask }: { onOpenTask: (id: string) => void }) {
           </button>
           {count > 1 && <Badge title="Tasks in this conversation">×{count}</Badge>}
           {t.source && t.source !== "api" && <Badge title="Where the task came from">{t.source.split(":")[0]}</Badge>}
-          <Time t={t.updatedAt ?? t.createdAt} />
+          <Time t={t.createdAt} />
         </li>
       ))}
     </ul>

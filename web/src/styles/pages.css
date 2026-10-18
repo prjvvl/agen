@@ -550,8 +550,40 @@
 .map-edge[data-tone="err"] path:not(.hit) {
   stroke: color-mix(in srgb, var(--err) 80%, transparent);
 }
-.map-edge[data-async] path:not(.hit) {
+.map-edge[data-kind="async"] path:not(.hit) {
   stroke-dasharray: 6 5;
+}
+.map-edge[data-kind="reply"] path:not(.hit) {
+  stroke-dasharray: 1.5 4;
+  stroke-linecap: round;
+}
+.map-edge[data-kind="entry"] path:not(.hit) {
+  stroke: var(--border);
+}
+.map-entry rect {
+  fill: var(--bg);
+  stroke: var(--border-strong);
+  stroke-dasharray: 3 3;
+}
+.map-entry .map-name {
+  font-size: 12px;
+}
+.map-node .map-sub[data-backlog] {
+  fill: var(--warn);
+}
+.map-flight[data-kind="async"] {
+  fill: var(--surface);
+  stroke: var(--info);
+  stroke-width: 2;
+}
+.map-flight[data-kind="reply"] {
+  fill: var(--ok);
+}
+.map-flight[data-kind="entry"] {
+  fill: var(--fg-muted);
+}
+.lg-line.dotted {
+  border-top-style: dotted;
 }
 .map-edge[data-live] path:not(.hit) {
   stroke: var(--info);
@@ -1054,4 +1086,20 @@
   gap: 8px;
   margin-top: 8px;
   font-size: var(--text-sm);
+}
+.map-flight[data-failed],
+.map-flight[data-kind][data-failed] {
+  fill: var(--err);
+  stroke: none;
+}
+.map-edge[data-kind="entry"] text,
+.map-edge[data-kind="reply"] text {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.map-edge[data-kind="entry"]:hover text,
+.map-edge[data-kind="entry"]:focus-visible text,
+.map-edge[data-kind="reply"]:hover text,
+.map-edge[data-kind="reply"]:focus-visible text {
+  opacity: 1;
 }

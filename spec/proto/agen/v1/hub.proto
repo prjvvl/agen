@@ -488,6 +488,19 @@ message GetMetricsResponse {
   google.protobuf.Timestamp since = 3;
   int32 bucket_seconds = 4;
   repeated ModelMetrics models = 5;
+  // Where work came from that no agent of the fleet sent: the API or CLI,
+  // schedules, webhooks, A2A callers outside the fleet; and results of async
+  // work going back to the agent that started it (source "reply").
+  repeated EntryEdge entries = 6;
+}
+message EntryEdge {
+  // "api", "cron", "webhook", "a2a" (outside callers) or "reply".
+  string source = 1;
+  // For "reply": the agent the result came from.
+  DeploymentRef from = 2;
+  DeploymentRef to = 3;
+  int32 runs = 4;
+  int32 failed = 5;
 }
 
 message GetActivityRequest {
@@ -520,6 +533,9 @@ message ActiveRun {
   // Where its task came from ("api", "cron:x", "reply:y"; empty over A2A).
   string source = 17;
   google.protobuf.Timestamp last_step_at = 18;
+  // The deployment of the run that started this one (a call, or an async
+  // start whose caller may have finished).
+  DeploymentRef caller = 19;
 }
 message QueueStatus {
   DeploymentRef ref = 1;

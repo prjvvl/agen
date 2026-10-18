@@ -224,7 +224,10 @@ pre,
 .topbar .grow {
   flex: 1;
 }
-.menu-btn {
+.shell[data-nav="hidden"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.shell[data-nav="hidden"] .sidebar {
   display: none;
 }
 
@@ -1047,8 +1050,8 @@ td.actions-cell {
     transform: none;
     box-shadow: var(--shadow);
   }
-  .menu-btn {
-    display: inline-flex;
+  .shell[data-nav="hidden"] .sidebar {
+    display: flex;
   }
   .topbar {
     padding: 0 12px;

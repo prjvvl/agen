@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ActiveRun, CallEdge, Deployment, DeploymentMetrics, num, QueueStatus } from "../api";
+import { ActiveRun, CallEdge, Deployment, DeploymentMetrics, EntryEdge, num, QueueStatus } from "../api";
 import { Flight } from "../activity";
 import { compact, duration, money } from "../format";
 import { deploymentStatus, Segmented } from "../ui";
@@ -7,24 +7,54 @@ import { depKey } from "./Deployments";
 
 const W = 212;
 const H = 74;
-const GAP_X = 112;
-const GAP_Y = 26;
+const EW = 132; // entry node width
+const EH = 44;
+const GAP_X = 104;
+const GAP_Y = 24;
 
-interface Placed {
-  d: Deployment;
-  x: number;
-  y: number;
+/** Where work comes from that no agent of the fleet sent. */
+const ENTRIES: Record<string, string> = {
+  "entry:api": "API & CLI",
+  "entry:cron": "Schedules",
+  "entry:webhook": "Webhooks",
+  "entry:a2a": "Outside callers",
+};
+
+export type EdgeKind = "call" | "async" | "reply" | "entry";
+
+/** One line on the map. */
+export interface MapEdge {
+  key: string;
+  from: string;
+  to: string;
+  kind: EdgeKind;
+  calls: number;
+  failed: number;
+  asyncCalls?: number;
+  active?: number;
+  p95Ms?: number;
+  /** The metrics row for agent-to-agent calls (side panel). */
+  call?: CallEdge;
 }
 
-/** Layers deployments left to right along call edges (callers before callees). */
-function layout(deps: Deployment[], edges: { from: string; to: string }[]): { nodes: Placed[]; width: number; height: number } {
+interface MapNode {
+  key: string;
+  d?: Deployment;
+  entry?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Entry nodes in the first column, then agents layered along call edges. */
+function layout(deps: Deployment[], entryKeys: string[], edges: MapEdge[]): { nodes: MapNode[]; width: number; height: number } {
   const keys = deps.map(depKey);
   const rank = new Map(keys.map((k) => [k, 0]));
-  const known = edges.filter((e) => rank.has(e.from) && rank.has(e.to) && e.from !== e.to);
-  // Longest path from the callers; the pass limit stops at cycles.
+  const calls = edges.filter((e) => (e.kind === "call" || e.kind === "async") && rank.has(e.from) && rank.has(e.to) && e.from !== e.to);
   for (let pass = 0; pass < keys.length; pass++) {
     let changed = false;
-    for (const e of known) {
+    for (const e of calls) {
       const r = rank.get(e.from)! + 1;
       if (r > rank.get(e.to)! && r < keys.length) {
         rank.set(e.to, r);
@@ -33,7 +63,7 @@ function layout(deps: Deployment[], edges: { from: string; to: string }[]): { no
     }
     if (!changed) break;
   }
-  const connected = new Set(known.flatMap((e) => [e.from, e.to]));
+  const connected = new Set(edges.flatMap((e) => [e.from, e.to]));
   const columns: Deployment[][] = [];
   const alone: Deployment[] = [];
   for (const d of deps) {
@@ -41,41 +71,80 @@ function layout(deps: Deployment[], edges: { from: string; to: string }[]): { no
     else alone.push(d);
   }
   columns.forEach((col) => col.sort((a, b) => a.name.localeCompare(b.name)));
-  const nodes: Placed[] = [];
-  columns.forEach((col, c) => col.forEach((d, r) => nodes.push({ d, x: 12 + c * (W + GAP_X), y: 12 + r * (H + GAP_Y) })));
-  // Deployments that call nobody and are called by nobody: a grid below.
-  const graphRows = Math.max(0, ...columns.map((c) => c.length));
-  const perRow = Math.max(3, columns.length * 2 - 1);
-  const top = 12 + graphRows * (H + GAP_Y) + (graphRows ? 16 : 0);
+  const nodes: MapNode[] = [];
+  const left = entryKeys.length ? 12 + EW + GAP_X : 12;
+  entryKeys.forEach((k, i) => nodes.push({ key: k, entry: ENTRIES[k] ?? k, x: 12, y: 12 + i * (EH + GAP_Y) + (H - EH) / 2, w: EW, h: EH }));
+  columns.forEach((col, c) => col.forEach((d, r) => nodes.push({ key: depKey(d), d, x: left + c * (W + GAP_X), y: 12 + r * (H + GAP_Y), w: W, h: H })));
+  const rows = Math.max(entryKeys.length ? Math.ceil((entryKeys.length * (EH + GAP_Y)) / (H + GAP_Y)) : 0, ...columns.map((c) => c.length));
+  const perRow = Math.max(3, columns.length * 2);
+  const top = 12 + rows * (H + GAP_Y) + (rows ? 16 : 0);
   alone
     .sort((a, b) => a.name.localeCompare(b.name))
-    .forEach((d, i) => nodes.push({ d, x: 12 + (i % perRow) * (W + 24), y: top + Math.floor(i / perRow) * (H + GAP_Y) }));
-  const width = 12 + Math.max(...nodes.map((n) => n.x + W));
-  const height = 12 + Math.max(...nodes.map((n) => n.y + H));
+    .forEach((d, i) => nodes.push({ key: depKey(d), d, x: left + (i % perRow) * (W + 24), y: top + Math.floor(i / perRow) * (H + GAP_Y), w: W, h: H }));
+  const width = 12 + Math.max(...nodes.map((n) => n.x + n.w));
+  const height = 12 + Math.max(...nodes.map((n) => n.y + n.h));
   return { nodes, width, height };
 }
-
-export type EdgeLabel = "calls" | "errors" | "latency";
 
 /** What a node shows about the agent right now. */
 export interface NodeLive {
   running: number;
   thinking: number;
-  waiting: number;
+  approvals: number;
+  waitingAgent: number;
   queued: number;
+  scheduled: number;
 }
 
 export function liveByDeployment(runs: ActiveRun[] = [], queues: QueueStatus[] = []): Map<string, NodeLive> {
   const m = new Map<string, NodeLive>();
-  const get = (k: string) => m.get(k) ?? (m.set(k, { running: 0, thinking: 0, waiting: 0, queued: 0 }), m.get(k)!);
+  const get = (k: string) => m.get(k) ?? (m.set(k, { running: 0, thinking: 0, approvals: 0, waitingAgent: 0, queued: 0, scheduled: 0 }), m.get(k)!);
   for (const r of runs) {
     const n = get(depKey(r.ref));
     n.running++;
     if (r.activity === "model") n.thinking++;
-    if (r.activity === "approval" || r.activity === "agent") n.waiting++;
+    if (r.activity === "approval") n.approvals++;
+    if (r.activity === "agent") n.waitingAgent++;
   }
-  for (const q of queues) get(depKey(q.ref)).queued += q.queued ?? 0;
+  for (const q of queues) {
+    get(depKey(q.ref)).queued += q.queued ?? 0;
+    get(depKey(q.ref)).scheduled += q.scheduled ?? 0;
+  }
   return m;
+}
+
+/** All the lines: calls between agents, entries, results going back, and anything in flight not counted yet. */
+export function mapEdges(calls: CallEdge[], entries: EntryEdge[], flights: Flight[]): MapEdge[] {
+  const out = new Map<string, MapEdge>();
+  for (const e of calls) {
+    const from = depKey(e.from);
+    const to = depKey(e.to);
+    const asyncCalls = e.asyncCalls ?? 0;
+    out.set(`${from}>${to}`, {
+      key: `${from}>${to}`,
+      from,
+      to,
+      kind: asyncCalls > 0 && asyncCalls >= (e.calls ?? 0) / 2 ? "async" : "call",
+      calls: e.calls ?? 0,
+      failed: e.failed ?? 0,
+      asyncCalls,
+      active: e.active,
+      p95Ms: num(e.p95Ms),
+      call: e,
+    });
+  }
+  for (const e of entries) {
+    const to = depKey(e.to);
+    const from = e.source === "reply" && e.from ? depKey(e.from) : `entry:${e.source}`;
+    const kind: EdgeKind = e.source === "reply" ? "reply" : "entry";
+    const k = `${from}>${to}${kind === "reply" ? ":reply" : ""}`;
+    out.set(k, { key: k, from, to, kind, calls: e.runs ?? 0, failed: e.failed ?? 0 });
+  }
+  for (const f of flights) {
+    const k = `${f.from}>${f.to}${f.kind === "reply" ? ":reply" : ""}`;
+    if (!out.has(k)) out.set(k, { key: k, from: f.from, to: f.to, kind: f.kind, calls: 0, failed: 0 });
+  }
+  return [...out.values()];
 }
 
 /** Arc of a ring from fraction a to b (0..1, clockwise from the top). */
@@ -86,60 +155,71 @@ function arc(cx: number, cy: number, r: number, a: number, b: number) {
   return `M${x1} ${y1} A${r} ${r} 0 ${b - a > 0.5 ? 1 : 0} 1 ${x2} ${y2}`;
 }
 
+const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+const clipId = (key: string) => `clip-${key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
+export type EdgeLabel = "calls" | "errors" | "latency";
+
 interface MapProps {
   deps: Deployment[];
-  edges: CallEdge[];
+  edges: MapEdge[];
   metrics: Map<string, DeploymentMetrics>;
   live: Map<string, NodeLive>;
   flights: Flight[];
   onNode: (d: Deployment) => void;
-  onEdge: (e: CallEdge) => void;
+  onEdge: (e: MapEdge) => void;
 }
 
 /**
- * Deployments as a graph of who calls whom (Kiali-style traffic): edge width
- * follows the number of calls, colour the share that failed, dashes mark
- * async calls; dots travel along an edge while a call is in flight and come
- * back (a red diamond when it failed). Nodes ring their success share and
- * pulse while a model call runs.
+ * The fleet as a traffic map (in the spirit of Kiali): where work enters
+ * (API, schedules, webhooks, outside callers), who calls whom (solid), who
+ * starts whom without waiting (dashed), and results going back (dotted).
+ * Line width follows the number of runs, colour the share that failed. Dots
+ * travel while work is in flight and come back when it ends (a red diamond
+ * when it failed). Agents ring their success share and pulse during a model
+ * call.
  */
 export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }: MapProps) {
   const [label, setLabel] = useState<EdgeLabel>("calls");
   const reduced = useMemo(() => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches, []);
-  // Edges from metrics plus calls in flight that metrics have not seen yet.
-  const allEdges = useMemo(() => {
-    const out = new Map<string, CallEdge>();
-    for (const e of edges) out.set(`${depKey(e.from)}>${depKey(e.to)}`, e);
-    for (const f of flights) {
-      const k = `${f.from}>${f.to}`;
-      if (!out.has(k)) {
-        const [fns, fname] = f.from.split("/");
-        const [tns, tname] = f.to.split("/");
-        out.set(k, { from: { namespace: fns, name: fname }, to: { namespace: tns, name: tname }, calls: 0 });
-      }
-    }
-    return [...out.values()];
-  }, [edges, flights]);
-  const { nodes, width, height } = useMemo(
-    () => layout(deps, allEdges.map((e) => ({ from: depKey(e.from), to: depKey(e.to) }))),
-    [deps, allEdges],
-  );
-  const at = new Map(nodes.map((n) => [depKey(n.d), n]));
+  const entryKeys = useMemo(() => Object.keys(ENTRIES).filter((k) => edges.some((e) => e.from === k)), [edges]);
+  const { nodes, width, height } = useMemo(() => layout(deps, entryKeys, edges), [deps, entryKeys, edges]);
+  const at = new Map(nodes.map((n) => [n.key, n]));
+  // Lines into one node get their labels one above the other.
+  const labelRow = new Map<string, number>();
+  const into = new Map<string, MapEdge[]>();
+  // (entry and result lines show their label on hover only)
+  for (const e of edges) if (e.kind !== "entry" && e.kind !== "reply") into.set(e.to, [...(into.get(e.to) ?? []), e]);
+  for (const list of into.values()) {
+    list.sort((a, b) => (at.get(a.from)?.y ?? 0) - (at.get(b.from)?.y ?? 0));
+    list.forEach((e, i) => labelRow.set(e.key, i - (list.length - 1) / 2));
+  }
   const flightsOn = new Map<string, Flight[]>();
   for (const f of flights) {
-    const k = `${f.from}>${f.to}`;
+    const k = `${f.from}>${f.to}${f.kind === "reply" ? ":reply" : ""}`;
     flightsOn.set(k, [...(flightsOn.get(k) ?? []), f]);
   }
 
-  const edgePath = (a: Placed, b: Placed) => {
-    const x1 = a.x + W;
-    const y1 = a.y + H / 2;
+  const edgePath = (a: MapNode, b: MapNode) => {
+    if (a === b) {
+      // An agent calling itself: a loop over its top right corner.
+      const x = a.x + a.w - 44;
+      return { d: `M${x} ${a.y} C${x - 10} ${a.y - 44}, ${x + 54} ${a.y - 44}, ${a.x + a.w} ${a.y + 14}`, mx: x + 22, my: a.y - 30 };
+    }
+    const x1 = a.x + a.w;
+    const y1 = a.y + a.h / 2;
     const x2 = b.x;
-    const y2 = b.y + H / 2;
+    const y2 = b.y + b.h / 2;
     if (x2 <= x1) {
-      // Back edge: an arc above the row.
-      const lift = 70 + Math.abs(y1 - y2) / 3;
-      return { d: `M${a.x + W / 2} ${a.y} C${a.x + W / 2} ${a.y - lift}, ${b.x + W / 2} ${b.y - lift}, ${b.x + W / 2} ${b.y}`, mx: (a.x + b.x + W) / 2, my: Math.min(a.y, b.y) - lift * 0.75 };
+      // Backwards (a result going back, or a call to an earlier column): an
+      // arc above the row.
+      const lift = 60 + Math.abs(y1 - y2) / 3;
+      return {
+        d: `M${a.x + a.w / 2} ${a.y} C${a.x + a.w / 2} ${a.y - lift}, ${b.x + b.w / 2} ${b.y - lift}, ${b.x + b.w / 2 + 24} ${b.y}`,
+        mx: (a.x + b.x + a.w) / 2,
+        my: Math.min(a.y, b.y) - lift * 0.72,
+      };
     }
     const mid = (x1 + x2) / 2;
     // The label sits just before the target, where edges into different
@@ -155,104 +235,138 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
           value={label}
           onChange={setLabel}
           options={[
-            ["calls", "Calls"],
+            ["calls", "Runs"],
             ["errors", "Errors"],
             ["latency", "Latency"],
           ]}
         />
         <span className="map-legend" aria-hidden>
-          <span className="lg-line" /> calls (24h)
-          <span className="lg-line dashed" /> async
+          <span className="lg-line" /> calls
+          <span className="lg-line dashed" /> started without waiting
+          <span className="lg-line dotted" /> results back
           <span className="lg-dot" /> in flight
           <span className="lg-diamond" /> failed
-          <span className="lg-ring" /> share of runs that succeeded
+          <span className="lg-ring" /> success share (24h)
         </span>
       </div>
-      <div className="map" role="group" aria-label={`Map of ${deps.length} deployments and ${allEdges.length} call paths`}>
-        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <div className="map" role="group" aria-label={`Map of ${deps.length} deployments and ${edges.length} paths`}>
+        <svg width={width} height={height + 40} viewBox={`0 -40 ${width} ${height + 40}`}>
           <defs>
             <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
               <path d="M0 0 8 4 0 8z" className="map-arrow" />
             </marker>
+            {nodes.map((n) => (
+              <clipPath key={n.key} id={clipId(n.key)}>
+                <rect x={n.x + 4} y={n.y} width={n.w - 40} height={n.h} />
+              </clipPath>
+            ))}
           </defs>
-          {allEdges.map((e) => {
-            const k = `${depKey(e.from)}>${depKey(e.to)}`;
-            const a = at.get(depKey(e.from));
-            const b = at.get(depKey(e.to));
-            if (!a || !b || a === b) return null;
-            const { d, mx, my } = edgePath(a, b);
-            const calls = e.calls ?? 0;
-            const failed = e.failed ?? 0;
-            const share = calls ? failed / calls : 0;
-            const tone = share >= 0.2 ? "err" : failed > 0 ? "warn" : undefined;
-            const inFlight = flightsOn.get(k) ?? [];
+          {edges.map((e) => {
+            const a = at.get(e.from);
+            const b = at.get(e.to);
+            if (!a || !b) return null;
+            const { d, mx, my: baseY } = edgePath(a, b);
+            const my = a !== b && b.x > a.x + a.w ? baseY + (labelRow.get(e.key) ?? 0) * 16 : baseY;
+            const share = e.calls ? e.failed / e.calls : 0;
+            const tone = share >= 0.2 ? "err" : e.failed > 0 ? "warn" : undefined;
+            const inFlight = flightsOn.get(e.key) ?? [];
             const live = inFlight.filter((f) => !f.endedAt).length;
-            const async = (e.asyncCalls ?? 0) > 0 && (e.asyncCalls ?? 0) >= calls / 2;
+            const noun = e.kind === "reply" ? "result" : e.kind === "entry" ? "run" : "call";
             const text =
               label === "errors"
-                ? failed
-                  ? `${failed} failed · ${Math.round(share * 100)}%`
+                ? e.failed
+                  ? `${e.failed} failed · ${Math.round(share * 100)}%`
                   : "no errors"
                 : label === "latency"
-                  ? num(e.p95Ms)
-                    ? `p95 ${duration(num(e.p95Ms))}`
+                  ? e.p95Ms
+                    ? `p95 ${duration(e.p95Ms)}`
                     : "—"
-                  : `${compact(calls)} ${calls === 1 ? "call" : "calls"}`;
+                  : plural(e.calls, noun);
             return (
               <g
-                key={k}
+                key={e.key}
                 className="map-edge"
+                data-kind={e.kind}
                 data-tone={tone}
-                data-async={async || undefined}
                 data-live={live > 0 || undefined}
                 role="button"
                 tabIndex={0}
-                aria-label={`${e.from.name} calls ${e.to.name}: ${calls} calls, ${failed} failed${live ? `, ${live} in flight` : ""}`}
+                aria-label={`${e.from} to ${e.to} (${e.kind}): ${plural(e.calls, noun)}, ${e.failed} failed${live ? `, ${live} in flight` : ""}`}
                 onClick={() => onEdge(e)}
                 onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && (ev.preventDefault(), onEdge(e))}
               >
                 <path className="hit" d={d} />
-                <path d={d} markerEnd="url(#arrow)" style={{ strokeWidth: Math.min(6, 1.25 + Math.log2(1 + calls) * 0.6) }} />
+                <path d={d} markerEnd="url(#arrow)" style={{ strokeWidth: Math.min(6, 1.25 + Math.log2(1 + e.calls) * 0.6) }} />
                 <text x={mx} y={my - 7} textAnchor="middle">
                   {text}
                   {live > 0 ? ` · ${live} live` : ""}
                 </text>
                 {inFlight.map((f, i) =>
                   reduced ? (
-                    <circle key={f.key} r={4} className="map-flight" data-failed={f.failed || undefined} cx={mx} cy={my + 8 + i * 9} />
+                    <circle key={f.key} r={4} className="map-flight" data-kind={f.kind} data-failed={f.failed || undefined} cx={mx} cy={my + 8 + i * 9} />
                   ) : f.endedAt ? (
                     // Coming back with the answer (a red diamond if it failed).
-                    <rect key={f.key} className="map-flight" data-failed={f.failed || undefined} x={-4} y={-4} width={8} height={8} rx={f.failed ? 0 : 4} transform={f.failed ? "rotate(45)" : undefined}>
+                    <rect
+                      key={f.key}
+                      className="map-flight"
+                      data-kind={f.kind}
+                      data-failed={f.failed || undefined}
+                      x={-4}
+                      y={-4}
+                      width={8}
+                      height={8}
+                      rx={f.failed ? 0 : 4}
+                      transform={f.failed ? "rotate(45)" : undefined}
+                    >
                       <animateMotion dur="1.2s" repeatCount="1" fill="freeze" path={d} keyPoints="1;0" keyTimes="0;1" calcMode="linear" />
                     </rect>
                   ) : (
-                    <circle key={f.key} r={4} className="map-flight">
-                      <animateMotion dur="1.6s" begin={`${(i * 0.4) % 1.6}s`} repeatCount="indefinite" path={d} />
+                    <circle key={f.key} r={4} className="map-flight" data-kind={f.kind}>
+                      <animateMotion dur={f.kind === "entry" ? "2.4s" : "1.6s"} begin={`${(i * 0.4) % 1.6}s`} repeatCount="indefinite" path={d} />
                     </circle>
                   ),
                 )}
               </g>
             );
           })}
-          {nodes.map(({ d, x, y }) => {
-            const k = depKey(d);
+          {nodes.map((n) => {
+            if (n.entry) {
+              const runs = edges.filter((e) => e.from === n.key).reduce((a, e) => a + e.calls, 0);
+              return (
+                <g key={n.key} className="map-entry" role="img" aria-label={`${n.entry}: ${plural(runs, "run")} in 24h`}>
+                  <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={n.h / 2} />
+                  <text x={n.x + n.w / 2} y={n.y + 19} textAnchor="middle" className="map-name">
+                    {n.entry}
+                  </text>
+                  <text x={n.x + n.w / 2} y={n.y + 34} textAnchor="middle" className="map-sub">
+                    {plural(runs, "run")} in 24h
+                  </text>
+                </g>
+              );
+            }
+            const d = n.d!;
+            const { x, y } = n;
             const st = deploymentStatus(d);
-            const m = metrics.get(k);
-            const l = live.get(k);
+            const m = metrics.get(n.key);
+            const l = live.get(n.key);
             const runs = m?.runs ?? 0;
             const failShare = runs ? (m?.failed ?? 0) / runs : 0;
             const asleep = !l?.running && !(d.ready ?? 0) && !(d.desired ?? 0);
-            const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
-            const now = l?.running
-              ? `${plural(l.running, "run")} active${l.waiting ? ` (${l.waiting} waiting)` : ""}${l.queued ? ` · ${l.queued} queued` : ""}`
-              : l?.queued
-                ? `${l.queued} queued · ${st.label}`
+            // Line 2: what it does now. Line 3: what waits for it, or its day.
+            const now = d.providerHold
+              ? "provider account held"
+              : l?.running
+                ? [`${l.running} active`, l.approvals ? `${l.approvals} ${l.approvals === 1 ? "needs" : "need"} approval` : "", l.waitingAgent ? `${l.waitingAgent} ${l.waitingAgent === 1 ? "waits" : "wait"} for agents` : ""]
+                    .filter(Boolean)
+                    .join(" · ")
                 : st.label;
+            const backlog = [l?.queued ? `${l.queued} queued` : "", l?.scheduled ? `${l.scheduled} scheduled` : ""].filter(Boolean).join(" · ");
+            const day = `${compact(runs)} ${runs === 1 ? "run" : "runs"} in 24h${m?.failed ? ` · ${m.failed} failed` : ""}${m?.usage?.costUsd ? ` · ${money(m.usage.costUsd)}` : ""}`;
             const cx = x + W - 22;
             const cy = y + 22;
             return (
               <g
-                key={k}
+                key={n.key}
                 className="map-node"
                 data-tone={d.providerHold ? "err" : st.tone}
                 data-live={(l?.running ?? 0) > 0 || undefined}
@@ -261,22 +375,24 @@ export function FleetMap({ deps, edges, metrics, live, flights, onNode, onEdge }
                 data-held={d.providerHold ? true : undefined}
                 role="button"
                 tabIndex={0}
-                aria-label={`${d.name}: ${now}`}
+                aria-label={`${d.name}: ${now}${backlog ? `, ${backlog}` : ""}`}
                 onClick={() => onNode(d)}
                 onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && (ev.preventDefault(), onNode(d))}
               >
+                <title>{`${d.name}\n${now}${backlog ? `\n${backlog}` : ""}\n${day}`}</title>
                 <rect x={x} y={y} width={W} height={H} rx={8} />
                 <circle cx={x + 16} cy={y + 20} r={4} className="map-dot" />
-                <text x={x + 28} y={y + 24} className="map-name">
-                  {d.name.length > 20 ? d.name.slice(0, 19) + "…" : d.name}
-                </text>
-                <text x={x + 16} y={y + 44} className="map-now">
-                  {d.providerHold ? "provider held" : now}
-                </text>
-                <text x={x + 16} y={y + 61} className="map-sub">
-                  {compact(runs)} {runs === 1 ? "run" : "runs"} in 24h{m?.failed ? ` · ${m.failed} failed` : ""}
-                  {m?.usage?.costUsd ? ` · ${money(m.usage.costUsd)}` : ""}
-                </text>
+                <g clipPath={`url(#${clipId(n.key)})`}>
+                  <text x={x + 28} y={y + 24} className="map-name">
+                    {cut(d.name, 20)}
+                  </text>
+                  <text x={x + 16} y={y + 44} className="map-now">
+                    {cut(now, 30)}
+                  </text>
+                  <text x={x + 16} y={y + 61} className="map-sub" data-backlog={backlog ? true : undefined}>
+                    {cut(backlog || day, 32)}
+                  </text>
+                </g>
                 {runs > 0 && (
                   <g className="map-ring" aria-hidden>
                     <circle cx={cx} cy={cy} r={9} className="ring-track" />

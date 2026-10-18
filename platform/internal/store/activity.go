@@ -10,6 +10,8 @@ type ActiveRun struct {
 	RunRow
 	Source          string
 	ConversationKey string
+	// The deployment of the parent run (empty without one).
+	CallerNamespace, CallerDeployment string
 }
 
 // ActiveRuns returns the unfinished runs of deployments that exist (runs of
@@ -20,9 +22,9 @@ func (s *Store) ActiveRuns(ctx context.Context, namespaces []string) ([]ActiveRu
 	q.where = append(q.where, "r.ended_ms IS NULL", "r.status IN ('running', 'waiting_approval')")
 	cols := "r.id, r.session_id, r.conversation_id, r.namespace, r.deployment, r.definition_digest, r.parent_run_id, r.root_run_id, r.status, r.input, r.output, r.error, " +
 		"r.input_tokens, r.output_tokens, r.cost_usd, r.trace_id, r.started_ms, COALESCE(r.ended_ms, 0), r.task_id, r.requested_by, r.labels, r.step, " +
-		"COALESCE(t.source, ''), COALESCE(t.conversation_key, '')"
+		"COALESCE(t.source, ''), COALESCE(t.conversation_key, ''), COALESCE(p.namespace, ''), COALESCE(p.deployment, '')"
 	rows, err := s.db.QueryContext(ctx, "SELECT "+cols+" FROM runs r JOIN deployments d ON d.namespace = r.namespace AND d.name = r.deployment "+
-		"LEFT JOIN tasks t ON t.id = r.task_id AND r.task_id <> ''"+q.clause()+" ORDER BY r.started_ms LIMIT 500", q.args...)
+		"LEFT JOIN tasks t ON t.id = r.task_id AND r.task_id <> '' LEFT JOIN runs p ON p.id = r.parent_run_id AND r.parent_run_id <> ''"+q.clause()+" ORDER BY r.started_ms LIMIT 500", q.args...)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +36,7 @@ func (s *Store) ActiveRuns(ctx context.Context, namespaces []string) ([]ActiveRu
 		r := &a.RunRow
 		if err := rows.Scan(&r.ID, &r.SessionID, &r.ConversationID, &r.Namespace, &r.Deployment, &r.DefinitionDigest, &r.ParentRunID, &r.RootRunID,
 			&r.Status, &r.Input, &r.Output, &r.Error, &r.InputTokens, &r.OutputTokens, &r.CostUSD, &r.TraceID, &r.StartedMs, &r.EndedMs,
-			&r.TaskID, &r.RequestedBy, &labels, &r.Step, &a.Source, &a.ConversationKey); err != nil {
+			&r.TaskID, &r.RequestedBy, &labels, &r.Step, &a.Source, &a.ConversationKey, &a.CallerNamespace, &a.CallerDeployment); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(labels), &r.Labels)
@@ -218,6 +220,37 @@ func (s *Store) ModelCalls(ctx context.Context, namespaces []string, sinceMs int
 		}
 		_ = json.Unmarshal([]byte(attrs), &c.Attributes)
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// Entry is one run that no agent of the fleet asked for (its task's source:
+// api, cron:x, webhook:x, reply:x; or an A2A call from outside), or the run
+// of an async result going back to its caller.
+type Entry struct {
+	Namespace, Deployment string
+	Source                string
+	Status                string
+}
+
+// Entries returns runs started since sinceMs that have no parent run.
+func (s *Store) Entries(ctx context.Context, namespaces []string, sinceMs int64) ([]Entry, error) {
+	var q query
+	q.in("r.namespace", namespaces)
+	q.where = append(q.where, "r.parent_run_id = ''", "r.started_ms >= "+q.arg(sinceMs))
+	rows, err := s.db.QueryContext(ctx, "SELECT r.namespace, r.deployment, COALESCE(t.source, ''), r.status FROM runs r "+
+		"LEFT JOIN tasks t ON t.id = r.task_id AND r.task_id <> ''"+q.clause(), q.args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Entry
+	for rows.Next() {
+		var e Entry
+		if err := rows.Scan(&e.Namespace, &e.Deployment, &e.Source, &e.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }

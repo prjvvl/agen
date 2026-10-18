@@ -276,6 +276,9 @@ func (h *Hub) GetMetrics(ctx context.Context, req *connect.Request[agenv1.GetMet
 	if out.Models, err = h.modelMetrics(ctx, nss, since); err != nil {
 		return nil, connectErr(err)
 	}
+	if out.Entries, err = h.entryEdges(ctx, nss, since); err != nil {
+		return nil, connectErr(err)
+	}
 	return connect.NewResponse(out), nil
 }
 

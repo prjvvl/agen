@@ -114,6 +114,29 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
   const live = useLiveState();
   const [theme, nextTheme] = useTheme();
   const [menu, setMenu] = useState(false);
+  // Desktop: the sidebar can be hidden (remembered); narrow screens: the
+  // menu opens it over the page.
+  const [navHidden, setNavHidden] = useState(() => {
+    try {
+      return localStorage.getItem("agen.nav") === "hidden";
+    } catch {
+      return false;
+    }
+  });
+  const toggleNav = () => {
+    if (matchMedia("(max-width: 860px)").matches) {
+      setMenu((m) => !m);
+      return;
+    }
+    setNavHidden((h) => {
+      try {
+        localStorage.setItem("agen.nav", h ? "shown" : "hidden");
+      } catch {
+        /* private mode: not remembered */
+      }
+      return !h;
+    });
+  };
   const [palette, setPalette] = useState(false);
   const [assistant, setAssistant] = useState<{ open: boolean; prompt?: string }>({ open: false });
   const who = useQuery(() => call<WhoAmI>("WhoAmI"), []);
@@ -183,7 +206,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
 
   return (
     <SessionContext.Provider value={session}>
-      <div className="shell" data-menu={menu ? "open" : undefined}>
+      <div className="shell" data-menu={menu ? "open" : undefined} data-nav={navHidden ? "hidden" : undefined}>
         <nav className="sidebar" aria-label="Main">
           <a className="brand" href="#/">
             <span className="brand-mark" aria-hidden>
@@ -245,7 +268,13 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
         </nav>
         <div className="main">
           <header className="topbar">
-            <button className="btn ghost icon menu-btn" aria-label="Menu" onClick={() => setMenu((m) => !m)}>
+            <button
+              className="btn ghost icon menu-btn"
+              aria-label={navHidden ? "Show the menu" : "Menu"}
+              aria-expanded={menu || !navHidden}
+              title="Show or hide the menu"
+              onClick={toggleNav}
+            >
               <Menu size={18} />
             </button>
             <button className="search-btn" onClick={() => setPalette(true)}>

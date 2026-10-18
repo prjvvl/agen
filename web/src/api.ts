@@ -307,6 +307,16 @@ export interface Metrics {
   since?: string;
   bucketSeconds?: number;
   models?: ModelMetrics[];
+  entries?: EntryEdge[];
+}
+
+/** Work that no agent of the fleet sent (api, cron, webhook, outside a2a), or async results going back (reply). */
+export interface EntryEdge {
+  source: "api" | "cron" | "webhook" | "a2a" | "reply";
+  from?: Ref;
+  to: Ref;
+  runs?: number;
+  failed?: number;
 }
 
 export interface ProviderHold {
@@ -338,6 +348,8 @@ export interface ActiveRun {
   conversationKey?: string;
   source?: string;
   lastStepAt?: string;
+  /** The deployment of the run that started this one. */
+  caller?: Ref;
 }
 
 export interface QueueStatus {
