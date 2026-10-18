@@ -258,6 +258,8 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
   const [input, setInput] = useState("");
   const [conversation, setConversation] = useState("");
   const [labels, setLabels] = useState("");
+  const [startAt, setStartAt] = useState("");
+  const [tier, setTier] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<string>();
@@ -276,6 +278,8 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
         input,
         conversationKey: conversation || undefined,
         labels: Object.keys(lab).length ? lab : undefined,
+        notBefore: startAt ? new Date(startAt).toISOString() : undefined,
+        modelTier: tier || undefined,
       });
       setError("");
       setSubmitted(r.task.id);
@@ -318,6 +322,19 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
         <label className="field">
           Labels <span className="help">Optional, comma separated key=value. They follow the task to its runs and tool calls.</span>
           <input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="team=support, customer=acme" />
+        </label>
+        <label className="field">
+          Start at <span className="help">Optional. The task waits until then (your local time); see Schedules.</span>
+          <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+        </label>
+        <label className="field">
+          Model tier <span className="help">Optional, for agents on a routing model: how capable (and costly) a model to pick.</span>
+          <select value={tier} onChange={(e) => setTier(e.target.value)}>
+            <option value="">The agent's default</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
         </label>
         {error && <Alert>{error}</Alert>}
       </PanelForm>

@@ -323,6 +323,8 @@ message ListTasksRequest {
   string deployment = 2;
   TaskState state = 3;
   int32 limit = 4;
+  // Only tasks waiting for their start time (not_before), soonest first.
+  bool scheduled = 5;
 }
 message ListTasksResponse {
   repeated Task tasks = 1;
@@ -628,6 +630,8 @@ message CreateWebhookSecretResponse {
 }
 
 message ListTriggerEventsRequest {
+  // Empty name: every deployment (of the namespace, or of every namespace
+  // the caller may see when the namespace is empty too).
   DeploymentRef ref = 1;
   TriggerEventState state = 2;
   int32 limit = 3;

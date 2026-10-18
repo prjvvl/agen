@@ -54,6 +54,8 @@ const GROUP_NAMES: Record<string, [string, string]> = {
   burst: ["burst", "bursts"],
   model_errors: ["model error rate", "model error rates"],
   provider_held: ["held provider", "held providers"],
+  trigger_missed: ["missed schedule", "missed schedules"],
+  webhook_rejected: ["webhook refusing calls", "webhooks refusing calls"],
 };
 
 /** Everything that needs a person now, most serious first. */

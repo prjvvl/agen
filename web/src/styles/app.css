@@ -1075,3 +1075,23 @@ td.actions-cell {
     width: 100vw;
   }
 }
+
+/* A button that looks like a link (opens something in place). */
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+button.link:hover {
+  text-decoration: underline;
+}
+.small {
+  font-size: var(--text-xs);
+}
+td[data-tone="warn"] {
+  color: var(--warn);
+}

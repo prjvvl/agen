@@ -2157,11 +2157,13 @@ func (x *GetTaskResponse) GetTask() *Task {
 }
 
 type ListTasksRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Deployment    string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
-	State         TaskState              `protobuf:"varint,3,opt,name=state,proto3,enum=agen.v1.TaskState" json:"state,omitempty"`
-	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Namespace  string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Deployment string                 `protobuf:"bytes,2,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	State      TaskState              `protobuf:"varint,3,opt,name=state,proto3,enum=agen.v1.TaskState" json:"state,omitempty"`
+	Limit      int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Only tasks waiting for their start time (not_before), soonest first.
+	Scheduled     bool `protobuf:"varint,5,opt,name=scheduled,proto3" json:"scheduled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2222,6 +2224,13 @@ func (x *ListTasksRequest) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *ListTasksRequest) GetScheduled() bool {
+	if x != nil {
+		return x.Scheduled
+	}
+	return false
 }
 
 type ListTasksResponse struct {
@@ -4996,10 +5005,12 @@ func (x *CreateWebhookSecretResponse) GetPath() string {
 }
 
 type ListTriggerEventsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *DeploymentRef         `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	State         TriggerEventState      `protobuf:"varint,2,opt,name=state,proto3,enum=agen.v1.TriggerEventState" json:"state,omitempty"`
-	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty name: every deployment (of the namespace, or of every namespace
+	// the caller may see when the namespace is empty too).
+	Ref           *DeploymentRef    `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	State         TriggerEventState `protobuf:"varint,2,opt,name=state,proto3,enum=agen.v1.TriggerEventState" json:"state,omitempty"`
+	Limit         int32             `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5854,14 +5865,15 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fwait_seconds\x18\x02 \x01(\x05R\vwaitSeconds\"4\n" +
 	"\x0fGetTaskResponse\x12!\n" +
-	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\"\x90\x01\n" +
+	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\"\xae\x01\n" +
 	"\x10ListTasksRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1e\n" +
 	"\n" +
 	"deployment\x18\x02 \x01(\tR\n" +
 	"deployment\x12(\n" +
 	"\x05state\x18\x03 \x01(\x0e2\x12.agen.v1.TaskStateR\x05state\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\x05R\x05limit\"8\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\x1c\n" +
+	"\tscheduled\x18\x05 \x01(\bR\tscheduled\"8\n" +
 	"\x11ListTasksResponse\x12#\n" +
 	"\x05tasks\x18\x01 \x03(\v2\r.agen.v1.TaskR\x05tasks\"#\n" +
 	"\x11CancelTaskRequest\x12\x0e\n" +

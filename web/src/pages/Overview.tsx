@@ -347,8 +347,8 @@ function ActivityFeed({ onOpenTask }: { onOpenTask: (id: string) => void }) {
     <ul className="list activity" aria-live="polite" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       {groups.slice(0, 14).map(({ lead: t, count }) => (
         <li key={t.id} data-flash={t.id === flash || undefined}>
-          <Status spec={taskStatus(t.state, t.pendingApprovalId)}>
-            <span className="sr-only">{taskStatus(t.state, t.pendingApprovalId).label}</span>
+          <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)}>
+            <span className="sr-only">{taskStatus(t.state, t.pendingApprovalId, t.notBefore).label}</span>
           </Status>
           <button className="activity-text" onClick={() => onOpenTask(t.id)}>
             <span className="truncate">

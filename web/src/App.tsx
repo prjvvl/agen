@@ -8,6 +8,7 @@ import {
   LayoutTemplate,
   LogOut,
   Menu,
+  CalendarClock,
   MessageSquare,
   Monitor,
   Moon,
@@ -23,6 +24,7 @@ import { Assistant } from "./pages/Assistant";
 import { BundleEditor } from "./pages/BundleEditor";
 import { CommandPalette } from "./pages/CommandPalette";
 import { Costs } from "./pages/Costs";
+import { Schedules } from "./pages/Schedules";
 import { DeploymentDetail } from "./pages/DeploymentDetail";
 import { Deployments } from "./pages/Deployments";
 import { Fleet } from "./pages/Fleet";
@@ -103,6 +105,7 @@ const NAV: { id: string; label: string; icon: typeof Activity; match: (r: Route)
   { id: "inbox", label: "Inbox", icon: InboxIcon, match: (r) => r.path[0] === "inbox" },
   { id: "deployments", label: "Deployments", icon: Boxes, match: (r) => ["deployments", "new", "edit"].includes(r.path[0]) },
   { id: "runs", label: "Runs", icon: Activity, match: (r) => r.path[0] === "runs" || r.path[0] === "trace" },
+  { id: "schedules", label: "Schedules", icon: CalendarClock, match: (r) => r.path[0] === "schedules" },
   { id: "costs", label: "Costs", icon: Coins, match: (r) => r.path[0] === "costs" },
   { id: "templates", label: "Templates", icon: LayoutTemplate, match: (r) => r.path[0] === "templates" },
   { id: "fleet", label: "Fleet", icon: Server, match: (r) => r.path[0] === "fleet" },
@@ -184,6 +187,9 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
       break;
     case "costs":
       body = <Costs />;
+      break;
+    case "schedules":
+      body = <Schedules />;
       break;
     case "templates":
       body = <Templates selected={a} />;

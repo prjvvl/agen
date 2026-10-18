@@ -404,3 +404,48 @@ func fenced(res sql.Result, err error) error {
 	}
 	return nil
 }
+
+// ScheduledTasks returns queued tasks that wait for their start time,
+// soonest first.
+func (s *Store) ScheduledTasks(ctx context.Context, ns, deployment string, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE ($1 = '' OR namespace = $1) AND ($2 = '' OR deployment = $2) AND state = 'queued' AND not_before_ms > $3 ORDER BY not_before_ms, id LIMIT $4",
+		ns, deployment, NowMs(), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanTasks(rows)
+}
+
+// TriggerProblem counts missed or rejected trigger events of one trigger.
+type TriggerProblem struct {
+	Namespace, Deployment, Trigger, State string
+	Count                                 int
+	LastMs                                int64
+	Message                               string
+}
+
+// TriggerProblems returns missed and rejected trigger events since sinceMs,
+// grouped by trigger and state.
+func (s *Store) TriggerProblems(ctx context.Context, namespaces []string, sinceMs int64) ([]TriggerProblem, error) {
+	var q query
+	q.in("namespace", namespaces)
+	q.where = append(q.where, "state IN ('missed', 'rejected')", "recorded_ms >= "+q.arg(sinceMs))
+	rows, err := s.db.QueryContext(ctx, "SELECT namespace, deployment, trigger_name, state, COUNT(*), MAX(recorded_ms), MAX(message) FROM trigger_events"+q.clause()+
+		" GROUP BY namespace, deployment, trigger_name, state", q.args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TriggerProblem
+	for rows.Next() {
+		var t TriggerProblem
+		if err := rows.Scan(&t.Namespace, &t.Deployment, &t.Trigger, &t.State, &t.Count, &t.LastMs, &t.Message); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}

@@ -548,13 +548,22 @@ func (h *Hub) ListTasks(ctx context.Context, req *connect.Request[agenv1.ListTas
 	limit := listLimit(req.Msg.Limit, 100)
 	var list []store.Task
 	for _, ns := range nss {
-		part, err := h.Store.ListTasks(ctx, ns, req.Msg.Deployment, taskStateName(req.Msg.State), limit)
+		var part []store.Task
+		var err error
+		if req.Msg.Scheduled {
+			part, err = h.Store.ScheduledTasks(ctx, ns, req.Msg.Deployment, limit)
+		} else {
+			part, err = h.Store.ListTasks(ctx, ns, req.Msg.Deployment, taskStateName(req.Msg.State), limit)
+		}
 		if err != nil {
 			return nil, connectErr(err)
 		}
 		list = append(list, part...)
 	}
 	sort.Slice(list, func(i, j int) bool {
+		if req.Msg.Scheduled {
+			return list[i].NotBeforeMs < list[j].NotBeforeMs
+		}
 		if list[i].CreatedMs != list[j].CreatedMs {
 			return list[i].CreatedMs > list[j].CreatedMs
 		}
@@ -869,15 +878,29 @@ func (h *Hub) GetDefinition(ctx context.Context, req *connect.Request[agenv1.Get
 // ---- triggers ----
 
 func (h *Hub) ListTriggerEvents(ctx context.Context, req *connect.Request[agenv1.ListTriggerEventsRequest]) (*connect.Response[agenv1.ListTriggerEventsResponse], error) {
-	ns := nsOr(req.Msg.GetRef().GetNamespace())
-	if err := requireNamespace(ctx, ns); err != nil {
+	nss, err := namespacesFor(ctx, req.Msg.GetRef().GetNamespace())
+	if err != nil {
 		return nil, err
+	}
+	if req.Msg.GetRef().GetName() != "" && req.Msg.GetRef().GetNamespace() == "" {
+		nss = []string{"default"}
+		if err := requireNamespace(ctx, "default"); err != nil {
+			return nil, err
+		}
 	}
 	states := map[agenv1.TriggerEventState]string{agenv1.TriggerEventState_TRIGGER_EVENT_STATE_FIRED: "fired",
 		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_MISSED: "missed", agenv1.TriggerEventState_TRIGGER_EVENT_STATE_REJECTED: "rejected"}
-	list, err := h.Store.ListTriggerEvents(ctx, ns, req.Msg.GetRef().GetName(), states[req.Msg.State], int(req.Msg.Limit))
-	if err != nil {
-		return nil, connectErr(err)
+	var list []store.TriggerEvent
+	for _, ns := range nss {
+		part, err := h.Store.ListTriggerEvents(ctx, ns, req.Msg.GetRef().GetName(), states[req.Msg.State], int(req.Msg.Limit))
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		list = append(list, part...)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].DueMs > list[j].DueMs })
+	if l := listLimit(req.Msg.Limit, 100); len(list) > l {
+		list = list[:l]
 	}
 	back := map[string]agenv1.TriggerEventState{}
 	for k, v := range states {

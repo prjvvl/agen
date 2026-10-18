@@ -85,6 +85,11 @@ message Trigger {
   KeySource conversation_key = 9;
   // Labels set on every task this trigger submits.
   map<string, string> labels = 10;
+  // Cron triggers, set by the Hub in responses: when the trigger fires
+  // next and when it was last due (schedules are in UTC unless they start
+  // with CRON_TZ=<zone>).
+  google.protobuf.Timestamp next_due_at = 11;
+  google.protobuf.Timestamp last_due_at = 12;
 }
 
 message WebhookAuth {

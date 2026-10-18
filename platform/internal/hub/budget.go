@@ -53,5 +53,6 @@ func (h *Hub) withBudget(ctx context.Context, d store.Deployment, pd *agenv1.Dep
 	if hold, ok := h.providerHold(ctx, d); ok {
 		pd.ProviderHold = providerHoldProto(hold)
 	}
+	h.stampCronTimes(ctx, d, pd)
 	return pd
 }

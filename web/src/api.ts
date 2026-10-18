@@ -96,6 +96,12 @@ export interface Trigger {
   name: string;
   schedule?: string;
   input?: string;
+  catchUp?: boolean;
+  auth?: { type?: string; header?: string; algorithm?: string; secret?: string };
+  labels?: Record<string, string>;
+  /** Cron triggers: when it fires next, and when it was last due. */
+  nextDueAt?: string;
+  lastDueAt?: string;
 }
 
 export interface Deployment {
@@ -162,6 +168,17 @@ export interface Task {
   conversationKey?: string;
   labels?: Record<string, string>;
   pendingApprovalId?: string;
+  /** Not started before this time (a scheduled task). */
+  notBefore?: string;
+  /** Cost tier for a routing model. */
+  modelTier?: string;
+  /** Leased while the deployment has spent most of its daily budget. */
+  budgetPressure?: boolean;
+  /** Async work: where its result goes when it ends. */
+  replyDeployment?: string;
+  replyConversationKey?: string;
+  parentTaskId?: string;
+  depth?: number;
 }
 
 export interface Usage {
@@ -253,6 +270,8 @@ export interface LogLine {
 }
 
 export interface TriggerEvent {
+  namespace?: string;
+  deployment?: string;
   trigger: string;
   state: string;
   dueAt?: string;

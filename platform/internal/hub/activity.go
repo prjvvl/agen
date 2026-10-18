@@ -244,6 +244,21 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 		}
 	}
 
+	// Trigger windows missed (Hub down) and webhook calls refused, last day.
+	problems, err := h.Store.TriggerProblems(ctx, nss, now-24*3600*1000)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	for _, p := range problems {
+		if p.State == "missed" {
+			warn("trigger_missed", "warning", p.Namespace, p.Deployment, "",
+				fmt.Sprintf("schedule %q missed %d %s in the last day", p.Trigger, p.Count, map[bool]string{true: "window", false: "windows"}[p.Count == 1]))
+		} else {
+			warn("webhook_rejected", "warning", p.Namespace, p.Deployment, "",
+				fmt.Sprintf("webhook %q refused %d %s in the last day (latest: %s)", p.Trigger, p.Count, map[bool]string{true: "call", false: "calls"}[p.Count == 1], clip(p.Message, 120)))
+		}
+	}
+
 	// Daily budgets and held provider accounts.
 	all, err := h.Store.ListDeployments(ctx, "")
 	if err != nil {
