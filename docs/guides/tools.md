@@ -88,7 +88,7 @@ hosts' `PATH`.
 - `run` is a real shell as the Nest's user. It is confined to the folder only
   as a working directory, not as a sandbox: a command can reach anything that
   user can. Make it `ask` in `permissions` unless the agent runs somewhere
-  isolated (the `coder` template does this), and use `--no-run` when the
+  isolated (the `coder` and `ci-fixer` templates make `run` ask first), and use `--no-run` when the
   agent only needs files.
 
 ```sh

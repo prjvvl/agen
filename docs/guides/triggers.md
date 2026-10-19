@@ -107,7 +107,8 @@ agen run reporter "Check that the migration finished" --in 30m --no-wait
 `queued` but not due: it is not leased, does not wake or scale up the
 deployment, and does not hold up other tasks of its conversation. It still
 counts towards `maxQueuedTasks`. `ListTasks` with `scheduled` lists the tasks
-waiting for their start time, soonest first; cancel one with `CancelTask`.
+waiting for their start time, soonest first (`agen tasks --scheduled`);
+cancel one with `CancelTask` (`agen cancel <task>`).
 
 ## The Schedules page
 

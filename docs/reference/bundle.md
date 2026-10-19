@@ -105,6 +105,8 @@ which helps the provider's prompt cache.
 ## x-agen/secrets.json
 
 Secret names, never values: `{"NAME": {"source": "env" | "keychain" | "platform", "key": "LOOKUP"}}`.
+Names are upper case (`^[A-Z][A-Z0-9_]*$`); `key` is optional and defaults to
+the name.
 
 - `env`: the instance's environment (in a fleet, the Nest's environment or
   `--host-env`).

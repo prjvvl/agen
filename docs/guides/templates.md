@@ -44,16 +44,16 @@ servers to its `mcp.json` and allow their tools in `permissions`; see
 | `hello` | A scripted agent that never calls a model. | nothing |
 | `researcher` | Answers questions by reading web pages, with sources. | `OPENROUTER_API_KEY`, `uv` for its fetch tool |
 | `writer` | Writes drafts from notes and facts. | `OPENROUTER_API_KEY` |
-| `editor` | Plans a piece, delegates to `researcher` and `writer`, checks the draft. | both deployed in the same namespace |
-| `pr-reviewer` | GitHub pull request events arrive on a signed webhook; it reads the change and comments. | `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET` (platform secrets) |
+| `editor` | Plans a piece, delegates to `researcher` and `writer`, checks the draft. | `OPENROUTER_API_KEY`, both deployed in the same namespace |
+| `pr-reviewer` | GitHub pull request events arrive on a signed webhook; it reads the change and proposes a comment (posting it asks for approval). | `OPENROUTER_API_KEY`, `GITHUB_TOKEN` (pull requests read, issues write) and `GITHUB_WEBHOOK_SECRET` (platform secrets) |
 | `coder` | Makes code changes in one project folder on the machine it runs on: reads, edits, and runs the project's tests (each command asks first). | `OPENROUTER_API_KEY`, the folder in `mcp.json` |
-| `ci-fixer` | A failing CI job arrives on a signed webhook; it reproduces the failure in a local clone, finds the cause and fixes it there. Never pushes. | `OPENROUTER_API_KEY`, `CI_WEBHOOK_SECRET` (platform secret), a clone in `mcp.json` |
+| `ci-fixer` | A failing CI job arrives on a signed webhook; it reproduces the failure in a local clone (each command asks first), finds the cause and fixes it there. Never pushes. | `OPENROUTER_API_KEY`, `CI_WEBHOOK_SECRET` (platform secret), a clone in `mcp.json` |
 | `support` | A webhook receives customer messages; it answers from your documentation folder (read only: read, list, grep), with sources, and flags what a person must handle. | `OPENROUTER_API_KEY`, the docs folder in `mcp.json` |
-| `incident-responder` | An alert arrives on a webhook; it reads your runbooks and the fleet and writes the impact, likely cause and next steps. Read-only. | `OPENROUTER_API_KEY`, the runbooks folder in `mcp.json`, a `viewer` token |
+| `incident-responder` | An alert arrives on a webhook; it reads your runbooks and the fleet and writes the impact, likely cause and next steps. Read-only. | `OPENROUTER_API_KEY`, `AGEN_HUB_URL`, the runbooks folder in `mcp.json`, a `viewer` token |
 | `data-analyst` | Answers questions about a Postgres or SQLite database with read-only SQL and shows the queries it ran. | `OPENROUTER_API_KEY`, `DATABASE_URL` (platform secret) |
-| `fleet-steward` | Every 30 minutes, reports new failed tasks and live warnings (bursts, quiet runs, blocked queues, held providers); every morning, a cost report. Read-only. | a `viewer` token |
-| `approval-triage` | Summarizes pending approvals with a recommendation; never decides. | an `approver` token |
-| `assistant` | The console's chat assistant. | an `--on-behalf` token (see [The console](console.md#assistant)) |
+| `fleet-steward` | Every 30 minutes, reports new failed tasks and live warnings (bursts, quiet runs, blocked queues, held providers); every morning, a cost report. Read-only. | `OPENROUTER_API_KEY`, `AGEN_HUB_URL`, a `viewer` token |
+| `approval-triage` | Every 10 minutes, summarizes pending approvals with a recommendation; never decides. | `OPENROUTER_API_KEY`, `AGEN_HUB_URL`, an `approver` token |
+| `assistant` | The console's chat assistant (keep the name `assistant`). It cannot delete deployments or rotate webhook secrets. | `OPENROUTER_API_KEY`, `AGEN_HUB_URL`, an `--on-behalf` token (see [The console](console.md#assistant)) |
 
 `coder`, `ci-fixer` and `data-analyst` use a [routing model](models.md) with
 a fallback model. The folder templates (`coder`, `ci-fixer`, `support`,
@@ -70,8 +70,27 @@ different scopes. The console sets both when it deploys them; from the CLI:
 ```sh
 agen token create --name fleet-steward-agent --scope viewer
 echo "<the token>" | agen secret set AGEN_TOKEN.fleet-steward --for fleet-steward
-echo "http://127.0.0.1:7070" | agen secret set AGEN_HUB_URL --for fleet-steward --for incident-responder
+echo "http://127.0.0.1:7070" | agen secret set AGEN_HUB_URL --for fleet-steward --for incident-responder --for approval-triage --for assistant
 ```
 
 A secret names every deployment that may read it: setting it again replaces
 that list, so name them all.
+
+**Names.** `agen init my-researcher --template researcher` writes the files to
+`my-researcher/`, but the deployment is named after the bundle (`researcher`)
+unless you pass `agen deploy my-researcher --name my-researcher`.
+
+**Webhooks.** `support` and `incident-responder` take a bearer webhook: get
+its URL path and token with `agen webhook-secret <deployment> <trigger>`
+(`POST /hooks/<namespace>/<deployment>/<trigger>`). `pr-reviewer` and
+`ci-fixer` verify a signature with a platform secret instead: set it with
+`echo "<secret>" | agen secret set GITHUB_WEBHOOK_SECRET --for pr-reviewer`
+(`CI_WEBHOOK_SECRET` for `ci-fixer`) and give the same secret to GitHub.
+A webhook's caller gets the task id back; the answer is the task's result
+(`agen wait <task>`, the console, or a [notification target](notifications.md)
+for failures). `pr-reviewer` posts its comment only after someone approves it
+in the Inbox (the approval waits up to its timeout, 1 hour by default).
+
+**Which operations template?** `incident-responder` answers one alert when it
+arrives; `fleet-steward` checks the whole fleet on a schedule and writes the
+daily cost report.

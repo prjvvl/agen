@@ -90,7 +90,7 @@ AGEN_HUB_KEK=<kek> agen hub rotate-token-key --store postgres://admin@db/agen
     minute).
   - The previous key verifies live tokens until the next rotation.
   - Rotation is refused while the current key is younger than an agent
-    token's lifetime plus the grace (about 1 h 10 min), so no live token
+    token's lifetime plus twice the grace (about 1 h 10 min), so no live token
     stops verifying. `--force` overrides this.
   - Retired keys are kept, only to verify stored requester records.
 - **Nest certificates:** they renew themselves (`--cert-renew-before`, 10 days).

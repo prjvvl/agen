@@ -105,6 +105,13 @@ says **provider held** (see [Models](models.md#account-errors-and-provider-holds
   version's files; **Roll back to this** deploys that version's files again,
   and instances restart on it.
 
+**New agent** (on Deployments) writes a bundle from a short form: name,
+description, instructions, and the model: one OpenRouter model, a routing
+model (Jev Router or Auto Router) with its cost tier, highest tier and a
+fallback model, or scripted replies for trying things out. **Edit bundle**
+opens a deployment's files in an editor; saving checks the bundle and rolls
+the new version out (a broken bundle is refused with the reason).
+
 ## Schedules
 
 Everything that starts work on its own: cron triggers with their next and
