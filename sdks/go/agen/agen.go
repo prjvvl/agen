@@ -92,6 +92,29 @@ type Spec struct {
 	Temperature  *float64          `json:"temperature,omitempty"`
 	// ApprovalTimeoutSeconds after which a pending approval counts as expired.
 	ApprovalTimeoutSeconds int `json:"approvalTimeoutSeconds,omitempty"`
+	// FallbackModels are tried in order when the model keeps failing or
+	// gives no answer.
+	FallbackModels []string `json:"fallbackModels,omitempty"`
+	// Router configures a routing model (Model "typesafe/jev-router" or
+	// "openrouter/auto").
+	Router *Router `json:"router,omitempty"`
+	// ReasoningEffort: "minimal", "low", "medium" or "high".
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	// OpenRouter request settings sent as given ("provider", "plugins").
+	OpenRouter map[string]any `json:"openrouter,omitempty"`
+	// ContextTokens: about how many tokens of conversation one model call may send.
+	ContextTokens int `json:"contextTokens,omitempty"`
+}
+
+// Router is a routing model's settings: the default cost tier (low, medium,
+// high; openrouter/auto also xhigh, max), the highest a run may ask for, the
+// tier near the daily budget, and which models it may pick.
+type Router struct {
+	Tier           string   `json:"tier,omitempty"`
+	MaxTier        string   `json:"maxTier,omitempty"`
+	BudgetTier     string   `json:"budgetTier,omitempty"`
+	AllowedModels  []string `json:"allowedModels,omitempty"`
+	ExcludedModels []string `json:"excludedModels,omitempty"`
 }
 
 // ApprovalFunc decides "ask" permissions; return true to approve.
@@ -320,6 +343,9 @@ func TaskID(id string) RunOption { return func(c *runConfig) { c.opts["taskId"] 
 
 // NewConversation starts a fresh conversation in the session.
 func NewConversation() RunOption { return func(c *runConfig) { c.opts["newConversation"] = true } }
+
+// ModelTier asks a routing model for a cost tier for this run.
+func ModelTier(tier string) RunOption { return func(c *runConfig) { c.opts["modelTier"] = tier } }
 
 // Traceparent continues a W3C trace.
 func Traceparent(tp string) RunOption { return func(c *runConfig) { c.opts["traceparent"] = tp } }

@@ -24,10 +24,12 @@ AGENT_KEYS = {
     "permissions": "permissions",
     "maxTurns": "max_turns",
     "approvalTimeoutSeconds": "approval_timeout_seconds",
+    "router": "router",
+    "fallbackModels": "fallback_models",
 }
 TOOL_KEYS = {"name", "readOnly", "timeoutSeconds", "behavior"}
 RUN_KEYS = {"input", "options", "sameSession", "cancelAfterMs", "cancelBeforeStart", "closeAfterMs", "concurrent"}
-OPTION_KEYS = {"taskId"}
+OPTION_KEYS = {"taskId", "modelTier"}
 EXPECT_KEYS = {
     "status", "output", "minDeltas", "deltasEqualOutput", "toolCalls", "approvalsAsked", "toolCancelled",
     "sameConversationAsPrevious", "sameRunAsPrevious", "maxWallMs", "traceIncludes",
@@ -92,6 +94,8 @@ def run_once(agent: Agent, run: dict, prev):
     strict(opts, OPTION_KEYS, "options")
     if "taskId" in opts:
         kw["task_id"] = opts["taskId"]
+    if "modelTier" in opts:
+        kw["model_tier"] = opts["modelTier"]
     if run.get("sameSession"):
         kw["session_id"] = prev["sessionId"]
     scope = CancelScope()

@@ -49,7 +49,8 @@ type confRun struct {
 }
 
 type confOptions struct {
-	TaskID string `json:"taskId"`
+	TaskID    string `json:"taskId"`
+	ModelTier string `json:"modelTier"`
 }
 
 type confExpect struct {
@@ -154,7 +155,7 @@ func runConfCase(t *testing.T, root string, c confCase) {
 		t.Fatal(err)
 	}
 	allowed := map[string]bool{"name": true, "bundle": true, "instructions": true, "model": true, "provider": true,
-		"permissions": true, "maxTurns": true, "approvalTimeoutSeconds": true}
+		"permissions": true, "maxTurns": true, "approvalTimeoutSeconds": true, "router": true, "fallbackModels": true}
 	for k := range agentKeys {
 		if !allowed[k] {
 			t.Fatalf("agent: unknown key %q (update the runner)", k)
@@ -235,6 +236,9 @@ func runConfCase(t *testing.T, root string, c confCase) {
 				}
 				if run.CloseAfterMs != nil {
 					time.AfterFunc(time.Duration(*run.CloseAfterMs)*time.Millisecond, a.Close)
+				}
+				if tier := run.Options.ModelTier; tier != "" {
+					ropts = append(ropts, agen.ModelTier(tier))
 				}
 				if id := run.Options.TaskID; id != "" {
 					ropts = append(ropts, agen.TaskID(id))

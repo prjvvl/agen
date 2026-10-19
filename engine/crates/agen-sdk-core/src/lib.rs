@@ -150,6 +150,17 @@ pub struct AgentSpec {
     pub approval_timeout_seconds: Option<u64>,
     pub max_tokens_per_run: Option<u64>,
     pub owner: Option<String>,
+    /// Models tried in order when the model keeps failing or gives no answer.
+    pub fallback_models: Vec<String>,
+    /// A routing model's settings (typesafe/jev-router, openrouter/auto):
+    /// {"tier", "maxTier", "budgetTier", "allowedModels", "excludedModels"}.
+    pub router: Option<agen_engine::provider::router::RouterSettings>,
+    /// "minimal", "low", "medium" or "high".
+    pub reasoning_effort: Option<String>,
+    /// OpenRouter request settings sent as given: {"provider", "plugins"}.
+    pub openrouter: Option<agen_engine::bundle::OpenRouterOptions>,
+    /// About how many tokens of conversation one model call may send.
+    pub context_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -164,6 +175,8 @@ pub struct RunSpec {
     pub cancel_key: Option<String>,
     /// Emit `delta` events (default true).
     pub stream: Option<bool>,
+    /// Cost tier for a routing model (capped by router.maxTier).
+    pub model_tier: Option<String>,
 }
 
 /// Called with a JSON request the host must answer via [`SdkAgent::complete`]:
@@ -431,6 +444,31 @@ impl SdkAgent {
             }
             cfg.max_output_tokens = spec.max_output_tokens;
             cfg.temperature = spec.temperature;
+            let provider_name = match &provider_spec {
+                ProviderSpec::Openrouter { .. } => "openrouter",
+                ProviderSpec::Openai { .. } => "openai",
+                ProviderSpec::Fake { .. } => "fake",
+            };
+            if let Some(r) = &spec.router {
+                let kind = agen_engine::provider::router::router_for(&model).ok_or_else(|| {
+                    SdkError::Spec(format!(
+                        "\"router\" needs a routing model (typesafe/jev-router, openrouter/auto), not {model:?}"
+                    ))
+                })?;
+                if let Some((field, msg)) = r.check(kind).into_iter().next() {
+                    return Err(SdkError::Spec(format!("{field}: {msg}")));
+                }
+            }
+            cfg.fallback_models = spec.fallback_models.clone();
+            cfg.router = spec.router.clone();
+            cfg.request_extra = agen_engine::agent::request_extras(
+                provider_name,
+                spec.openrouter.as_ref(),
+                spec.reasoning_effort.as_deref(),
+            );
+            if let Some(n) = spec.context_tokens {
+                cfg.context_tokens = n;
+            }
             cfg.budget.max_tokens_per_run = spec.max_tokens_per_run;
             if let Some(ns) = &spec.namespace {
                 cfg.namespace = ns.clone();
@@ -570,6 +608,7 @@ impl SdkAgent {
             new_conversation: spec.new_conversation,
             task_id: spec.task_id.clone(),
             traceparent: spec.traceparent.clone(),
+            model_tier: spec.model_tier.clone(),
             cancel,
             ..Default::default()
         };

@@ -1468,8 +1468,19 @@ struct Sent {
 /// Request extras from a bundle's harness: OpenRouter settings as given and
 /// the reasoning effort in the provider's wire form.
 fn request_extra(h: &crate::bundle::Harness) -> serde_json::Map<String, Value> {
+    request_extras(&h.provider, h.openrouter.as_ref(), h.reasoning_effort.as_deref())
+}
+
+/// Request extras for a provider: OpenRouter settings as given and the
+/// reasoning effort in the provider's wire form (also for agents defined in
+/// code).
+pub fn request_extras(
+    provider: &str,
+    openrouter: Option<&crate::bundle::OpenRouterOptions>,
+    reasoning_effort: Option<&str>,
+) -> serde_json::Map<String, Value> {
     let mut extra = serde_json::Map::new();
-    if let Some(o) = &h.openrouter {
+    if let Some(o) = openrouter {
         if let Some(p) = &o.provider {
             extra.insert("provider".into(), p.clone());
         }
@@ -1477,13 +1488,13 @@ fn request_extra(h: &crate::bundle::Harness) -> serde_json::Map<String, Value> {
             extra.insert("plugins".into(), Value::Array(p.clone()));
         }
     }
-    if let Some(e) = &h.reasoning_effort {
-        match h.provider.as_str() {
+    if let Some(e) = reasoning_effort {
+        match provider {
             "openrouter" => {
                 extra.insert("reasoning".into(), serde_json::json!({"effort": e}));
             }
             "openai" => {
-                extra.insert("reasoning_effort".into(), Value::String(e.clone()));
+                extra.insert("reasoning_effort".into(), Value::String(e.to_string()));
             }
             _ => {}
         }

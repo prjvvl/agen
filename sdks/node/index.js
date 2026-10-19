@@ -83,6 +83,11 @@ class Agent {
       approvalTimeoutSeconds: rest.approvalTimeoutSeconds,
       namespace: rest.namespace,
       deployment: rest.deployment,
+      fallbackModels: rest.fallbackModels,
+      router: rest.router,
+      reasoningEffort: rest.reasoningEffort,
+      openrouter: rest.openrouter,
+      contextTokens: rest.contextTokens,
       tools: tools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -148,6 +153,7 @@ class Agent {
     if (opts.sessionId) options.sessionId = opts.sessionId;
     if (opts.taskId) options.taskId = opts.taskId;
     if (opts.newConversation) options.newConversation = true;
+    if (opts.modelTier) options.modelTier = opts.modelTier;
     if (opts.traceparent) options.traceparent = opts.traceparent;
     const onEvent = (evJson) => {
       const ev = JSON.parse(evJson);

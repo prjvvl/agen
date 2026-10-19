@@ -30,6 +30,8 @@ const AGENT_KEYS: &[&str] = &[
     "permissions",
     "maxTurns",
     "approvalTimeoutSeconds",
+    "router",
+    "fallbackModels",
 ];
 const TOOL_KEYS: &[&str] = &["name", "readOnly", "timeoutSeconds", "behavior"];
 const RUN_KEYS: &[&str] = &[
@@ -41,7 +43,7 @@ const RUN_KEYS: &[&str] = &[
     "closeAfterMs",
     "concurrent",
 ];
-const OPTION_KEYS: &[&str] = &["taskId"];
+const OPTION_KEYS: &[&str] = &["taskId", "modelTier"];
 const EXPECT_KEYS: &[&str] = &[
     "status",
     "output",
@@ -160,6 +162,9 @@ fn host(case: &Value, state: Shared, slot: AgentSlot) -> HostCallback {
 fn run_once(agent: &Arc<SdkAgent>, run: &Value, prev: Option<&Value>, key: String) -> (Value, Vec<String>) {
     strict(&run["options"], OPTION_KEYS, "options");
     let mut opts = json!({"cancelKey": key});
+    if let Some(t) = run["options"]["modelTier"].as_str() {
+        opts["modelTier"] = json!(t);
+    }
     if let Some(t) = run["options"]["taskId"].as_str() {
         opts["taskId"] = json!(t);
     }

@@ -230,6 +230,11 @@ class Agent:
         approval_timeout_seconds: Optional[int] = None,
         namespace: Optional[str] = None,
         deployment: Optional[str] = None,
+        fallback_models: Optional[typing.Sequence[str]] = None,
+        router: Optional[dict] = None,
+        reasoning_effort: Optional[str] = None,
+        openrouter: Optional[dict] = None,
+        context_tokens: Optional[int] = None,
     ):
         self._tools = {t.name: t for t in tools}
         self._approve = approve
@@ -254,6 +259,11 @@ class Agent:
                 "approvalTimeoutSeconds": approval_timeout_seconds,
                 "namespace": namespace,
                 "deployment": deployment,
+                "fallbackModels": list(fallback_models) if fallback_models else None,
+                "router": router,
+                "reasoningEffort": reasoning_effort,
+                "openrouter": openrouter,
+                "contextTokens": context_tokens,
             }.items()
             if v is not None
         }
@@ -335,6 +345,7 @@ class Agent:
         new_conversation: bool = False,
         traceparent: Optional[str] = None,
         cancel: Optional["CancelScope"] = None,
+        model_tier: Optional[str] = None,
     ) -> RunResult:
         """Run to completion (blocking; other Python threads keep running)."""
         if self._closed:
@@ -348,6 +359,8 @@ class Agent:
             opts["newConversation"] = True
         if traceparent:
             opts["traceparent"] = traceparent
+        if model_tier:
+            opts["modelTier"] = model_tier
         key = f"py-{next(_keys)}"
         opts["cancelKey"] = key
         if cancel is not None:
