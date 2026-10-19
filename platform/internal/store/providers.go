@@ -95,7 +95,11 @@ func (s *Store) ListProviderHolds(ctx context.Context) ([]ProviderHold, error) {
 
 // ClaimProbe lets one task through a hold once its retry time has come.
 func (s *Store) ClaimProbe(ctx context.Context, account, taskID string) (bool, error) {
-	res, err := s.db.ExecContext(ctx, "UPDATE provider_holds SET probe_task = $1 WHERE account = $2 AND retry_ms <= $3 AND probe_task = ''",
+	// A probe whose task went back to the queue (released by its instance,
+	// lease expired) or ended without clearing the hold no longer counts.
+	res, err := s.db.ExecContext(ctx, "UPDATE provider_holds SET probe_task = $1 WHERE account = $2 AND retry_ms <= $3 AND "+
+		"(probe_task = '' OR (probe_task NOT LIKE 'claim:%' AND NOT EXISTS "+
+		"(SELECT 1 FROM tasks WHERE tasks.id = provider_holds.probe_task AND tasks.state IN ('leased', 'running'))))",
 		taskID, account, NowMs())
 	if err != nil {
 		return false, err

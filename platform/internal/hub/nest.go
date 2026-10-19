@@ -346,6 +346,9 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 		if max := PolicyOf(d).Budget.MaxUsdPerDay; err == nil && max > 0 && spent >= BudgetPressure*max {
 			pressure = true
 		}
+		if d.Paused {
+			return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
+		}
 		// A held provider account takes one probe task once its retry time
 		// has come, and nothing else.
 		if hold, held := n.hub.providerHold(ctx, d); held {
@@ -366,9 +369,6 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 			pt := TaskProto(list[0])
 			pt.BudgetPressure = pressure
 			return connect.NewResponse(&agenv1.LeaseTasksResponse{Tasks: []*agenv1.Task{pt}}), nil
-		}
-		if d.Paused {
-			return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
 		}
 	}
 	max := int(m.Max)

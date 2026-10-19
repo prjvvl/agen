@@ -102,6 +102,19 @@ func TestProviderAccountErrorsHoldTheAccount(t *testing.T) {
 	if got := lease("alpha"); len(got) != 0 {
 		t.Fatalf("second task during the probe: %v", got)
 	}
+	// The probe goes back to the queue (its instance was busy): another
+	// probe may go through, but never to a paused deployment.
+	if _, err := n.ReleaseTask(ctx, connect.NewRequest(&agenv1.ReleaseTaskRequest{NestId: id, TaskId: probe[0].Id, LeaseId: probe[0].LeaseId, NotStarted: true})); err != nil {
+		t.Fatal(err)
+	}
+	c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref("", "alpha"), Paused: true}))
+	if got := lease("alpha"); len(got) != 0 {
+		t.Fatalf("paused deployment got a probe: %v", got)
+	}
+	c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref("", "alpha"), Paused: false}))
+	if probe = lease("beta"); len(probe) != 1 {
+		t.Fatal("no new probe after the first went back to the queue")
+	}
 	// The probe succeeds: a run that started after the hold.
 	now := store.NowMs()
 	for _, q := range []string{
