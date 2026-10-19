@@ -177,6 +177,7 @@ func writerFiles(t *testing.T) map[string][]byte {
 // P6 + E6: an agent delegates to another over A2A through the Nest Gateway
 // (resolved via the Manager, not the Hub); the callee's run joins the
 // caller's trace; with the Hub gone, delegation still works.
+// features: delegation
 func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	k := startStack(t)
 	// As on a distributed Nest: callers must present a Hub-signed call token
@@ -288,6 +289,7 @@ func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 // An "ask" tool call in a managed agent becomes a durable approval at the
 // Hub; the person who submitted the task cannot approve it; approve lets
 // the call run, deny stops it, and an unanswered ask expires.
+// features: approvals
 func TestDurableApprovalsForManagedAgents(t *testing.T) {
 	k := startStack(t)
 	ctx := context.Background()
@@ -458,6 +460,7 @@ func TestDurableApprovalsForManagedAgents(t *testing.T) {
 // An agent that keeps delegating to itself is stopped by
 // max_delegation_depth (the chain unwinds cleanly), and a run that keeps
 // calling is stopped by max_fan_out.
+// features: delegation
 func TestDelegationLimitsStopRunawayLoops(t *testing.T) {
 	k := startStack(t)
 	ctx := context.Background()
@@ -698,6 +701,7 @@ func TestPlatformSecretsReachInstances(t *testing.T) {
 
 // An instance that does not answer within RunTimeout ends the call as
 // failed (and is told to cancel) instead of holding it forever.
+// features: delegation
 func TestA2ACallDeadline(t *testing.T) {
 	k := startStack(t)
 	k.gw.RunTimeout = time.Second

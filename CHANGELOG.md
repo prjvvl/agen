@@ -92,6 +92,14 @@
   data-analyst. fleet-steward also reports live warnings and writes the
   daily cost report. cost-watchdog and support-triage are removed.
 
+### Testing
+- `spec/features.yaml` lists every feature and the surfaces it must work on
+  (SDKs, API, MCP, CLI, console, agent-to-agent calls, installers, Docker,
+  Kubernetes). Tests tag what they cover, and a check fails when an API
+  method or field, bundle key, CLI command or SDK option belongs to no
+  feature, or a feature is untested on a surface without a recorded gap. The
+  [support matrix](docs/reference/support.md) is generated from it.
+
 ## v0.1.2
 
 ### Console

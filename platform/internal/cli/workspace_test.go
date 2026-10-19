@@ -31,6 +31,7 @@ func agenBinary(t *testing.T) string {
 
 // The coder template's tool server: an agent on a real host reads, edits
 // and tests a project through `agen mcp workspace`, confined to its folder.
+// features: tools.workspace, tools.mcp, deploy.templates
 func TestCoderTemplateWorksInItsFolder(t *testing.T) {
 	bin := hostBin(t)
 	t.Setenv("AGEN_BIN", agenBinary(t))

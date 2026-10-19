@@ -1,6 +1,7 @@
 {
   "name": "router_tier",
   "description": "A routing model gets its plugin with the default tier; a run may ask for another tier, capped at maxTier.",
+  "features": ["models.router", "tasks.tier"],
   "agent": {
     "name": "c",
     "model": "typesafe/jev-router",

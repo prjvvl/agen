@@ -1,6 +1,7 @@
 {
   "name": "bundle_agent",
   "description": "Agents load from a bundle directory (path relative to the repo root).",
+  "features": ["agent.bundle"],
   "agent": {
     "bundle": "examples/bundles/hello"
   },

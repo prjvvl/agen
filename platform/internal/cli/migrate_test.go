@@ -38,6 +38,7 @@ func freshPostgresDB(t *testing.T) string {
 // A local fleet's history (sessions, runs, traces, deployments, tokens)
 // moves from SQLite to Postgres with `agen migrate`, and the fleet runs on
 // Postgres afterwards with the same credentials.
+// features: fleet.local
 func TestMigrateLocalFleetToPostgres(t *testing.T) {
 	pg := freshPostgresDB(t)
 	bin := hostBin(t)

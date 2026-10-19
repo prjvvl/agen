@@ -1,6 +1,7 @@
 {
   "name": "concurrent_runs",
   "description": "Several runs on one agent proceed concurrently: 8 runs of 300 ms each must finish well under 8 x 300 ms.",
+  "features": ["tasks.run"],
   "agent": {
     "name": "c",
     "provider": {

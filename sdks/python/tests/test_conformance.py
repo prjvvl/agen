@@ -14,7 +14,7 @@ from agen import Agent, AgenError, CancelScope, Tool
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 CASES = sorted(glob.glob(os.path.join(ROOT, "spec", "conformance", "cases", "*.json")))
 
-CASE_KEYS = {"name", "description", "agent", "tools", "approvals", "runs", "expect", "createError"}
+CASE_KEYS = {"name", "description", "features", "agent", "tools", "approvals", "runs", "expect", "createError"}
 AGENT_KEYS = {
     "name": "name",
     "bundle": "bundle",

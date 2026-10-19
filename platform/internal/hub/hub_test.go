@@ -95,6 +95,7 @@ func ref(ns, name string) *agenv1.DeploymentRef {
 	return &agenv1.DeploymentRef{Namespace: ns, Name: name}
 }
 
+// features: access.tokens
 func TestAuthScopesAndNamespaces(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -148,6 +149,7 @@ func TestAuthScopesAndNamespaces(t *testing.T) {
 	}
 }
 
+// features: deploy.lifecycle, agent.basics
 func TestDeploymentLifecycle(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -211,6 +213,7 @@ func TestDeploymentLifecycle(t *testing.T) {
 	}
 }
 
+// features: delegation, tasks.run, tasks.cancel
 func TestTasksWakeAndResolve(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -271,6 +274,7 @@ func TestTasksWakeAndResolve(t *testing.T) {
 	}
 }
 
+// features: approvals
 func TestApprovalsCannotBeSelfDecided(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -296,6 +300,7 @@ func TestApprovalsCannotBeSelfDecided(t *testing.T) {
 	}
 }
 
+// features: observe.runs, observe.logs
 func TestRunsTracesAndLogsFromEngineTables(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

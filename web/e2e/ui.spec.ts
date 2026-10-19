@@ -57,6 +57,7 @@ test("sign-in: a wrong token is refused, the sign-in link works", async ({ page 
   await signIn(page);
 });
 
+// features: agent.basics, deploy.lifecycle, tasks.run, observe.runs
 test("create an agent from the form, run a task, follow it into its trace and transcript", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: "Deployments" }).click();
@@ -88,6 +89,7 @@ test("create an agent from the form, run a task, follow it into its trace and tr
   await expect(page.locator('.msg[data-role="assistant"]')).toContainText("Hello from the UI agent.");
 });
 
+// features: deploy.lifecycle, fleet.nests
 test("scale, stop and start from the list; the fleet shows the instances", async ({ page }) => {
   await api("CreateDeployment", { name: "scaler", bundleFiles: bundle("scaler", { kind: "pool", scale: { min: 0, max: 2 } }, { cycle: true, responses: [{ text: "ok" }] }) });
   await signIn(page);
@@ -113,6 +115,7 @@ test("scale, stop and start from the list; the fleet shows the instances", async
   await expect(row.locator('[data-field="status"]')).not.toContainText("stopped");
 });
 
+// features: deploy.lifecycle, deploy.validate
 test("edit a bundle and roll out the new version", async ({ page }) => {
   await api("CreateDeployment", { name: "editme", bundleFiles: bundle("editme", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "version one" }] }) });
   await signIn(page);
@@ -134,6 +137,7 @@ test("edit a bundle and roll out the new version", async ({ page }) => {
   await expect(page.locator("tr[data-task]").first()).toContainText("version two", { timeout: 60_000 });
 });
 
+// features: approvals
 test("approve an agent's pending ask from the inbox", async ({ page }) => {
   await api("CreateDeployment", { name: "drafter", bundleFiles: bundle("drafter", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "Draft ready." }] }) });
   await api("CreateDeployment", {
@@ -171,6 +175,7 @@ test("approve an agent's pending ask from the inbox", async ({ page }) => {
   expect(done.task.output).toBe("published");
 });
 
+// features: agent.bundle, deploy.lifecycle
 test("upload a bundle folder (with a large binary file)", async ({ page }) => {
   const { mkdtempSync, mkdirSync, writeFileSync, cpSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -194,6 +199,7 @@ test("upload a bundle folder (with a large binary file)", async ({ page }) => {
   expect(Buffer.from(def.definition.files["assets/blob.bin"], "base64").equals(big)).toBe(true);
 });
 
+// features: observe.runs, approvals
 test("cross-agent trace with inspector, deny and delete", async ({ page }) => {
   await api("CreateDeployment", { name: "helper", bundleFiles: bundle("helper", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "helped" }] }) });
   await api("CreateDeployment", {
@@ -253,6 +259,7 @@ test("cross-agent trace with inspector, deny and delete", async ({ page }) => {
   await expect(page.locator('tr[data-deployment="asker"]')).toHaveCount(0);
 });
 
+// features: deploy.templates, agent.skills, secrets, observe.metrics, observe.notifications
 test("deploy from a template; costs and notification targets", async ({ page }) => {
   await signIn(page);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
@@ -297,6 +304,7 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   await expect(page.locator("td", { hasText: "ops-chat" })).toBeVisible();
 });
 
+// features: models.router, models.fallback, agent.basics
 test("add agents on a routing model from the form and from a template", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: "Deployments" }).click();
@@ -361,6 +369,7 @@ test("pages are accessible and fit a phone screen", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
 });
 
+// features: access.tokens
 test("a namespace-scoped token sees only its namespace; a revoked token signs out", async ({ page }) => {
   await api("CreateDeployment", { namespace: "team", name: "teamapp", bundleFiles: bundle("teamapp", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "t" }] }) });
   const tok = await api<{ secret: string; token: { id: string } }>("CreateApiToken", { name: "team-viewer", scopes: ["viewer"], namespaces: ["team"] });

@@ -57,7 +57,7 @@ export const siteConfig = {
         "troubleshooting",
       ],
     },
-    { group: "Reference", icon: "reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks"] },
+    { group: "Reference", icon: "reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks", "reference/support"] },
     { group: "Explanation", icon: "explanation", pages: ["concepts", "architecture", "security", "development"] },
   ],
 } as const;

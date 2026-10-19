@@ -1,0 +1,259 @@
+# What agen offers and where. Each feature lists:
+#   contract: the API methods and request fields, bundle keys (harness:,
+#             config:, agent:), CLI commands and SDK spec/run keys it covers.
+#             Every one of those must belong to a feature (or `ignore`).
+#   on:       surfaces where it must work; each needs a test tagged with the
+#             feature id there (`// features: id` above the test, or
+#             "features": [...] in a conformance case or scenario).
+#   not:      surfaces where it is deliberately not offered, and why.
+#   gap:      surfaces in `on` without a test yet, and what is missing.
+# The gate is platform/internal/features; it also renders
+# docs/reference/support.md. See docs/contributing.md (Feature coverage).
+
+surfaces:
+  - {id: rust, group: core, title: Rust, paths: [engine/crates/agen-sdk-core/tests/, spec/conformance/cases/]}
+  - {id: python, group: core, title: Python, paths: [sdks/python/tests/, spec/conformance/cases/]}
+  - {id: node, group: core, title: Node, paths: [sdks/node/test/, spec/conformance/cases/]}
+  - {id: go, group: core, title: Go, paths: [sdks/go/, spec/conformance/cases/]}
+  - {id: api, group: fleet, title: API, paths: [platform/internal/hub/, spec/scenarios/]}
+  - {id: mcp, group: fleet, title: MCP, paths: [platform/internal/mcpserver/, spec/scenarios/]}
+  - {id: cli, group: fleet, title: CLI, paths: [platform/internal/cli/, spec/scenarios/]}
+  - {id: console, group: fleet, title: Console, paths: [web/e2e/]}
+  - {id: a2a, group: fleet, title: Agent to agent, paths: [platform/internal/gateway/]}
+  - {id: install-sh, group: install, title: "Installer (Linux, macOS)", paths: [scripts/test-install.sh]}
+  - {id: install-ps1, group: install, title: Installer (Windows), paths: [scripts/test-install.ps1]}
+  - {id: docker, group: install, title: Docker cluster, paths: [platform/e2e/cluster_test.go]}
+  - {id: kubernetes, group: install, title: Kubernetes, paths: [platform/e2e/kube_test.go]}
+
+notes:
+  group.core: Core (embed an agent in your program)
+  group.fleet: Fleet (run agents on the Hub and Nests)
+  group.install: Install and run the fleet
+  intro: >-
+    MCP tools are generated from the same API methods, so a feature on the API
+    is reachable over MCP; the MCP column shows where that is also tested.
+    Platform tests run on Linux, macOS and Windows in CI.
+
+ignore:
+  field:
+    namespace: selects the namespace on every request
+    ref: names the deployment on every request
+    id: names the object on every request
+    name: names the object on every request
+    limit: page size on list requests
+    page_token: paging on list requests
+  sdk:
+    owner: set by each SDK for the principal running the agent
+    hostApprovals: set by each SDK when it has an approval handler
+    singleton: internal run mode used by the SDK wrappers
+    cancelKey: internal; each SDK cancels with its own mechanism
+    stream: internal; each SDK streams when given a delta callback
+    store: where an embedded agent keeps runs (in-memory by default)
+    namespace: label for runs an embedded agent stores
+    deployment: label for runs an embedded agent stores
+    secrets: values handed straight to the engine
+  cli:
+    version: prints the version
+
+features:
+  # Agents and models
+  - id: agent.basics
+    title: Instructions, model and provider
+    contract: [sdk:name, sdk:instructions, sdk:model, sdk:provider, sdk:maxOutputTokens, sdk:temperature,
+      harness:provider, harness:model, harness:maxOutputTokens, harness:temperature, harness:script, harness:cassette,
+      harness:baseUrl, harness:apiKeySecret, harness:parallelToolCalls, agent:name, agent:description]
+    on: [rust, python, node, go, api, cli, console]
+  - id: agent.bundle
+    title: Agents from bundles
+    contract: [sdk:bundle, rpc:GetBundleGuide]
+    on: [rust, python, node, go, api, mcp, cli, console]
+    gap: {mcp: ""}
+  - id: agent.skills
+    title: Skills (on demand and preloaded)
+    contract: [agent:skills, agent:preloadSkills]
+    on: [rust, python, node, go, api, cli, console]
+    gap: {rust: "", python: "", node: "", go: "", api: "", cli: ""}
+  - id: models.fallback
+    title: Fallback models
+    contract: [harness:fallbackModels, sdk:fallbackModels]
+    on: [rust, python, node, go, api, cli, console]
+    gap: {rust: "", python: "", node: "", go: "", api: ""}
+  - id: models.router
+    title: Routing models (Jev Router, Auto Router) and cost tiers
+    contract: [harness:router, sdk:router]
+    on: [rust, python, node, go, api, cli, console]
+    gap: {api: ""}
+  - id: models.reasoning
+    title: Reasoning effort
+    contract: [harness:reasoningEffort, sdk:reasoningEffort]
+    on: [rust, python, node, go, api]
+    gap: {rust: "", python: "", node: "", go: "", api: ""}
+  - id: models.openrouter
+    title: OpenRouter request settings (provider routing, plugins)
+    contract: [harness:openrouter, sdk:openrouter]
+    on: [rust, python, node, go, api]
+    gap: {rust: "", python: "", node: "", go: "", api: ""}
+  - id: models.holds
+    title: Provider account holds and resume
+    contract: [rpc:ListProviderHolds, rpc:ResumeProvider, field:ResumeProvider.account, cli:providers]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", cli: "", console: ""}
+  - id: engine.compaction
+    title: Long-run compaction (contextTokens)
+    contract: [harness:contextTokens, sdk:contextTokens]
+    on: [rust, python, node, go, api]
+    gap: {rust: "", python: "", node: "", go: "", api: ""}
+  - id: engine.limits
+    title: Limits (turns, tokens, durations, queue)
+    contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
+    on: [rust, python, node, go, api, cli]
+    gap: {rust: "", python: "the SDK does not take maxTokensPerRun yet", node: "the SDK does not take maxTokensPerRun yet", go: "the SDK does not take maxTokensPerRun yet", cli: ""}
+
+  # Tools and permissions
+  - id: tools.host
+    title: Host tools (functions in your program)
+    contract: [sdk:tools]
+    on: [rust, python, node, go]
+    not: {api: deployed agents get tools from MCP servers in the bundle (tools.mcp)}
+  - id: tools.mcp
+    title: Tools from MCP servers in the bundle
+    contract: [config:tools]
+    on: [api, cli]
+    gap: {api: ""}
+  - id: tools.workspace
+    title: Built-in workspace and SQL tool servers
+    contract: [config:workspace, cli:mcp]
+    on: [cli]
+  - id: approvals
+    title: Permissions and approvals
+    contract: [sdk:permissions, sdk:approvalTimeoutSeconds, config:permissions, rpc:ListApprovals, rpc:DecideApproval,
+      field:ListApprovals.state, field:DecideApproval.approve, cli:approvals]
+    on: [rust, python, node, go, api, mcp, cli, console, a2a]
+    gap: {cli: ""}
+
+  # Work
+  - id: tasks.run
+    title: Run tasks and wait for results
+    contract: [rpc:SubmitTask, rpc:GetTask, rpc:ListTasks, field:SubmitTask.input, field:SubmitTask.idempotency_key,
+      field:GetTask.wait_seconds, field:ListTasks.deployment, field:ListTasks.state, sdk:taskId, cli:run, cli:wait, cli:tasks]
+    on: [rust, python, node, go, api, mcp, cli, console]
+  - id: tasks.cancel
+    title: Cancel a task or run
+    contract: [rpc:CancelTask]
+    on: [rust, python, node, go, api, mcp, cli, console]
+    gap: {mcp: "", cli: "no `agen tasks cancel` command yet", console: ""}
+  - id: tasks.streaming
+    title: Stream output while a run is in progress
+    contract: []
+    on: [rust, python, node, go]
+    not: {api: tasks return the final result; follow live steps on /api/v1/events}
+  - id: tasks.conversations
+    title: Conversations and labels
+    contract: [field:SubmitTask.conversation_key, field:SubmitTask.labels, sdk:sessionId, sdk:newConversation]
+    on: [rust, python, node, go, api, mcp, cli]
+    gap: {mcp: ""}
+  - id: tasks.tier
+    title: Per-task cost tier
+    contract: [field:SubmitTask.model_tier, sdk:modelTier]
+    on: [rust, python, node, go, api, mcp, cli, console]
+    gap: {mcp: "", cli: "", console: ""}
+  - id: tasks.schedule
+    title: Tasks with a start time
+    contract: [field:SubmitTask.not_before, field:ListTasks.scheduled]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", cli: "", console: ""}
+  - id: triggers
+    title: Cron and webhook triggers
+    contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
+      field:ListTriggerEvents.state, rpc:CreateWebhookSecret, field:CreateWebhookSecret.trigger, cli:triggers, cli:webhook-secret]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", console: ""}
+  - id: delegation
+    title: Agents calling agents (call_agent)
+    contract: [config:delegates, rpc:Resolve, field:Resolve.caller, rpc:RequestWake, cli:call, cli:resolve]
+    on: [api, cli, a2a, docker]
+  - id: delegation.async
+    title: Start an agent without waiting (start_agent)
+    contract: []
+    on: [api, a2a]
+
+  # Deployments
+  - id: deploy.lifecycle
+    title: Deploy, update, scale, pause and delete
+    contract: [rpc:CreateDeployment, rpc:UpdateDeployment, rpc:GetDeployment, rpc:ListDeployments, rpc:ScaleDeployment,
+      rpc:DeleteDeployment, rpc:PauseDeployment, rpc:ListInstances, field:CreateDeployment.bundle_files,
+      field:CreateDeployment.bundle_text, field:CreateDeployment.kind, field:CreateDeployment.scale, field:CreateDeployment.placement,
+      field:UpdateDeployment.bundle_files, field:UpdateDeployment.bundle_text, field:UpdateDeployment.scale,
+      field:UpdateDeployment.placement, field:ScaleDeployment.desired, field:PauseDeployment.paused,
+      field:ListInstances.deployment, field:ListInstances.nest_id, config:kind, config:scale,
+      cli:deploy, cli:scale, cli:ps, cli:stop, cli:start, cli:rm]
+    on: [api, mcp, cli, console, docker, kubernetes]
+  - id: deploy.validate
+    title: Check a bundle before deploying
+    contract: [field:CreateDeployment.validate_only, field:UpdateDeployment.validate_only]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", cli: ""}
+  - id: deploy.versions
+    title: Bundle versions and roll back
+    contract: [rpc:ListDefinitions, rpc:GetDefinition, field:GetDefinition.digest]
+    on: [api, mcp, console]
+    gap: {mcp: "", console: ""}
+  - id: deploy.templates
+    title: Start from a template
+    contract: [rpc:ListTemplates, cli:init]
+    on: [api, mcp, cli, console]
+    gap: {api: "", mcp: ""}
+  - id: budgets
+    title: Daily budgets
+    contract: [config:budget, field:CreateDeployment.budget, field:UpdateDeployment.budget]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", console: ""}
+  - id: secrets
+    title: Platform secrets
+    contract: [rpc:SetSecret, rpc:ListSecrets, rpc:DeleteSecret, field:SetSecret.value, field:SetSecret.deployments, cli:secret]
+    on: [api, mcp, cli, console]
+    gap: {cli: ""}
+
+  # Observe
+  - id: observe.runs
+    title: Runs, traces and transcripts
+    contract: [rpc:ListRuns, rpc:GetTrace, rpc:GetTranscript, field:ListRuns.deployment, field:ListRuns.status,
+      field:ListRuns.roots_only, field:ListRuns.labels, field:ListRuns.since, field:ListRuns.task_id, field:GetTrace.trace_id,
+      field:GetTranscript.run_id, field:GetTranscript.include_history, harness:traceToolArguments, sdk:traceparent,
+      cli:runs, cli:trace, cli:transcript]
+    on: [rust, python, node, go, api, mcp, cli, console]
+  - id: observe.logs
+    title: Deployment logs
+    contract: [rpc:GetLogs, field:GetLogs.instance_id, field:GetLogs.since, cli:logs]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", console: ""}
+  - id: observe.metrics
+    title: Metrics, costs and live activity
+    contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]
+    on: [api, mcp, console]
+    gap: {mcp: ""}
+  - id: observe.notifications
+    title: Notification targets
+    contract: [rpc:SetNotificationTarget, rpc:ListNotificationTargets, rpc:DeleteNotificationTarget,
+      field:SetNotificationTarget.target, cli:notify]
+    on: [api, mcp, cli, console]
+    gap: {mcp: "", cli: ""}
+
+  # Access
+  - id: access.tokens
+    title: API tokens, scopes and namespaces
+    contract: [rpc:CreateApiToken, rpc:ListApiTokens, rpc:RevokeApiToken, rpc:WhoAmI, field:CreateApiToken.scopes,
+      field:CreateApiToken.namespaces, field:CreateApiToken.ttl_seconds, field:CreateApiToken.on_behalf, cli:token, cli:whoami]
+    on: [api, mcp, cli, console]
+
+  # Fleet
+  - id: fleet.local
+    title: Local fleet (agen up)
+    contract: [cli:up, cli:down, cli:ui, cli:migrate, cli:store]
+    on: [cli, install-sh, install-ps1]
+  - id: fleet.nests
+    title: Nests (machines that run agents)
+    contract: [rpc:ListNests, rpc:CreateJoinToken, rpc:RevokeNest, field:CreateJoinToken.ttl_seconds, cli:nests,
+      cli:join-token, cli:nest, cli:hub]
+    on: [api, mcp, cli, console, docker, kubernetes]
+    gap: {mcp: ""}

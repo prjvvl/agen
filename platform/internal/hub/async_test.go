@@ -13,6 +13,7 @@ import (
 // A run started over A2A (no task) may start child tasks when it is an
 // unfinished run of the asking instance on the asking Nest; the child's
 // result goes back to the run's conversation once.
+// features: delegation.async
 func TestChildTaskFromARunRepliesOnce(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

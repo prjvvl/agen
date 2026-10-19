@@ -56,6 +56,7 @@ func (e env) scheduler() *Scheduler {
 	return s
 }
 
+// features: fleet.nests
 func TestNestEnrollmentAndTokenIsolation(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -189,6 +190,7 @@ func TestSchedulerPlacesWatchesAndReschedulesLostNest(t *testing.T) {
 	}
 }
 
+// features: deploy.lifecycle
 func TestPlacementLabelsAndCapacity(t *testing.T) {
 	nests := []store.Nest{
 		{ID: "n1", State: "active", Capacity: 1, Labels: map[string]string{"gpu": "yes"}},
@@ -374,6 +376,7 @@ func TestNestTaskLeasingIsScopedToAssignments(t *testing.T) {
 	}
 }
 
+// features: deploy.versions
 func TestNamespaceScopedDefinitionsAndListLimits(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -420,6 +423,7 @@ func TestNamespaceScopedDefinitionsAndListLimits(t *testing.T) {
 	}
 }
 
+// features: deploy.lifecycle
 func TestPauseAndRedeployPolicy(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -475,6 +479,7 @@ func TestPauseAndRedeployPolicy(t *testing.T) {
 // An approval raised by a delegated run (no Hub task of its own) names the
 // submitter of its root run's task, so that person cannot approve it; a child
 // task's parent run must be the parent task's run.
+// features: approvals, delegation
 func TestDelegatedApprovalsNameTheRootSubmitter(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -571,6 +576,7 @@ func TestDelegatedApprovalsNameTheRootSubmitter(t *testing.T) {
 // An instance still finishing a run after its deployment was scaled down
 // (or redeployed) may keep delegating; once it is gone, or for an instance a
 // Nest was never allowed to run, Resolve names no caller.
+// features: delegation
 func TestDrainingInstanceCanStillDelegate(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

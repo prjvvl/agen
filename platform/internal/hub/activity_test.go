@@ -15,6 +15,7 @@ import (
 // GetActivity says what each unfinished run is doing (waiting for an agent,
 // an approval, the model or a tool), counts queues, and raises warnings;
 // GetMetrics groups model calls by the model that served them.
+// features: observe.metrics
 func TestActivityAndModelMetrics(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

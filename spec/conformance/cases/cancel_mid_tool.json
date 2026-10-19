@@ -1,6 +1,7 @@
 {
   "name": "cancel_mid_tool",
   "description": "Cancelling a run while a host tool runs cancels the run and tells the tool.",
+  "features": ["tasks.cancel", "tools.host"],
   "agent": {
     "name": "c",
     "provider": {

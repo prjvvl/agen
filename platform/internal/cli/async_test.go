@@ -13,6 +13,7 @@ import (
 // its turn; when the started task ends, its result arrives as a new task in
 // the caller's conversation, which continues with it. Without a
 // conversation key the caller's session gets one for the reply.
+// features[a2a]: delegation.async
 func TestAsyncDelegationRepliesIntoTheConversation(t *testing.T) {
 	bin := hostBin(t)
 	home := t.TempDir()

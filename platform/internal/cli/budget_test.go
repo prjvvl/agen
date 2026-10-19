@@ -11,6 +11,7 @@ import (
 // End to end: runs report their model cost; once today's spend reaches the
 // deployment's max_usd_per_day, queued work stops being started (clean stop:
 // no run is interrupted) and `agen ps` says why.
+// features: budgets
 func TestDailyBudgetEndToEnd(t *testing.T) {
 	startUp(t)
 	bundle := filepath.Join(t.TempDir(), "spender")

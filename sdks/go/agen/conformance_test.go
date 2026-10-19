@@ -23,6 +23,7 @@ import (
 type confCase struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
+	Features    []string        `json:"features"`
 	Agent       json.RawMessage `json:"agent"`
 	Tools       []confTool      `json:"tools"`
 	Approvals   string          `json:"approvals"`

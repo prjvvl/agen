@@ -1,6 +1,7 @@
 {
   "name": "non_json_result",
   "description": "A tool returning a value that is not JSON-serialisable becomes a tool error.",
+  "features": ["tools.host"],
   "agent": {
     "name": "c",
     "provider": {

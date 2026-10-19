@@ -17,6 +17,7 @@ import (
 // next and last fired, the tasks waiting for their start time (soonest
 // first), trigger events across deployments, and warnings for missed
 // windows and refused webhook calls.
+// features: tasks.schedule, triggers
 func TestSchedulesData(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

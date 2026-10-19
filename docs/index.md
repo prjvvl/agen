@@ -55,6 +55,7 @@ See [Install](install.md) for platforms, options and uninstalling.
 - [CLI](reference/cli.md)
 - [API](reference/api.md): REST, gRPC and MCP.
 - [SDKs](reference/sdks.md)
+- [Support matrix](reference/support.md): what works where.
 
 ## Explanation
 

@@ -32,6 +32,7 @@ func bundleB64(t *testing.T, name string, override map[string]string) map[string
 // namespace with operator + approver scopes, drives the fleet over MCP only:
 // deploy, list, scale, and approve an agent's pending "ask"; it is refused
 // outside its namespace and cannot approve its own requests.
+// features[mcp]: deploy.lifecycle, tasks.run, approvals
 func TestScenario7ExternalAIOverMCP(t *testing.T) {
 	lc, _ := startUp(t)
 	hub := lc.Hub

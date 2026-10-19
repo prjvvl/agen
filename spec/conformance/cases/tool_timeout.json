@@ -1,6 +1,7 @@
 {
   "name": "tool_timeout",
   "description": "A host tool that exceeds its timeout is abandoned; the model is told the outcome is unknown.",
+  "features": ["tools.host"],
   "agent": {
     "name": "c",
     "provider": {

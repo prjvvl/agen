@@ -1,6 +1,7 @@
 {
   "name": "approval_approved",
   "description": "An 'ask' permission is routed to the host's approval handler; approved calls run.",
+  "features": ["approvals"],
   "agent": {
     "name": "c",
     "permissions": {

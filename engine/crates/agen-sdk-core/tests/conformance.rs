@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 const CASE_KEYS: &[&str] = &[
     "name",
     "description",
+    "features",
     "agent",
     "tools",
     "approvals",

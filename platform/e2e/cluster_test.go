@@ -142,6 +142,7 @@ func (k *cluster) nestName(id string) string {
 	return ""
 }
 
+// features: deploy.lifecycle, fleet.nests, delegation
 func TestDistributedCluster(t *testing.T) {
 	if os.Getenv("AGEN_CLUSTER_E2E") != "1" {
 		t.Skip("set AGEN_CLUSTER_E2E=1 (needs Docker and the agen:dev image)")

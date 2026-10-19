@@ -114,6 +114,7 @@ func copyDir(t *testing.T, src, dst string) {
 	}
 }
 
+// features: fleet.local, deploy.lifecycle, tasks.run, observe.logs, observe.runs, agent.bundle, agent.basics, fleet.nests
 func TestLocalFleetThroughTheCLI(t *testing.T) {
 	bin := hostBin(t)
 	home := t.TempDir()
@@ -514,6 +515,7 @@ func resolve(t *testing.T, name string) []string {
 
 // agen down stops agen up; a restart after the store was wiped re-enrols the
 // local nest instead of running unheard with a stale credential.
+// features: fleet.local
 func TestDownAndRestartWithWipedStore(t *testing.T) {
 	bin := hostBin(t)
 	home := t.TempDir()
@@ -581,6 +583,7 @@ func TestDownAndRestartWithWipedStore(t *testing.T) {
 
 // End to end: a cron trigger wakes a sleeping deployment and its task
 // runs; a webhook call (with the trigger's secret) becomes a task too.
+// features: triggers
 func TestCronAndWebhookTriggersEndToEnd(t *testing.T) {
 	lc, _ := startUp(t)
 	bundle := filepath.Join(t.TempDir(), "hello")

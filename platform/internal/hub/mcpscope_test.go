@@ -38,6 +38,7 @@ var expectedScope = map[string]string{
 // Every MCP tool enforces exactly the scope its API call needs (MCP is a
 // thin layer over the authenticated API), namespace-limited tokens stay in
 // their namespaces, and nothing listed or returned carries secret values.
+// features[mcp]: access.tokens, deploy.lifecycle, observe.runs, secrets
 func TestMCPScopeMatrix(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

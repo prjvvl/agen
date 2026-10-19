@@ -14,6 +14,7 @@ import (
 // An account error holds every deployment on the same provider key: no
 // leases, no wake-ups, queued work waits. After the backoff one probe task
 // goes through; a run that succeeds ends the hold. Operators can end it too.
+// features: models.holds
 func TestProviderAccountErrorsHoldTheAccount(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -134,6 +135,7 @@ func TestProviderAccountErrorsHoldTheAccount(t *testing.T) {
 	}
 }
 
+// features: models.holds
 func TestHoldBackoff(t *testing.T) {
 	for n, want := range map[int]time.Duration{1: 5 * time.Minute, 2: 10 * time.Minute, 4: 40 * time.Minute, 5: time.Hour, 9: time.Hour} {
 		if got := store.HoldBackoff(n); got != want {

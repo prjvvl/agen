@@ -1,6 +1,7 @@
 {
   "name": "cancel_before_start",
   "description": "A cancel issued before the run starts makes it start cancelled.",
+  "features": ["tasks.cancel"],
   "agent": {
     "name": "c",
     "provider": {

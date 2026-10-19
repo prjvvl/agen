@@ -15,6 +15,7 @@ import (
 // Daily budget: once today's spend reaches max_usd_per_day, nothing new
 // starts — the autoscaler holds 0 despite queued work, no leases are handed
 // out, wake-ups are refused — and the next UTC day resumes.
+// features: budgets
 func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -81,6 +82,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 
 // Tasks carry a cost tier and a start time; once a deployment has spent 80%
 // of its daily budget, leased tasks say so (routing models then go cheap).
+// features: tasks.tier, tasks.schedule, budgets
 func TestTaskTierScheduleAndBudgetPressure(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

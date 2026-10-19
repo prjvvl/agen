@@ -1,6 +1,7 @@
 {
   "name": "approval_denied",
   "description": "Denied approvals never run the tool; the model is told.",
+  "features": ["approvals"],
   "agent": {
     "name": "c",
     "permissions": {

@@ -21,6 +21,7 @@ func readHarness(t *testing.T, dir string) map[string]any {
 	return h
 }
 
+// features: deploy.templates, models.router, models.fallback
 func TestInitWithRoutingModel(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "a")
 	agen(t, 0, "init", dir, "--template", "hello", "--model", "typesafe/jev-router", "--tier", "low", "--max-tier", "high", "--fallback", "deepseek/deepseek-v4-flash")
@@ -44,6 +45,7 @@ func TestInitWithRoutingModel(t *testing.T) {
 	}
 }
 
+// features: models.router
 func TestInitTierOnTemplateRouter(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "c")
 	agen(t, 0, "init", dir, "--template", "coder", "--tier", "low")
@@ -53,6 +55,7 @@ func TestInitTierOnTemplateRouter(t *testing.T) {
 	}
 }
 
+// features: models.router, models.fallback
 func TestInitRefusesBadModelChoice(t *testing.T) {
 	for name, args := range map[string][]string{
 		"tier on a plain model": {"--template", "writer", "--tier", "low"},

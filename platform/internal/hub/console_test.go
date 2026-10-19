@@ -48,6 +48,7 @@ func runTree(t *testing.T, e env, now int64) {
 		"('c1',5,'r1','{\"role\":\"assistant\",\"content\":\"Hello!\"}',$1)", now)
 }
 
+// features: observe.runs
 func TestListRunsFiltersPagesAndTreeUsage(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -91,6 +92,7 @@ func TestListRunsFiltersPagesAndTreeUsage(t *testing.T) {
 	}
 }
 
+// features: observe.runs
 func TestTranscriptAndSystemPrompt(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -128,6 +130,7 @@ func TestTranscriptAndSystemPrompt(t *testing.T) {
 	}
 }
 
+// features: observe.metrics
 func TestMetricsAndCallEdges(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -151,6 +154,7 @@ func TestMetricsAndCallEdges(t *testing.T) {
 	}
 }
 
+// features: engine.limits
 func TestQueueCapRefusesTasks(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -176,6 +180,7 @@ func TestQueueCapRefusesTasks(t *testing.T) {
 
 // A task waiting for an approval shows it, and GetTask returns early when
 // the wait begins.
+// features: approvals, tasks.run
 func TestGetTaskReturnsWhileWaitingForApproval(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -227,6 +232,7 @@ func TestGetTaskReturnsWhileWaitingForApproval(t *testing.T) {
 
 // An on-behalf token acts for the submitter of a running task, with the
 // scopes both hold, and can never decide approvals.
+// features: access.tokens
 func TestOnBehalfToken(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -310,6 +316,7 @@ func tokenID(t *testing.T, e env, name string) string {
 	return ""
 }
 
+// features: observe.notifications
 func TestNotificationTargets(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
