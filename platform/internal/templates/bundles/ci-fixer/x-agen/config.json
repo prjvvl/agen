@@ -22,8 +22,28 @@
         "action": "allow"
       },
       {
-        "tool": "workspace.*",
+        "tool": "workspace.read",
         "action": "allow"
+      },
+      {
+        "tool": "workspace.list",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.grep",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.edit",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.write",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.run",
+        "action": "ask"
       }
     ]
   },
