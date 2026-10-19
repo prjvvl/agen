@@ -905,9 +905,11 @@ func (m *Manager) dispatch(ctx context.Context) {
 		for _, t := range resp.Msg.Tasks {
 			in := m.pick(s.ns, s.dep)
 			if in == nil {
-				// Slots vanished (instance retired); the lease expires and
-				// the task is requeued.
-				m.cfg.Log.Warn("no free instance for leased task", "task", t.Id)
+				// Slots vanished (instance retired): give the task back now,
+				// without counting the attempt, instead of letting the lease
+				// expire.
+				m.cfg.Log.Warn("no free instance for leased task; releasing it", "task", t.Id)
+				m.releaseTask(ctx, t, true)
 				continue
 			}
 			m.wg.Add(1)
