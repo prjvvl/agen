@@ -210,7 +210,15 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
         <div className="form-grid">
           <label className="field">
             Name
-            <input value={name} onChange={(e) => setName(e.target.value)} required pattern="[a-z0-9][a-z0-9-]*" aria-label="Name" />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              pattern="[a-z0-9][a-z0-9-]*"
+              aria-label="Name"
+              readOnly={t.name === "assistant"}
+              title={t.name === "assistant" ? "The console's chat talks to the deployment named assistant" : undefined}
+            />
           </label>
           <label className="field">
             Namespace

@@ -63,7 +63,7 @@ You answer questions. Use fetch.fetch to read web pages when you need facts, and
 `,
 	"mcp.json": `{
   "mcpServers": {
-    "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] }
+    "fetch": { "command": "uvx", "args": ["mcp-server-fetch==2026.8.18"] }
   }
 }
 `,

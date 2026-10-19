@@ -20,7 +20,7 @@ SDK READMEs.
 ```json
 {
   "mcpServers": {
-    "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] },
+    "fetch": { "command": "uvx", "args": ["mcp-server-fetch==2026.8.18"] },
     "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "./data"] },
     "crm":   { "url": "https://crm.example/mcp", "headers": { "Authorization": "Bearer ${CRM_TOKEN}" } }
   }
@@ -31,6 +31,11 @@ SDK READMEs.
   its working directory. A relative command that exists in the bundle runs from
   there; anything else is looked up on `PATH`.
 - A `url` server is reached over streamable HTTP.
+- Pin the versions of servers fetched at start (`mcp-server-fetch==2026.8.18`,
+  `npx -y pkg@1.2.3`) so a new release cannot change what your agent runs.
+  A web fetcher reaches whatever its Nest can, the Hub on `localhost` and
+  cloud metadata addresses included: run such agents on Nests without access
+  to internal services.
 - `${NAME}` in `env` values and headers is replaced with the secret `NAME`,
   which must be declared in `x-agen/secrets.json`.
 - Command servers get a cleared environment: a small allowlist (`PATH`,
