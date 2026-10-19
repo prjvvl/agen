@@ -78,8 +78,14 @@ func (n *NestAPI) childParent(ctx context.Context, m *agenv1.SubmitChildTaskRequ
 		}
 		depth, cur = depth+1, up
 	}
+	// The run records the call token a person started it with; the child
+	// is submitted by that person, never by the token itself.
+	who, err := n.submitterOf(ctx, run)
+	if err != nil {
+		return store.Task{}, connect.NewError(connect.CodePermissionDenied, err)
+	}
 	return store.Task{Namespace: run.Namespace, Deployment: run.Deployment, Depth: depth, RootRunID: run.RootRunID,
-		SubmittedBy: run.RequestedBy, Labels: run.Labels}, nil
+		SubmittedBy: who, Labels: run.Labels}, nil
 }
 
 // replyResult submits a finished child task's result to the conversation

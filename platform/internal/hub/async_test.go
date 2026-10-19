@@ -55,6 +55,17 @@ func TestChildTaskFromARunRepliesOnce(t *testing.T) {
 	if _, err := start("done", "i1"); code(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("finished run: %v", err)
 	}
+	// A run whose recorded call token does not verify starts nothing, and
+	// a token is never stored as a submitter.
+	if _, err := e.store.DB().ExecContext(ctx, "UPDATE runs SET requested_by = 'not-a-signed-token' WHERE id = 'live'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := start("live", "i1"); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("unverifiable requester: %v", err)
+	}
+	if _, err := e.store.DB().ExecContext(ctx, "UPDATE runs SET requested_by = '' WHERE id = 'live'"); err != nil {
+		t.Fatal(err)
+	}
 	child, err := start("live", "i1")
 	if err != nil {
 		t.Fatal(err)
