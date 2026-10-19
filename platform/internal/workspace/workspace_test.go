@@ -56,6 +56,12 @@ func TestPathsStayInsideTheRoot(t *testing.T) {
 			t.Fatal("read through a symlink escaped the root")
 		}
 	}
+	// grep does not follow a symlinked file out of the root.
+	if err := os.Symlink(outside, filepath.Join(root, "notes.txt")); err == nil {
+		if out, err := call(t, s, "grep", map[string]any{"pattern": "nope"}); err != nil || strings.Contains(out, "nope") {
+			t.Fatalf("grep through a symlink: %q %v", out, err)
+		}
+	}
 	// An absolute path inside the root is fine.
 	if out, err := call(t, s, "read", map[string]any{"path": filepath.Join(root, "README.md")}); err != nil || !strings.Contains(out, "# demo") {
 		t.Fatalf("absolute path inside: %q %v", out, err)

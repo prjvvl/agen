@@ -342,6 +342,9 @@ func (s *Server) grep(pattern, glob string, ignoreCase bool) (string, error) {
 	var b strings.Builder
 	matches := 0
 	err = s.walk(glob, 1<<30, func(full, rel string) bool {
+		if _, err := s.resolve(rel); err != nil {
+			return true // a symlink to a file outside the root
+		}
 		data, err := os.ReadFile(full)
 		if err != nil || bytes.IndexByte(data, 0) >= 0 {
 			return true // unreadable or binary
