@@ -1,0 +1,63 @@
+{
+  "name": "agents",
+  "description": "A deployed agent loads a skill, calls a tool from an MCP server in its bundle, and waits on an 'ask' permission that a separate approver token decides.",
+  "features": ["agent.skills", "tools.mcp", "approvals", "access.tokens", "tasks.run"],
+  "bundles": {
+    "helper": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "mcp.json": { "mcpServers": { "workspace": { "command": "agen", "args": ["mcp", "workspace", "--root", "${tmp}", "--no-run"] } } },
+        "x-agen/config.json": {
+          "permissions": { "default": "deny", "rules": [
+            { "tool": "load_skill", "action": "allow" },
+            { "tool": "workspace.list", "action": "ask" }
+          ] }
+        },
+        "x-agen/fake-script.json": {
+          "cycle": null,
+          "responses": [
+            { "text": "", "toolCalls": [{ "name": "load_skill", "arguments": { "name": "greeting" } }] },
+            { "text": "", "expect": "One sentence, no emoji", "toolCalls": [{ "name": "workspace.list", "arguments": { "path": "." } }] },
+            { "text": "Listed the folder.", "expect": "" }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "helper", "bundleText": "$bundle:helper" },
+      "expect": { "deployment.name": "helper" }
+    },
+    {
+      "call": "CreateApiToken",
+      "args": { "name": "approver-$ns", "scopes": ["approver"], "namespaces": ["$ns"] },
+      "expect": { "secret": { "exists": true } },
+      "save": { "approver": "secret" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "helper" }, "input": "greet, then list the folder" },
+      "save": { "task": "task.id" }
+    },
+    {
+      "call": "ListApprovals",
+      "args": { "namespace": "$ns" },
+      "expect": { "approvals": { "has": { "tool": "workspace.list" } } },
+      "save": { "approval": "approvals.0.id" },
+      "retry": 120
+    },
+    {
+      "call": "DecideApproval",
+      "args": { "id": "$approval", "approve": true },
+      "as": "approver"
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$task", "waitSeconds": 60 },
+      "expect": { "task.state": "TASK_STATE_SUCCEEDED", "task.output": "Listed the folder." },
+      "retry": 120
+    }
+  ]
+}

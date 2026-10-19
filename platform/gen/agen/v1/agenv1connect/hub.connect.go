@@ -104,8 +104,16 @@ const (
 	HubServiceGetTranscriptProcedure = "/agen.v1.HubService/GetTranscript"
 	// HubServiceGetMetricsProcedure is the fully-qualified name of the HubService's GetMetrics RPC.
 	HubServiceGetMetricsProcedure = "/agen.v1.HubService/GetMetrics"
+	// HubServiceGetActivityProcedure is the fully-qualified name of the HubService's GetActivity RPC.
+	HubServiceGetActivityProcedure = "/agen.v1.HubService/GetActivity"
 	// HubServiceGetLogsProcedure is the fully-qualified name of the HubService's GetLogs RPC.
 	HubServiceGetLogsProcedure = "/agen.v1.HubService/GetLogs"
+	// HubServiceListProviderHoldsProcedure is the fully-qualified name of the HubService's
+	// ListProviderHolds RPC.
+	HubServiceListProviderHoldsProcedure = "/agen.v1.HubService/ListProviderHolds"
+	// HubServiceResumeProviderProcedure is the fully-qualified name of the HubService's ResumeProvider
+	// RPC.
+	HubServiceResumeProviderProcedure = "/agen.v1.HubService/ResumeProvider"
 	// HubServiceCreateJoinTokenProcedure is the fully-qualified name of the HubService's
 	// CreateJoinToken RPC.
 	HubServiceCreateJoinTokenProcedure = "/agen.v1.HubService/CreateJoinToken"
@@ -195,10 +203,16 @@ type HubServiceClient interface {
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
 	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
 	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
-	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
+	// What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
+	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
+	// End a provider hold now (e.g. after fixing the key or adding credit).
+	ResumeProvider(context.Context, *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error)
 	// A single-use token for enrolling a Nest (agen nest run --join-token).
 	CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error)
 	// Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
@@ -403,10 +417,28 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetMetrics")),
 			connect.WithClientOptions(opts...),
 		),
+		getActivity: connect.NewClient[v1.GetActivityRequest, v1.GetActivityResponse](
+			httpClient,
+			baseURL+HubServiceGetActivityProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetActivity")),
+			connect.WithClientOptions(opts...),
+		),
 		getLogs: connect.NewClient[v1.GetLogsRequest, v1.GetLogsResponse](
 			httpClient,
 			baseURL+HubServiceGetLogsProcedure,
 			connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
+			connect.WithClientOptions(opts...),
+		),
+		listProviderHolds: connect.NewClient[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse](
+			httpClient,
+			baseURL+HubServiceListProviderHoldsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListProviderHolds")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeProvider: connect.NewClient[v1.ResumeProviderRequest, v1.ResumeProviderResponse](
+			httpClient,
+			baseURL+HubServiceResumeProviderProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ResumeProvider")),
 			connect.WithClientOptions(opts...),
 		),
 		createJoinToken: connect.NewClient[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse](
@@ -508,7 +540,10 @@ type hubServiceClient struct {
 	getTrace                 *connect.Client[v1.GetTraceRequest, v1.GetTraceResponse]
 	getTranscript            *connect.Client[v1.GetTranscriptRequest, v1.GetTranscriptResponse]
 	getMetrics               *connect.Client[v1.GetMetricsRequest, v1.GetMetricsResponse]
+	getActivity              *connect.Client[v1.GetActivityRequest, v1.GetActivityResponse]
 	getLogs                  *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
+	listProviderHolds        *connect.Client[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse]
+	resumeProvider           *connect.Client[v1.ResumeProviderRequest, v1.ResumeProviderResponse]
 	createJoinToken          *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
 	createApiToken           *connect.Client[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse]
 	listApiTokens            *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
@@ -662,9 +697,24 @@ func (c *hubServiceClient) GetMetrics(ctx context.Context, req *connect.Request[
 	return c.getMetrics.CallUnary(ctx, req)
 }
 
+// GetActivity calls agen.v1.HubService.GetActivity.
+func (c *hubServiceClient) GetActivity(ctx context.Context, req *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error) {
+	return c.getActivity.CallUnary(ctx, req)
+}
+
 // GetLogs calls agen.v1.HubService.GetLogs.
 func (c *hubServiceClient) GetLogs(ctx context.Context, req *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return c.getLogs.CallUnary(ctx, req)
+}
+
+// ListProviderHolds calls agen.v1.HubService.ListProviderHolds.
+func (c *hubServiceClient) ListProviderHolds(ctx context.Context, req *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {
+	return c.listProviderHolds.CallUnary(ctx, req)
+}
+
+// ResumeProvider calls agen.v1.HubService.ResumeProvider.
+func (c *hubServiceClient) ResumeProvider(ctx context.Context, req *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error) {
+	return c.resumeProvider.CallUnary(ctx, req)
 }
 
 // CreateJoinToken calls agen.v1.HubService.CreateJoinToken.
@@ -778,10 +828,16 @@ type HubServiceHandler interface {
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
 	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
 	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
-	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
+	// What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
+	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
+	// End a provider hold now (e.g. after fixing the key or adding credit).
+	ResumeProvider(context.Context, *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error)
 	// A single-use token for enrolling a Nest (agen nest run --join-token).
 	CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error)
 	// Create an API token with scopes (viewer, operator, approver, admin), optionally limited to namespaces.
@@ -982,10 +1038,28 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("GetMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceGetActivityHandler := connect.NewUnaryHandler(
+		HubServiceGetActivityProcedure,
+		svc.GetActivity,
+		connect.WithSchema(hubServiceMethods.ByName("GetActivity")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceGetLogsHandler := connect.NewUnaryHandler(
 		HubServiceGetLogsProcedure,
 		svc.GetLogs,
 		connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListProviderHoldsHandler := connect.NewUnaryHandler(
+		HubServiceListProviderHoldsProcedure,
+		svc.ListProviderHolds,
+		connect.WithSchema(hubServiceMethods.ByName("ListProviderHolds")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceResumeProviderHandler := connect.NewUnaryHandler(
+		HubServiceResumeProviderProcedure,
+		svc.ResumeProvider,
+		connect.WithSchema(hubServiceMethods.ByName("ResumeProvider")),
 		connect.WithHandlerOptions(opts...),
 	)
 	hubServiceCreateJoinTokenHandler := connect.NewUnaryHandler(
@@ -1112,8 +1186,14 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetTranscriptHandler.ServeHTTP(w, r)
 		case HubServiceGetMetricsProcedure:
 			hubServiceGetMetricsHandler.ServeHTTP(w, r)
+		case HubServiceGetActivityProcedure:
+			hubServiceGetActivityHandler.ServeHTTP(w, r)
 		case HubServiceGetLogsProcedure:
 			hubServiceGetLogsHandler.ServeHTTP(w, r)
+		case HubServiceListProviderHoldsProcedure:
+			hubServiceListProviderHoldsHandler.ServeHTTP(w, r)
+		case HubServiceResumeProviderProcedure:
+			hubServiceResumeProviderHandler.ServeHTTP(w, r)
 		case HubServiceCreateJoinTokenProcedure:
 			hubServiceCreateJoinTokenHandler.ServeHTTP(w, r)
 		case HubServiceCreateApiTokenProcedure:
@@ -1257,8 +1337,20 @@ func (UnimplementedHubServiceHandler) GetMetrics(context.Context, *connect.Reque
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetMetrics is not implemented"))
 }
 
+func (UnimplementedHubServiceHandler) GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetActivity is not implemented"))
+}
+
 func (UnimplementedHubServiceHandler) GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetLogs is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListProviderHolds is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ResumeProvider(context.Context, *connect.Request[v1.ResumeProviderRequest]) (*connect.Response[v1.ResumeProviderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ResumeProvider is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) CreateJoinToken(context.Context, *connect.Request[v1.CreateJoinTokenRequest]) (*connect.Response[v1.CreateJoinTokenResponse], error) {

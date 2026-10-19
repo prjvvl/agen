@@ -50,9 +50,15 @@ type Gateway struct {
 	Fleet Fleet
 	// BaseURL is this Gateway's public URL (used in agent cards).
 	BaseURL string
-	// WakeTimeout bounds how long a call waits for a sleeping deployment.
+	// WakeTimeout bounds how long a call waits for a free instance: one
+	// that is asleep, still starting, busy, or not placed yet because its
+	// Nests are full (default 10 min). Calls wait in line rather than fail
+	// while the deployment can still serve them.
 	WakeTimeout time.Duration
-	Log         *slog.Logger
+	// CardWakeTimeout bounds how long an agent card request waits for a
+	// sleeping deployment's assignment (default 60s).
+	CardWakeTimeout time.Duration
+	Log             *slog.Logger
 	// RunTimeout bounds one A2A call on an instance (default 1h), so a
 	// host that never answers does not hold the call forever.
 	RunTimeout time.Duration
@@ -74,6 +80,8 @@ type Gateway struct {
 	// conversations serialises the calls of one A2A context on this Gateway.
 	conversations map[string]*conversationLock
 	maxTasks      int
+	// beatEvery and touchEvery pace activity reports (tests shorten them).
+	beatEvery, touchEvery time.Duration
 }
 
 type conversationLock struct {
@@ -115,8 +123,9 @@ func New(f Fleet, baseURL string, log *slog.Logger) *Gateway {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Gateway{Fleet: f, BaseURL: strings.TrimRight(baseURL, "/"), WakeTimeout: 60 * time.Second, RunTimeout: time.Hour, Log: log,
-		tasks: map[string]*Task{}, running: map[string]*manager.Slot{}, inflight: map[string]chan struct{}{}, touched: map[[2]string]time.Time{}, saturatedAt: map[[2]string]time.Time{}, wokeAt: map[[2]string]time.Time{}, maxTasks: 1000}
+	return &Gateway{Fleet: f, BaseURL: strings.TrimRight(baseURL, "/"), WakeTimeout: 10 * time.Minute, CardWakeTimeout: 60 * time.Second, RunTimeout: time.Hour, Log: log,
+		tasks: map[string]*Task{}, running: map[string]*manager.Slot{}, inflight: map[string]chan struct{}{}, touched: map[[2]string]time.Time{}, saturatedAt: map[[2]string]time.Time{}, wokeAt: map[[2]string]time.Time{}, maxTasks: 1000,
+		beatEvery: 15 * time.Second, touchEvery: 10 * time.Second}
 }
 
 // Handler serves the A2A routes.
@@ -502,7 +511,8 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 	// the same context id gets a conversation of its own.
 	conversationKey := "a2a:" + who.sub() + ":" + contextID
 	host := manager.HostTask{ID: taskID, Input: strings.Join(text, "\n"), ParentRunID: parentRun,
-		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth, ConversationKey: conversationKey, Labels: labels}
+		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth, ConversationKey: conversationKey, Labels: labels,
+		ModelTier: metaString(p, "agen.model_tier")}
 	// A person (user token) asking directly: the run is theirs, so they
 	// cannot approve its asks. The signed token itself is recorded, so the
 	// Hub can check it (a host cannot forge a requester). Agent calls
@@ -541,7 +551,9 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 			onWorking(*task)
 		}
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), g.RunTimeout)
+		stopBeat := g.heartbeat(ctx, ns, dep)
 		res, lastErr = slot.Host.RunTask(rctx, host)
+		stopBeat()
 		timedOut := rctx.Err() != nil
 		cancel()
 		if timedOut {
@@ -674,7 +686,7 @@ func (g *Gateway) acquire(ctx context.Context, ns, dep string) (*manager.Slot, *
 			g.saturated(ctx, ns, dep)
 		}
 		if time.Now().After(deadline) {
-			return nil, errf(codeUnavailable, http.StatusServiceUnavailable, "%s/%s has no ready instance yet; retry later", ns, dep)
+			return nil, errf(codeUnavailable, http.StatusServiceUnavailable, "%s/%s had no free instance within %s (asleep, starting, busy or waiting for Nest capacity); retry later", ns, dep, g.WakeTimeout)
 		}
 		select {
 		case <-ctx.Done():
@@ -715,13 +727,34 @@ func (g *Gateway) saturated(ctx context.Context, ns, dep string) {
 	}()
 }
 
+// heartbeat keeps reporting activity while a call runs, so a call that
+// outlasts the idle timeout does not see its deployment scaled to zero (and
+// the assignment its instance needs to delegate removed) under it.
+func (g *Gateway) heartbeat(ctx context.Context, ns, dep string) (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(g.beatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				g.touch(ctx, ns, dep)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
+}
+
 // touch reports traffic at most every 10s per deployment so the autoscaler
 // keeps a deployment with A2A traffic awake.
 func (g *Gateway) touch(ctx context.Context, ns, dep string) {
 	k := [2]string{ns, dep}
 	g.mu.Lock()
 	last := g.touched[k]
-	if time.Since(last) < 10*time.Second {
+	if time.Since(last) < g.touchEvery {
 		g.mu.Unlock()
 		return
 	}
@@ -788,7 +821,7 @@ func (g *Gateway) serveCard(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("%s/%s is not served by this gateway", ns, dep)})
 			return
 		}
-		deadline := time.Now().Add(g.WakeTimeout)
+		deadline := time.Now().Add(g.CardWakeTimeout)
 		for !ok && time.Now().Before(deadline) && r.Context().Err() == nil {
 			time.Sleep(100 * time.Millisecond)
 			a, ok = g.Fleet.Assignment(ns, dep)

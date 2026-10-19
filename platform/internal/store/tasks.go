@@ -41,6 +41,15 @@ type Task struct {
 	// prefixed with their source ("api:", "webhook:<trigger>:").
 	ConversationKey string
 	Labels          map[string]string
+	// NotBeforeMs: not leased before this time (0: at once). A task that is
+	// not due yet does not hold up its conversation or wake the deployment.
+	NotBeforeMs int64
+	// ModelTier: cost tier for a routing model ("" = the bundle default).
+	ModelTier string
+	// ReplyDeployment and ReplyConversationKey: async delegation; when the
+	// task ends its result is submitted to that deployment's conversation.
+	ReplyDeployment      string
+	ReplyConversationKey string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -70,14 +79,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -123,11 +132,11 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 			t.Namespace, t.Deployment, t.IdempotencyKey))
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels) "+
-			"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16 "+
-			"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $17",
+		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key) "+
+			"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20 "+
+			"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
 		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-		t.ConversationKey, string(labels), maxQueued)
+		t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued)
 	if isUnique(err) && t.IdempotencyKey != "" {
 		return existing()
 	}
@@ -155,6 +164,25 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 // ListTasks filters by namespace, deployment and state ("" = any), newest first.
+// UnfinishedReplyTasks returns the unfinished tasks of a deployment that
+// report back to the agent that started them (start_agent).
+func (s *Store) UnfinishedReplyTasks(ctx context.Context, ns, deployment string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND reply_deployment <> '' AND state IN ('queued', 'leased', 'running')", ns, deployment)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (s *Store) ListTasks(ctx context.Context, ns, deployment, state string, limit int) ([]Task, error) {
 	if limit <= 0 {
 		limit = 100
@@ -170,7 +198,9 @@ func (s *Store) ListTasks(ctx context.Context, ns, deployment, state string, lim
 // LeaseTasks atomically moves up to max queued tasks of a deployment to
 // "leased" for a nest, each with a fresh fencing lease id. A task with a
 // conversation key waits while an older task with the same key is queued or
-// in flight, so a conversation's tasks run one at a time, in order.
+// in flight, so a conversation's tasks run one at a time, in order. Tasks not
+// due yet (not_before_ms) are skipped and hold up nothing. The result of a
+// task started with start_agent waits until the run that started it ends.
 func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, max int, leaseMs int64) ([]Task, error) {
 	if max <= 0 {
 		return nil, nil
@@ -181,10 +211,12 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 	}
 	var out []Task
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks t WHERE namespace = $1 AND deployment = $2 AND state = 'queued' AND (conversation_key = '' OR NOT EXISTS ("+
+		now := NowMs()
+		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks t WHERE namespace = $1 AND deployment = $2 AND state = 'queued' AND not_before_ms <= $4 AND (conversation_key = '' OR NOT EXISTS ("+
 			"SELECT 1 FROM tasks o WHERE o.namespace = t.namespace AND o.deployment = t.deployment AND o.conversation_key = t.conversation_key AND o.id <> t.id AND "+
-			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
-			"ORDER BY created_ms, id LIMIT $3"+lock, ns, deployment, max)
+			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND o.not_before_ms <= $4 AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
+			"AND NOT (source LIKE 'reply:%' AND EXISTS (SELECT 1 FROM tasks c JOIN runs r ON r.id = c.parent_run_id WHERE c.id = t.parent_task_id AND (r.ended_ms IS NULL OR r.ended_ms = 0))) "+
+			"ORDER BY created_ms, id LIMIT $3"+lock, ns, deployment, max, now)
 		if err != nil {
 			return err
 		}
@@ -198,7 +230,6 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 			ids = append(ids, id)
 		}
 		rows.Close()
-		now := NowMs()
 		for _, id := range ids {
 			t, err := scanTask(tx.QueryRowContext(ctx,
 				"UPDATE tasks SET state = 'leased', lease_id = $1, lease_nest_id = $2, lease_expires_ms = $3, attempts = attempts + 1, updated_ms = $4 "+
@@ -367,21 +398,42 @@ func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
 // would keep its conversation open, and the next task with the same
 // conversation key could never start.
 func endTaskRun(ctx context.Context, tx *sql.Tx, t Task, status, msg string) error {
-	_, err := tx.ExecContext(ctx, "UPDATE runs SET status = $1, error = $2, ended_ms = $3, epoch = epoch + 1 "+
-		"WHERE namespace = $4 AND deployment = $5 AND task_id = $6 AND ended_ms IS NULL",
-		status, msg, NowMs(), t.Namespace, t.Deployment, t.ID)
-	return err
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE namespace = $1 AND deployment = $2 AND task_id = $3 AND ended_ms IS NULL",
+		t.Namespace, t.Deployment, t.ID)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET status = $1, error = $2, ended_ms = $3, epoch = epoch + 1 WHERE id = $4 AND ended_ms IS NULL",
+			status, msg, NowMs(), id); err != nil {
+			return err
+		}
+		if err := closeRunLeftovers(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 // QueueStats counts unfinished tasks of a deployment.
 type QueueStats struct{ Queued, InFlight int }
 
-// Queue returns queued and in-flight (leased or running) counts.
+// Queue returns queued (and due) and in-flight (leased or running) counts.
 func (s *Store) Queue(ctx context.Context, ns, deployment string) (QueueStats, error) {
 	var q QueueStats
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN state IN ('leased', 'running') THEN 1 ELSE 0 END), 0) FROM tasks WHERE namespace = $1 AND deployment = $2 AND state IN ('queued', 'leased', 'running')",
-		ns, deployment).Scan(&q.Queued, &q.InFlight)
+		"SELECT COALESCE(SUM(CASE WHEN state = 'queued' AND not_before_ms <= $3 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN state IN ('leased', 'running') THEN 1 ELSE 0 END), 0) FROM tasks WHERE namespace = $1 AND deployment = $2 AND state IN ('queued', 'leased', 'running')",
+		ns, deployment, NowMs()).Scan(&q.Queued, &q.InFlight)
 	return q, err
 }
 
@@ -393,4 +445,49 @@ func fenced(res sql.Result, err error) error {
 		return ErrFenced
 	}
 	return nil
+}
+
+// ScheduledTasks returns queued tasks that wait for their start time,
+// soonest first.
+func (s *Store) ScheduledTasks(ctx context.Context, ns, deployment string, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE ($1 = '' OR namespace = $1) AND ($2 = '' OR deployment = $2) AND state = 'queued' AND not_before_ms > $3 ORDER BY not_before_ms, id LIMIT $4",
+		ns, deployment, NowMs(), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanTasks(rows)
+}
+
+// TriggerProblem counts missed or rejected trigger events of one trigger.
+type TriggerProblem struct {
+	Namespace, Deployment, Trigger, State string
+	Count                                 int
+	LastMs                                int64
+	Message                               string
+}
+
+// TriggerProblems returns missed and rejected trigger events since sinceMs,
+// grouped by trigger and state.
+func (s *Store) TriggerProblems(ctx context.Context, namespaces []string, sinceMs int64) ([]TriggerProblem, error) {
+	var q query
+	q.in("namespace", namespaces)
+	q.where = append(q.where, "state IN ('missed', 'rejected')", "recorded_ms >= "+q.arg(sinceMs))
+	rows, err := s.db.QueryContext(ctx, "SELECT namespace, deployment, trigger_name, state, COUNT(*), MAX(recorded_ms), MAX(message) FROM trigger_events"+q.clause()+
+		" GROUP BY namespace, deployment, trigger_name, state", q.args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TriggerProblem
+	for rows.Next() {
+		var t TriggerProblem
+		if err := rows.Scan(&t.Namespace, &t.Deployment, &t.Trigger, &t.State, &t.Count, &t.LastMs, &t.Message); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }

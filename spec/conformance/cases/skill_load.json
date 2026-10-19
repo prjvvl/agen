@@ -1,0 +1,22 @@
+{
+  "name": "skill_load",
+  "description": "A bundle agent loads one of its skills with load_skill; the skill's instructions reach the model.",
+  "features": [
+    "agent.skills",
+    "agent.bundle"
+  ],
+  "agent": {
+    "bundle": "spec/conformance/bundles/skilled"
+  },
+  "runs": [
+    {
+      "input": "greet me"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "Hello there."
+    }
+  ]
+}

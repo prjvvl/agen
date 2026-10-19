@@ -48,7 +48,7 @@ export function TasksTable({
                 </div>
               </td>
               <td data-field="state">
-                <Status spec={taskStatus(t.state, t.pendingApprovalId)} />
+                <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
               </td>
               <td className="muted nowrap">{t.source}</td>
               <td>
@@ -89,8 +89,13 @@ export function TaskDetails({ id }: { id: string }) {
       ) : (
         <>
           <div className="toolbar">
-            <Status spec={taskStatus(t.state, t.pendingApprovalId)} />
+            <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
             <span className="grow" />
+            {!["TASK_STATE_SUCCEEDED", "TASK_STATE_FAILED", "TASK_STATE_CANCELLED"].includes(t.state) && (
+              <button className="btn sm" onClick={() => call("CancelTask", { id: t.id }).then(() => task.reload())}>
+                Cancel task
+              </button>
+            )}
             {t.traceId && (
               <a className="btn sm" href={traceHref(t.traceId)}>
                 <ExternalLink size={13} aria-hidden />
@@ -128,6 +133,40 @@ export function TaskDetails({ id }: { id: string }) {
             </dd>
             <dt>Source</dt>
             <dd>{t.source}</dd>
+            {t.notBefore && (
+              <>
+                <dt>Starts</dt>
+                <dd>
+                  {new Date(t.notBefore).toLocaleString()} <span className="muted">(<Time t={t.notBefore} />)</span>
+                </dd>
+              </>
+            )}
+            {(t.modelTier || t.budgetPressure) && (
+              <>
+                <dt>Model tier</dt>
+                <dd>
+                  {t.modelTier || "default"}
+                  {t.budgetPressure && <span className="muted"> · near the daily budget, so the cheapest tier</span>}
+                </dd>
+              </>
+            )}
+            {t.replyDeployment && (
+              <>
+                <dt>Result goes to</dt>
+                <dd>
+                  <a href={deploymentHref(t.namespace, t.replyDeployment)}>{t.replyDeployment}</a>
+                  {t.replyConversationKey && <span className="muted"> · conversation {t.replyConversationKey}</span>}
+                </dd>
+              </>
+            )}
+            {t.parentTaskId && (
+              <>
+                <dt>Started by task</dt>
+                <dd>
+                  <Copy text={t.parentTaskId} />
+                </dd>
+              </>
+            )}
             {t.runId && (
               <>
                 <dt>Run</dt>

@@ -1,0 +1,50 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 1,
+    "idleTimeout": "30m"
+  },
+  "budget": {
+    "maxUsdPerRun": 1.0,
+    "maxUsdPerDay": 5
+  },
+  "limits": {
+    "maxRunDuration": "1h",
+    "maxIdenticalToolCalls": 6
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "load_skill",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.read",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.list",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.grep",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.edit",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.write",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.run",
+        "action": "ask"
+      }
+    ],
+    "approvalTimeout": "30m"
+  }
+}

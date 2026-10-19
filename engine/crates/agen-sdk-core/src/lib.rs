@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SdkError {
-    #[error("invalid spec: {0}")]
+    #[error("{0}")]
     Spec(String),
     #[error(transparent)]
     Agent(#[from] AgentError),
@@ -125,7 +125,7 @@ pub enum ProviderSpec {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct AgentSpec {
     /// Load this bundle directory (instructions/model/provider come from it).
     pub bundle: Option<String>,
@@ -150,10 +150,21 @@ pub struct AgentSpec {
     pub approval_timeout_seconds: Option<u64>,
     pub max_tokens_per_run: Option<u64>,
     pub owner: Option<String>,
+    /// Models tried in order when the model keeps failing or gives no answer.
+    pub fallback_models: Vec<String>,
+    /// A routing model's settings (typesafe/jev-router, openrouter/auto):
+    /// {"tier", "maxTier", "budgetTier", "allowedModels", "excludedModels"}.
+    pub router: Option<agen_engine::provider::router::RouterSettings>,
+    /// "minimal", "low", "medium" or "high".
+    pub reasoning_effort: Option<String>,
+    /// OpenRouter request settings sent as given: {"provider", "plugins"}.
+    pub openrouter: Option<agen_engine::bundle::OpenRouterOptions>,
+    /// About how many tokens of conversation one model call may send.
+    pub context_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct RunSpec {
     pub session_id: Option<String>,
     pub singleton: bool,
@@ -164,6 +175,8 @@ pub struct RunSpec {
     pub cancel_key: Option<String>,
     /// Emit `delta` events (default true).
     pub stream: Option<bool>,
+    /// Cost tier for a routing model (capped by router.maxTier).
+    pub model_tier: Option<String>,
 }
 
 /// Called with a JSON request the host must answer via [`SdkAgent::complete`]:
@@ -401,6 +414,29 @@ impl SdkAgent {
             .then(|| Arc::new(HostApprover { bridge: bridge.clone() }) as Arc<dyn Approver>);
 
         let agent = if let Some(path) = &spec.bundle {
+            let inline = [
+                ("name", spec.name.is_some()),
+                ("instructions", spec.instructions.is_some()),
+                ("model", spec.model.is_some()),
+                ("provider", spec.provider.is_some()),
+                ("maxTurns", spec.max_turns.is_some()),
+                ("maxOutputTokens", spec.max_output_tokens.is_some()),
+                ("temperature", spec.temperature.is_some()),
+                ("permissions", spec.permissions.is_some()),
+                ("maxTokensPerRun", spec.max_tokens_per_run.is_some()),
+                ("fallbackModels", !spec.fallback_models.is_empty()),
+                ("router", spec.router.is_some()),
+                ("reasoningEffort", spec.reasoning_effort.is_some()),
+                ("openrouter", spec.openrouter.is_some()),
+                ("contextTokens", spec.context_tokens.is_some()),
+            ];
+            let set: Vec<&str> = inline.iter().filter(|(_, on)| *on).map(|(k, _)| *k).collect();
+            if !set.is_empty() {
+                return Err(SdkError::Spec(format!(
+                    "{} cannot be combined with \"bundle\": the bundle sets them (x-agen/harness.json, config.json, agent.md)",
+                    set.join(", ")
+                )));
+            }
             let bundle = Bundle::load(path).map_err(|e| SdkError::Spec(e.to_string()))?;
             let opts = BundleOptions {
                 namespace: spec.namespace.clone(),
@@ -431,6 +467,73 @@ impl SdkAgent {
             }
             cfg.max_output_tokens = spec.max_output_tokens;
             cfg.temperature = spec.temperature;
+            let provider_name = match &provider_spec {
+                ProviderSpec::Openrouter { .. } => "openrouter",
+                ProviderSpec::Openai { .. } => "openai",
+                ProviderSpec::Fake { .. } => "fake",
+            };
+            // The checks a bundle's harness.json gets (schema and bundle.rs).
+            let mut problems = vec![];
+            // (The scripted test provider stands in for OpenRouter.)
+            if provider_name == "openai" {
+                if spec.router.is_some() {
+                    problems.push(format!("\"router\" needs provider openrouter, not {provider_name}"));
+                }
+                if spec.openrouter.is_some() {
+                    problems.push(format!("\"openrouter\" needs provider openrouter, not {provider_name}"));
+                }
+            }
+            if spec.fallback_models.len() > 5 {
+                problems.push("\"fallbackModels\" takes at most 5 models".into());
+            }
+            if spec.fallback_models.iter().any(|m| m.is_empty() || *m == model) {
+                problems.push("\"fallbackModels\" has an empty name or repeats the model".into());
+            }
+            if let Some(e) = &spec.reasoning_effort {
+                if !["minimal", "low", "medium", "high"].contains(&e.as_str()) {
+                    problems.push(format!("\"reasoningEffort\" {e:?}: use minimal, low, medium or high"));
+                }
+            }
+            if spec.context_tokens.is_some_and(|n| n < 4000) {
+                problems.push("\"contextTokens\" must be at least 4000".into());
+            }
+            if spec.temperature.is_some_and(|t| !(0.0..=2.0).contains(&t)) {
+                problems.push("\"temperature\" must be between 0 and 2".into());
+            }
+            if let (Some(_), Some(o)) = (&spec.router, &spec.openrouter) {
+                let plugin = agen_engine::provider::router::router_for(&model).map(|k| k.plugin_id);
+                if o.plugins
+                    .iter()
+                    .flatten()
+                    .any(|p| p.get("id").and_then(|v| v.as_str()) == plugin)
+                {
+                    problems
+                        .push("\"openrouter.plugins\" repeats the router's plugin; configure it in \"router\"".into());
+                }
+            }
+            if !problems.is_empty() {
+                return Err(SdkError::Spec(problems.join("; ")));
+            }
+            if let Some(r) = &spec.router {
+                let kind = agen_engine::provider::router::router_for(&model).ok_or_else(|| {
+                    SdkError::Spec(format!(
+                        "\"router\" needs a routing model (typesafe/jev-router, openrouter/auto), not {model:?}"
+                    ))
+                })?;
+                if let Some((field, msg)) = r.check(kind).into_iter().next() {
+                    return Err(SdkError::Spec(format!("{field}: {msg}")));
+                }
+            }
+            cfg.fallback_models = spec.fallback_models.clone();
+            cfg.router = spec.router.clone();
+            cfg.request_extra = agen_engine::agent::request_extras(
+                provider_name,
+                spec.openrouter.as_ref(),
+                spec.reasoning_effort.as_deref(),
+            );
+            if let Some(n) = spec.context_tokens {
+                cfg.context_tokens = n;
+            }
             cfg.budget.max_tokens_per_run = spec.max_tokens_per_run;
             if let Some(ns) = &spec.namespace {
                 cfg.namespace = ns.clone();
@@ -540,6 +643,14 @@ impl SdkAgent {
         if self.is_closed() {
             return Err(SdkError::Closed);
         }
+        if let Some(t) = &spec.model_tier {
+            if !agen_engine::provider::router::TIERS.contains(&t.as_str()) {
+                return Err(SdkError::Spec(format!(
+                    "modelTier {t:?}: use one of {}",
+                    agen_engine::provider::router::TIERS.join(", ")
+                )));
+            }
+        }
         let cancel = CancellationToken::new();
         // Every run is registered (under its key or an internal one) so
         // shutdown() can cancel it.
@@ -570,6 +681,7 @@ impl SdkAgent {
             new_conversation: spec.new_conversation,
             task_id: spec.task_id.clone(),
             traceparent: spec.traceparent.clone(),
+            model_tier: spec.model_tier.clone(),
             cancel,
             ..Default::default()
         };

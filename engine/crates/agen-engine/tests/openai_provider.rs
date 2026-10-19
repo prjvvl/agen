@@ -65,6 +65,7 @@ fn req() -> ModelRequest {
         tools: vec![],
         temperature: None,
         max_output_tokens: Some(16),
+        extra: Default::default(),
     }
 }
 
@@ -98,12 +99,21 @@ async fn http_errors_are_classified() {
     let m = Mock::default();
     m.replies.lock().unwrap().push((429, "rate limited".into()));
     m.replies.lock().unwrap().push((401, "bad key".into()));
+    m.replies.lock().unwrap().push((402, "no credit".into()));
+    m.replies.lock().unwrap().push((400, "bad request".into()));
     let url = serve(m).await;
     let p = OpenAiCompatible::new("openai", &url, "k").unwrap();
     assert!(matches!(
         p.complete(&req(), &no_deltas).await,
         Err(ProviderError::Retryable(_))
     ));
+    // Account problems are their own kind: never retried or failed over.
+    for _ in 0..2 {
+        assert!(matches!(
+            p.complete(&req(), &no_deltas).await,
+            Err(ProviderError::Account(_))
+        ));
+    }
     assert!(matches!(
         p.complete(&req(), &no_deltas).await,
         Err(ProviderError::Request(_))
@@ -243,4 +253,89 @@ async fn live_openrouter_tool_call_smoke() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let after = key_usage(&key).await;
     eprintln!("live: key usage ${before:.6} -> ${after:.6}");
+}
+
+/// A routing model end to end: typesafe/jev-router on the low tier, through a
+/// tool call; the model that served each call is recorded on its span.
+#[tokio::test]
+async fn live_router_records_the_served_model() {
+    if std::env::var("AGEN_LIVE_TESTS").as_deref() != Ok("1") {
+        eprintln!("skip: set AGEN_LIVE_TESTS=1");
+        return;
+    }
+    let key = std::env::var("OPENROUTER_API_KEY").expect("OPENROUTER_API_KEY");
+    let store = Arc::new(Store::open("sqlite::memory:").await.unwrap());
+    let mut cfg = AgentConfig::new(
+        "live-router",
+        "You are terse. Use the add tool for arithmetic, then answer with just the number.",
+        "typesafe/jev-router",
+    );
+    cfg.router = Some(agen_engine::provider::router::RouterSettings {
+        tier: Some("low".into()),
+        max_tier: Some("low".into()),
+        ..Default::default()
+    });
+    cfg.max_output_tokens = Some(800);
+    cfg.max_turns = 4;
+    cfg.budget.max_usd_per_run = Some(0.02);
+    let add = Arc::new(FnTool::new(
+        "add",
+        "Add two integers a and b",
+        json!({"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"]}),
+        false,
+        |a: Value, _| async move {
+            Ok::<_, ToolError>((a["a"].as_i64().unwrap_or(0) + a["b"].as_i64().unwrap_or(0)).to_string())
+        },
+    ));
+    let p = Arc::new(OpenAiCompatible::openrouter(&key).unwrap());
+    let agent = Agent::builder(cfg, store.clone())
+        .provider(p)
+        .tool(add)
+        .build()
+        .unwrap();
+    let r = agent.run("What is 1234 + 4321?", RunOptions::default()).await.unwrap();
+    eprintln!(
+        "live router: status={:?} output={:?} usage={:?}",
+        r.status, r.output, r.usage
+    );
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    assert!(r.output.contains("5555"), "{}", r.output);
+    for s in store
+        .trace(&r.trace_id)
+        .await
+        .unwrap()
+        .iter()
+        .filter(|s| s.name == "gen_ai.chat")
+    {
+        eprintln!("live router span: {}", s.attributes);
+        let served = s.attributes["gen_ai.response.model"].as_str().unwrap_or_default();
+        assert!(
+            !served.is_empty() && served != "typesafe/jev-router",
+            "{}",
+            s.attributes
+        );
+        assert_eq!(s.attributes["agen.router.tier"], "low");
+    }
+}
+
+#[tokio::test]
+async fn a_stream_cut_off_before_it_finished_is_retryable() {
+    let m = Mock::default();
+    // No finish_reason and no [DONE]: the connection closed midway.
+    let cut = format!("data: {}\n\n", json!({"choices":[{"delta":{"content":"half an "}}]}));
+    m.replies.lock().unwrap().push((200, cut));
+    let done = format!(
+        "data: {}\n\n",
+        json!({"choices":[{"delta":{"content":"whole"},"finish_reason":"stop"}]})
+    );
+    m.replies.lock().unwrap().push((200, done));
+    let url = serve(m).await;
+    let p = OpenAiCompatible::new("openai", &url, "k").unwrap();
+    assert!(matches!(
+        p.complete(&req(), &no_deltas).await,
+        Err(ProviderError::Retryable(_))
+    ));
+    // A finish reason without [DONE] is a complete answer.
+    let r = p.complete(&req(), &no_deltas).await.unwrap();
+    assert_eq!(r.text, "whole");
 }

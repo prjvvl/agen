@@ -32,7 +32,7 @@ Open a new terminal (so it sees the new `PATH`), then:
 agen version
 ```
 
-It prints the version, for example `agen v0.1.1`. If the shell says
+It prints the version, for example `agen v0.1.3`. If the shell says
 `agen: command not found`, the new `PATH` is not loaded yet: open another
 terminal, or add `~/.agen/bin` to `PATH` yourself.
 
@@ -42,18 +42,18 @@ Next: [Getting started](getting-started.md).
 
 | Variable | Effect |
 |---|---|
-| `AGEN_VERSION` | Install that release (`v0.1.1`) instead of the latest. |
+| `AGEN_VERSION` | Install that release (`v0.1.3`) instead of the latest. |
 | `AGEN_INSTALL_DIR` | Install somewhere other than `~/.agen/bin`. |
 | `AGEN_NO_MODIFY_PATH=1` | Leave your shell profile (Windows: your user `PATH`) alone. |
 
-For example `curl -fsSL https://prjvvl.github.io/agen/install.sh | AGEN_VERSION=v0.1.1 sh`,
-or in PowerShell `$env:AGEN_VERSION = "v0.1.1"` before the command above.
+For example `curl -fsSL https://prjvvl.github.io/agen/install.sh | AGEN_VERSION=v0.1.3 sh`,
+or in PowerShell `$env:AGEN_VERSION = "v0.1.3"` before the command above.
 
 The installer downloads the archive for your machine from
 [GitHub Releases](https://github.com/prjvvl/agen/releases) and checks it
 against its published SHA-256 before installing. To install an archive you
 downloaded or built yourself, pass it to the script: `sh install.sh
-agen_v0.1.1_linux_amd64.tar.gz` or `.\install.ps1 agen_v0.1.1_windows_amd64.zip`.
+agen_v0.1.3_linux_amd64.tar.gz` or `.\install.ps1 agen_v0.1.3_windows_amd64.zip`.
 
 ## Upgrade
 

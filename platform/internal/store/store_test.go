@@ -114,9 +114,25 @@ func TestDefinitionsAndDeployments(t *testing.T) {
 		}
 		task, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "hello", Input: "x"})
 		must(t, err)
+		// An A2A run in flight (no task) and a finished one.
+		now := NowMs()
+		sid, cid, live, done := uniq("s"), uniq("c"), uniq("r"), uniq("r")
+		_, err = s.db.ExecContext(ctx, "INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ($1,'a',$2,'hello','{}',$3,$3)", sid, ns, now)
+		must(t, err)
+		_, err = s.db.ExecContext(ctx, "INSERT INTO conversations (id, session_id, created_ms) VALUES ($1,$2,$3)", cid, sid, now)
+		must(t, err)
+		_, err = s.db.ExecContext(ctx, "INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, trace_id, started_ms, ended_ms) "+
+			"VALUES ($1,$3,$4,$5,'hello','running','hi','t',$6,NULL), ($2,$3,$4,$5,'hello','succeeded','hi','t',$6,$6)", live, done, sid, cid, ns, now)
+		must(t, err)
 		must(t, s.DeleteDeployment(ctx, ns, "hello"))
 		if got, _ := s.GetTask(ctx, task.ID); got.State != "cancelled" {
 			t.Fatalf("queued task not cancelled on delete: %s", got.State)
+		}
+		if r, err := s.GetRun(ctx, live); err != nil || r.Status != "cancelled" || r.EndedMs == 0 {
+			t.Fatalf("running run after delete: %+v %v", r, err)
+		}
+		if r, _ := s.GetRun(ctx, done); r.Status != "succeeded" {
+			t.Fatalf("finished run changed on delete: %+v", r)
 		}
 		if err := s.DeleteDeployment(ctx, ns, "hello"); !errors.Is(err, ErrNotFound) {
 			t.Fatal(err)
@@ -521,6 +537,46 @@ func TestFencedDeploymentUpdates(t *testing.T) {
 		got, _ := s.GetDeployment(ctx, ns, "d")
 		if got.Desired != 2 {
 			t.Fatalf("fenced write applied: %+v", got)
+		}
+	})
+}
+
+// A scheduled task waits for its time: it is not leased, not counted as
+// queued load, and does not hold up newer tasks of its conversation.
+func TestScheduledTasksWaitAndDoNotBlock(t *testing.T) {
+	ctx := context.Background()
+	each(t, func(t *testing.T, s *Store) {
+		ns := uniq("ns")
+		later, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "check again", ConversationKey: "api:c",
+			NotBeforeMs: NowMs() + 3_600_000, ModelTier: "low"})
+		must(t, err)
+		if later.ModelTier != "low" || later.NotBeforeMs == 0 {
+			t.Fatalf("stored: %+v", later)
+		}
+		now, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "new message", ConversationKey: "api:c"})
+		must(t, err)
+		q, err := s.Queue(ctx, ns, "d")
+		must(t, err)
+		if q.Queued != 1 {
+			t.Fatalf("queued load %d, want only the due task", q.Queued)
+		}
+		got, err := s.LeaseTasks(ctx, "n", ns, "d", 5, 60_000)
+		must(t, err)
+		if len(got) != 1 || got[0].ID != now.ID {
+			t.Fatalf("leased %+v, want only the due task", got)
+		}
+		// Once due it is leased (after the conversation's earlier task ends).
+		_, err = s.db.ExecContext(ctx, "UPDATE tasks SET not_before_ms = $1 WHERE id = $2", NowMs()-1, later.ID)
+		must(t, err)
+		if got, _ := s.LeaseTasks(ctx, "n", ns, "d", 5, 60_000); len(got) != 0 {
+			t.Fatalf("leased while the conversation has a task in flight: %+v", got)
+		}
+		_, err = s.db.ExecContext(ctx, "UPDATE tasks SET state = 'succeeded' WHERE id = $1", now.ID)
+		must(t, err)
+		got, err = s.LeaseTasks(ctx, "n", ns, "d", 5, 60_000)
+		must(t, err)
+		if len(got) != 1 || got[0].ID != later.ID {
+			t.Fatalf("due task not leased: %+v", got)
 		}
 	})
 }

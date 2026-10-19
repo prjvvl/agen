@@ -11,6 +11,7 @@ import (
 // Scenario 3: a 50-task burst on a pool at zero scales it up to max
 // within the target time, every task completes, the pool returns to zero
 // after the idle timeout, and the next call is still answered.
+// features: deploy.lifecycle
 func TestScenario3AutoscaleBurst(t *testing.T) {
 	startUp(t)
 	bundle := filepath.Join(t.TempDir(), "workers")

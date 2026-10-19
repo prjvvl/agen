@@ -6,15 +6,23 @@ import { token } from "./api";
 // every few seconds. Read with fetch, not EventSource, to send the token in
 // a header instead of the URL.
 
-export type Kind = "task" | "run" | "approval" | "instance" | "deployment";
+export type Kind = "task" | "run" | "step" | "approval" | "instance" | "deployment";
 
 export interface LiveEvent {
   kind: Kind | "resync";
   id: string;
   namespace: string;
   deployment: string;
+  /** For a step: "unfinished" while it runs, then ok / error / denied. */
   state?: string;
   traceId?: string;
+  /** Steps (a model or tool call): its run, span name, tool and target agent. */
+  runId?: string;
+  name?: string;
+  tool?: string;
+  target?: string;
+  startMs?: number;
+  endMs?: number;
 }
 
 type State = "connecting" | "live" | "offline";

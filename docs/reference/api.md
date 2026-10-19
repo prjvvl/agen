@@ -118,6 +118,16 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/DeleteSecret` · MCP tool: `de
 | `namespace` | string |  |
 | `name` | string |  |
 
+## GetActivity
+
+What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetActivity` · MCP tool: `get_activity`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string | Empty: every namespace the caller may see. |
+
 ## GetBundleGuide
 
 How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
@@ -159,7 +169,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetLogs` · MCP tool: `get_lo
 
 ## GetMetrics
 
-Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 
 Scope: `viewer` · REST: `POST /agen.v1.HubService/GetMetrics` · MCP tool: `get_metrics`
 
@@ -227,6 +237,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListDefinitions` · MCP tool:
 | Field | Type | Description |
 |---|---|---|
 | `name` | string |  |
+| `ref` | DeploymentRef | The versions this deployment has run, most recently used first (name is then ignored). |
 
 ## ListDeployments
 
@@ -265,6 +276,12 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/ListNotificationTargets` · MC
 | Field | Type | Description |
 |---|---|---|
 | `namespace` | string |  |
+
+## ListProviderHolds
+
+Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListProviderHolds` · MCP tool: `list_provider_holds`
 
 ## ListRuns
 
@@ -306,6 +323,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListTasks` · MCP tool: `list
 | `deployment` | string |  |
 | `state` | TaskState |  |
 | `limit` | int32 |  |
+| `scheduled` | bool | Only tasks waiting for their start time (not_before), soonest first. |
 
 ## ListTemplates
 
@@ -321,7 +339,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListTriggerEvents` · MCP too
 
 | Field | Type | Description |
 |---|---|---|
-| `ref` | DeploymentRef |  |
+| `ref` | DeploymentRef | Empty name: every deployment (of the namespace, or of every namespace the caller may see when the namespace is empty too). |
 | `state` | TriggerEventState |  |
 | `limit` | int32 |  |
 
@@ -356,6 +374,16 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/Resolve` · MCP tool: `resolv
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `caller` | DeploymentRef | NestService only: the deployment of the instance that will call (its Manager asks on its behalf); the call token names it as the caller. |
+
+## ResumeProvider
+
+End a provider hold now (e.g. after fixing the key or adding credit).
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/ResumeProvider` · MCP tool: `resume_provider`
+
+| Field | Type | Description |
+|---|---|---|
+| `account` | string |  |
 
 ## RevokeApiToken
 
@@ -424,6 +452,8 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `idempotencyKey` | string | Optional client key; resubmitting the same key returns the same task. |
 | `conversationKey` | string | Tasks with the same key continue one conversation (and its memory). |
 | `labels` | map&lt;string, string&gt; | Free-form labels, copied to runs, tool calls and delegated tasks. |
+| `modelTier` | string | Cost tier for a routing model; see Task.model_tier. |
+| `notBefore` | Timestamp | Run no earlier than this (a scheduled task); unset: as soon as possible. |
 
 ## UpdateDeployment
 

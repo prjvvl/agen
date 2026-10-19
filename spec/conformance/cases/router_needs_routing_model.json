@@ -1,0 +1,21 @@
+{
+  "name": "router_needs_routing_model",
+  "description": "Router settings on a model that is not a routing model are refused when the agent is created.",
+  "features": ["models.router"],
+  "agent": {
+    "name": "c",
+    "model": "deepseek/deepseek-v4-flash",
+    "router": {
+      "tier": "low"
+    },
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "x"
+        }
+      ]
+    }
+  },
+  "createError": "invalid_spec"
+}

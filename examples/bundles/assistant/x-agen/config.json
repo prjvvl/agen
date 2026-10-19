@@ -35,6 +35,14 @@
       {
         "tool": "agen.delete_secret",
         "action": "deny"
+      },
+      {
+        "tool": "agen.delete_deployment",
+        "action": "deny"
+      },
+      {
+        "tool": "agen.create_webhook_secret",
+        "action": "deny"
       }
     ]
   }

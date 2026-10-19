@@ -148,10 +148,21 @@ already in flight (bounded by `max_usd_per_run` × concurrency); a run's cost
 counts on the UTC day it started. A Gateway reports saturation only when this
 Nest's ready instances are all full (not while one is starting). `task`
 deployments (idle timeout 0) are for queued tasks, not A2A traffic.
+Capacity pressure: when a deployment wants more instances than are placed and
+a Nest it may run on is full, deployments holding instances on that Nest that
+have had no work for 1 min (`PressureIdle`) scale down without waiting out
+their idle timeout, so the waiting work gets the room. A deployment whose
+provider account is held (§8) does not scale up for queued tasks until the
+hold's retry time.
 
 **Wake on call**: A2A request hits a Gateway for a deployment with 0 ready
 instances → Gateway holds the request and calls `Hub.RequestWake` → desired ≥ 1 →
-instance starts → Gateway forwards the held request. Timeout → 503 with retry hint.
+instance starts → Gateway forwards the held request. A call waits up to
+`WakeTimeout` (10 min) for a free instance, whether the deployment is asleep,
+starting, busy or waiting for Nest capacity; then it gets 503 with a retry
+hint. While a call runs, the Gateway reports activity every 15 s, so a call
+that outlasts the idle timeout does not see its deployment scaled to zero (and
+its assignment, which its instance needs to delegate, removed) under it.
 
 **Tasks**: `Hub.SubmitTask` stores a task (`queued`). Managers lease tasks for
 their deployments (`SELECT … FOR UPDATE SKIP LOCKED` on Postgres; a single
@@ -163,11 +174,20 @@ A task may carry a **conversation key** (scoped by its source: `api:`,
 `webhook:<trigger>:`; A2A uses `a2a:<caller>:<contextId>`) and **labels**. Tasks
 of one deployment with the same key share a session and so continue one
 conversation (a singleton keeps its one conversation and ignores keys); a task is leased only when no older task with its key is queued
-or in flight, so they run one at a time, in submission order. Labels are
-copied to the task's runs, tool calls and child tasks. When the Hub fails a
+or in flight, so they run one at a time, in submission order. A key read back
+from a task (already carrying its source prefix) is accepted as is. Labels are
+copied to the task's runs, tool calls and child tasks. A task may carry
+`not_before` (at most 90 days ahead): until then it is not leased, does not
+count as load for the autoscaler and does not hold up its conversation, though
+it counts towards `maxQueuedTasks`. It may carry `model_tier`, the cost tier
+for a routing model (§8). When the deployment has spent 80% of its daily
+budget, leased tasks carry `budget_pressure`, and a routing model then uses
+the bundle's `router.budgetTier`. When the Hub fails a
 task (lease expired too often) or cancels it, it also ends the task's
 unfinished run and bumps its epoch, so the conversation is not left blocked
-and a host still running it is fenced off. The Hub logs instance starts,
+and a host still running it is fenced off. Deleting a deployment cancels its
+unfinished tasks and ends every unfinished run (task or A2A) the same way.
+The Hub logs instance starts,
 failures and exits (from Nest reports) and task releases and lease expiries
 on the deployment's log.
 
@@ -233,7 +253,10 @@ serving from their last assignments.
 
 **Delegation lineage** of child tasks is derived by the Hub, never taken from
 the caller: a child task needs a parent task the calling Nest currently
-leases; its depth is the parent's depth + 1 and its root run is the parent's.
+leases, or, for a run started over A2A (which has no task), an unfinished run
+owned by the calling instance on that Nest; its depth is the parent's depth +
+1 (for an A2A run, the number of runs above it) and its root run is the
+parent's.
 Delegation stays within the parent's namespace. On the synchronous A2A path,
 the lineage metadata (`agen.depth`, `agen.parent_run_id`, `agen.root_run_id`)
 is used only from authenticated agent callers (a Hub-signed call token), and
@@ -243,7 +266,9 @@ calling deployment. Anonymous callers, allowed only by a loopback Gateway
 
 **Nest scope**: a Nest token may only lease, complete, release and raise
 approvals for deployments assigned to it, fetch definitions assigned to it,
-and wake deployments it is eligible to run (placement labels). Approval
+and wake deployments it is eligible to run (placement labels). In its status
+reports it may add instance rows only for deployments it is eligible to run;
+instances it already reported keep reporting while they drain. Approval
 `requested_by` is set by the Hub.
 
 ## 6. Addressing and A2A
@@ -254,18 +279,19 @@ and wake deployments it is eligible to run (placement labels). Approval
   `message/stream`, `tasks/get`) and
   `/a2a/<ns>/<deployment>/.well-known/agent-card.json`.
 - A2A request metadata carries `traceparent`, `agen.depth`, `agen.root_run_id`,
-  `agen.parent_run_id`, optional `agen.labels`, and the request carries the
-  caller's call token (§10). Tasks carry the same lineage fields.
+  `agen.parent_run_id`, optional `agen.labels` and `agen.model_tier`, and the
+  request carries the caller's call token (§10). Tasks carry the same lineage
+  fields.
 - A message's `contextId` (generated when absent) is its conversation: messages
   of one context from one caller continue one conversation, and a Gateway runs
   them one at a time. Two Gateways may still race; the later message then
   fails with "conversation already has an unfinished run".
 
 **Delegation** (sub-agents): an agent delegates only to another Deployment,
-either synchronously over A2A (`message/send`/`message/stream`) or
-asynchronously as a child Task (`NestService.SubmitChildTask`, lineage derived
-by the Hub; not yet exposed to agents as a tool). There are no
-hidden in-process sub-agents; skills cover in-agent specialisation. Limits
+either synchronously over A2A (`message/send`/`message/stream`, the
+`call_agent` tool) or asynchronously as a child Task
+(`NestService.SubmitChildTask`, lineage derived by the Hub; the `start_agent`
+tool). There are no hidden in-process sub-agents; skills cover in-agent specialisation. Limits
 (`Limits` on the Deployment): `max_delegation_depth` is checked by the receiving
 Gateway/Hub from `agen.depth`; `max_fan_out` is checked by the calling engine
 per run; `max_total_delegations` is an atomic counter per `root_run_id` in the
@@ -273,15 +299,36 @@ Store, checked by the calling engine before each delegation.
 
 A bundle lists the deployments it may call in `x-agen/config.json`
 `delegates` (`name`, optional `namespace`, `url`, `description`); the engine
-exposes them through one `call_agent` tool. Without a fixed `url` the target
-is resolved through the Nest Manager's localhost `ManagerService.Resolve`
+exposes them through the `call_agent` tool (and `start_agent`, below).
+Without a fixed `url` the target is resolved through the Nest Manager's localhost `ManagerService.Resolve`
 (each instance gets `AGEN_MANAGER_URL` and its own `AGEN_MANAGER_TOKEN`), which
 asks the Hub (`NestService.Resolve`) and caches the answer, so delegation
-keeps working from the cache while the Hub is down. The A2A message id is
+keeps working from the cache while the Hub is down. `Resolve` accepts a
+caller deployment that is assigned to the asking Nest or still has a live
+instance there (starting, ready, busy or draining), so a run on an instance
+draining after a scale-down or redeploy can keep delegating. The A2A message id is
 `<run>.<step>.<call>` and Gateways run a repeated message id as the same task,
-so `call_agent` is safe to repeat on retry or resume. The callee's run
-continues the caller's trace (the traceparent names the caller's `agen.tool`
-span) and records `parent_run_id` / `root_run_id`.
+so `call_agent` is safe to repeat on retry or resume. `call_agent` waits up to
+75 min for an answer (a Gateway lets a call wait 10 min for an instance and
+run for 1 h). The callee's run continues the caller's trace (the traceparent
+names the caller's `agen.tool` span, which records the target as
+`agen.delegate.target`) and records `parent_run_id` / `root_run_id`.
+
+**Async delegation** (`start_agent`, managed mode, delegates without a fixed
+`url`): the engine asks its Manager (`ManagerService.StartTask`), which
+submits a child task through `NestService.SubmitChildTask` (retrying through a
+short Hub outage) and returns its id; the tool returns at once and the
+caller's run finishes its turn. The child task carries `reply_deployment`
+(the caller) and `reply_conversation_key`: the caller's conversation key, or,
+when its session has none, `async:<session>`, which the engine sets on the
+session. When the child ends (succeeded, failed or cancelled), the Hub submits
+its result once (idempotency key `reply:<child>`) as a task of the caller's
+deployment with that key and source `reply:<child deployment>`, so the caller
+continues the same conversation. The reply task keeps the child's root run
+and labels but no parent run or trace context: it starts a trace of its own.
+The idempotency key of the start is `start:<run>.<step>.<call>`, so a retried
+or resumed call returns the same task; `start_agent` counts against
+`max_fan_out` and `max_total_delegations` like `call_agent`.
 
 ## 7. Engine model
 
@@ -314,9 +361,25 @@ Agent → Session → Conversation → Run → Span.
   Timeouts, cancellations and lost connections leave the effect `started`
   and the model is told `effect_unknown`.
 - **Model context**: history from earlier runs in the conversation is trimmed
- oldest-first to fit `context_tokens` (always starting at a user turn); the
- current run is always sent in full. Tool calls without a recorded result
+ oldest-first to fit `context_tokens` (harness `contextTokens`, default
+ 64000; always starting at a user turn). When the current run's own messages
+ exceed it, their oldest tool results (longer than 600 characters, except the
+ latest four) are cut to their first 300 characters plus a note, in blocks of
+ eight, until the run fits in about two thirds of the budget; working in
+ blocks makes the request prefix (and so the provider's prompt cache) change
+ rarely. The Store keeps every message in full. Tool calls without a recorded result
  (e.g. cancelled) get a synthetic error result so the history stays valid.
+- **System prompt**: `agent.md`'s body, then the full instructions of each
+ skill in `preloadSkills`, then a list of the other skills (name and
+ description) to load with `load_skill`.
+- **Model turn**: the configured model, retried on rate limits and server
+ errors, then each of `fallbackModels` in order. An empty answer (no text, no
+ tool calls) is asked again once before moving on; if every model gives none,
+ the run fails with `no_answer`. Account errors (HTTP 401/402/403) end the turn
+ at once (§8). A model-call span records the served model
+ (`gen_ai.response.model`), the model sent and `agen.fallback` when a fallback
+ served it, and for routing models the tier (`agen.router.tier`) and the
+ router's reported decision (`agen.router.*`).
 - **Budgets**: token budgets always apply; USD budgets only when the provider
  reports cost (OpenRouter does, direct OpenAI does not).
 - **MCP server isolation**: stdio servers get a cleared environment
@@ -351,12 +414,14 @@ Agent → Session → Conversation → Run → Span.
 - Every MCP call carries `_meta` keys `agen/namespace`, `agen/deployment`,
   `agen/taskId`, `agen/runId`, `agen/rootRunId`, `agen/conversationId`,
   `agen/conversationKey`, `agen/labels` and the `traceparent`.
+- A failed tool call's span carries `error.message` (redacted, at most 1000
+  characters), so a trace explains the failure without the transcript.
 - A run's top-level span is written as `unfinished` when the run starts. On
   resume after a crash it is closed as `interrupted` and the resumed run's
   span hangs under it, carrying the task attempt.
 - Each model call's `max_tokens` is the configured `maxOutputTokens` lowered
-  to the remaining `maxTokensPerRun` (without a configured maximum, only once
-  fewer than 8192 tokens remain).
+  to the remaining `maxTokensPerRun` (bundles default to 8192; an SDK agent
+  without a maximum sends one only once fewer than 8192 tokens remain).
 - In managed mode the Manager passes the definition digest it unpacked
   (`AGEN_DEFINITION_DIGEST`); hosts do not re-hash the directory, which tool
   servers may write to. Health reports the loaded tools and each MCP server's
@@ -390,6 +455,37 @@ Agent → Session → Conversation → Run → Span.
 The `ModelProvider` port has adapters: `openrouter`, `openai` (direct), `fake`
 (scripted, deterministic) and `replay` (cassettes recorded from a real provider).
 The provider is chosen in `harness.json` only.
+
+- **Request extras**: `harness.openrouter` (`provider`, `plugins`) is merged
+  into every OpenRouter request as given; `reasoningEffort` becomes
+  `reasoning.effort` (OpenRouter) or `reasoning_effort` (OpenAI).
+- **Routing models** (`provider/router.rs`): `typesafe/jev-router` (plugin
+  `jev-router`, tiers `low`..`high`), `openrouter/auto` (`auto-router`) and
+  `openrouter/auto-beta` (`auto-beta-router`), both `low`..`max`. A run's tier
+  is the task's `model_tier`, else `router.tier`, capped by `router.maxTier`
+  and the router's top tier; under budget pressure it is at most
+  `router.budgetTier` (default `low`). The tier and `allowedModels` /
+  `excludedModels` go in the router's plugin entry (`cost_tier`), and the
+  request asks for OpenRouter metadata so the decision can be recorded. A
+  tier is a band the router picks within, not a price cap. Tiers are checked
+  per router when a bundle is deployed (Go, `bundle/harness.go`) and loaded
+  (engine).
+- **Error kinds**: 429 and 5xx are retryable (with backoff, honouring
+  `Retry-After`); 401, 402 and 403 are account errors (`provider account
+  error`), never retried or failed over, except a 403 for flagged input
+  (moderation); other errors fail over to the next fallback model.
+- **Provider holds** (Hub, `hub/providers.go`): a provider account is
+  `<namespace>/<provider>:<key secret name>[@<baseUrl>]` (a namespace's
+  platform secrets are its own). When a task fails with an account error, the
+  Hub records a hold (`provider_holds`) on that account: its deployments lease
+  no tasks, do not scale up for
+  queued work and are not woken until `retry_at`. Then one probe task is
+  leased; a probe that fails with an account error backs off further (5 min,
+  doubling, at most 1 h). Any run of the account's deployments that succeeds
+  after the hold began (task or A2A) ends it (checked by the scheduler each
+  tick). `ResumeProvider` (admin) ends it at once. New holds and holds ended
+  by a successful run send `provider.held` / `provider.resumed` to
+  notification targets that take every event.
 
 ## 9. Bundle format
 
@@ -506,9 +602,11 @@ share a golden test vector.
   and the one deployment it may call, short-lived. `Resolve` returns one:
   - to operators, via HubService (10 min);
   - to a Manager resolving for one of its instances, via NestService (1 h).
-    The Hub checks that the caller deployment runs on that Nest, and the
+    The Hub checks that the caller deployment runs on that Nest (assigned
+    there, or with a live instance there, such as one draining), and the
     Manager caches the token so delegation survives a Hub outage until it
-    expires.
+    expires. Because live instance rows vouch for a caller, a Nest may only
+    add instance rows for deployments it is eligible to run (§5).
 - Gateways verify tokens offline with the Hub's public keys. Nests fetch them
   with `GetTokenKeys` and keep them on disk, so a restart during a Hub outage
   still works.
@@ -579,7 +677,10 @@ return warnings without deploying. `GetTask` waits up to 300 s and returns
 early when the task starts waiting for an approval.
 
 `GET /api/v1/events` streams change notices (server-sent events) for the
-caller's namespaces: tasks, runs, approvals, instances and deployments. One
+caller's namespaces: tasks, runs, approvals, instances and deployments, and
+`step` events: a model call (`gen_ai.chat`) or tool call (`agen.tool`)
+starting (state `unfinished`) or ending (its status), with its run, tool,
+the agent a delegation waits for (`target`) and its start and end times. One
 watcher per Hub polls the Store once a second while anyone listens (hosts
 write run data straight to the Store, so the Store is where changes appear)
 and fans the changes out; clients refetch what they show. The web console
@@ -589,12 +690,37 @@ A model-call span records `agen.message.seq`, the reply's place in its
 conversation, and `GetTranscript` returns the conversation, so a trace view
 can show what each call sent and received.
 
+Live and fleet views:
+
+- `GetActivity`: every unfinished run with what it is doing now (`model`,
+  `tool`, `agent`, `approval` or `idle`, and since when), its turns against
+  `maxTurns`, usage, caller and source; queues (due and scheduled, oldest
+  wait); and warnings with a kind and severity: `near_turn_limit`,
+  `near_run_budget`, `near_daily_budget` (80% of a limit), `quiet_run` (no
+  step for 5 min), `waiting_approval` (30 min), `queue_waiting` (5 min),
+  `blocked_by_approval` (queued tasks while every run waits for an approval),
+  `burst` (10 tasks in one conversation in 10 min), `model_errors` (30% of at
+  least 5 calls in 15 min), `provider_held`, `trigger_missed` and
+  `webhook_rejected` (in the last day).
+- `GetMetrics` adds `models` (calls per served model: failures, fallbacks,
+  p50/p95 latency, usage), `entries` (runs without a parent run, by source:
+  `api`, `cron`, `webhook`, outside `a2a` callers, and `reply` results with
+  the agent they came from), and per call edge `async_calls`, `active` (in
+  flight) and `p95_ms`.
+- `ListProviderHolds` and `ResumeProvider` (§8); deployments carry
+  `provider_hold` while held.
+- Cron triggers in deployment responses carry `next_due_at` and
+  `last_due_at`, computed as the scheduler fires them. `ListTasks` with
+  `scheduled` lists tasks waiting for `not_before`, soonest first.
+  `ListTriggerEvents` with an empty deployment name lists every deployment's
+  events (of the namespace, or of every namespace the caller may see).
+
 ## 12. Storage
 
 One schema, two engines (SQLite, Postgres), versioned migrations. Tables:
 definitions, deployments, assignments, nests, instances, tasks, triggers,
 trigger_log, approvals, tokens, sessions, conversations, runs, spans, effects,
-usage. `agen migrate --to postgres://…` copies a local install.
+usage, provider_holds. `agen migrate --to postgres://…` copies a local install.
 
 ## 13. Repository layout
 

@@ -32,6 +32,9 @@ func (e *env) cmdSecret(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !(args[0] == "set" && len(rest) == 1 || args[0] == "ls" && len(rest) == 0 || args[0] == "rm" && len(rest) == 1) {
+		return usage
+	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
@@ -46,8 +49,12 @@ func (e *env) cmdSecret(ctx context.Context, args []string) error {
 		if value == "" {
 			return errors.New("pass the secret value on stdin, e.g. printf %s \"$KEY\" | agen secret set NAME")
 		}
-		if _, err := c.SetSecret(ctx, connect.NewRequest(&agenv1.SetSecretRequest{Namespace: cf.namespace, Name: rest[0], Value: value, Deployments: deployments})); err != nil {
+		r, err := c.SetSecret(ctx, connect.NewRequest(&agenv1.SetSecretRequest{Namespace: cf.namespace, Name: rest[0], Value: value, Deployments: deployments}))
+		if err != nil {
 			return err
+		}
+		if cf.json {
+			return e.printJSON(r.Msg)
 		}
 		fmt.Fprintf(e.stdout, "secret %s set\n", rest[0])
 	case args[0] == "ls" && len(rest) == 0:
@@ -65,8 +72,12 @@ func (e *env) cmdSecret(ctx context.Context, args []string) error {
 		}
 		return w.Flush()
 	case args[0] == "rm" && len(rest) == 1:
-		if _, err := c.DeleteSecret(ctx, connect.NewRequest(&agenv1.DeleteSecretRequest{Namespace: cf.namespace, Name: rest[0]})); err != nil {
+		r, err := c.DeleteSecret(ctx, connect.NewRequest(&agenv1.DeleteSecretRequest{Namespace: cf.namespace, Name: rest[0]}))
+		if err != nil {
 			return err
+		}
+		if cf.json {
+			return e.printJSON(r.Msg)
 		}
 		fmt.Fprintf(e.stdout, "secret %s removed\n", rest[0])
 	default:

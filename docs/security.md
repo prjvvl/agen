@@ -54,7 +54,7 @@ to set up, and what each control does and does not cover.
 
 | Control | Covers | Limits |
 |---|---|---|
-| API tokens with scopes (`viewer`, `operator`, `approver`, `admin`) and namespaces | HubService, REST and MCP alike (MCP tools need the same scopes as their API calls) | |
+| API tokens with scopes (`viewer`, `operator`, `approver`, `admin`) and namespaces | HubService, REST and MCP alike (MCP tools need the same scopes as their API calls). An admin limited to namespaces creates, lists and revokes only tokens within them, and cannot add or revoke Nests | |
 | Nest mTLS certificates (30 days, renewed automatically; `agen nests revoke ID`) | NestService | Revocation is immediate; renewal swaps certificates atomically |
 | A2A call tokens (Hub-signed: users 10 min, agents 1 h; bound to one deployment) | Gateway calls, including while Hubs are down | A token is a bearer credential until it expires |
 | Per-instance host token | An instance's control API answers only its Manager | |
@@ -90,7 +90,7 @@ AGEN_HUB_KEK=<kek> agen hub rotate-token-key --store postgres://admin@db/agen
     minute).
   - The previous key verifies live tokens until the next rotation.
   - Rotation is refused while the current key is younger than an agent
-    token's lifetime plus the grace (about 1 h 10 min), so no live token
+    token's lifetime plus twice the grace (about 1 h 10 min), so no live token
     stops verifying. `--force` overrides this.
   - Retired keys are kept, only to verify stored requester records.
 - **Nest certificates:** they renew themselves (`--cert-renew-before`, 10 days).

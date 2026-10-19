@@ -18,7 +18,10 @@ Before opening a pull request:
    changed CLI commands or the API, regenerate the reference pages (see
    [docs/development.md](docs/development.md#generated-files)).
 3. Update the docs and `CHANGELOG.md` for anything a user would notice.
-4. Tests must not call real model providers; use the `fake` or `replay`
+4. New or changed features: update `spec/features.yaml` and tag the tests
+   that cover each surface (see
+   [Feature coverage](docs/development.md#feature-coverage)).
+5. Tests must not call real model providers; use the `fake` or `replay`
    provider.
 
 CI runs the same checks on Linux, macOS and Windows.

@@ -1,6 +1,7 @@
 {
   "name": "approval_expired",
   "description": "An approval nobody answers expires after approvalTimeoutSeconds; the tool never runs.",
+  "features": ["approvals"],
   "agent": {
     "name": "c",
     "permissions": {

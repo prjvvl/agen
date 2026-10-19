@@ -1,0 +1,5 @@
+{
+  "provider": "fake",
+  "model": "fake-1",
+  "script": "x-agen/fake-script.json"
+}

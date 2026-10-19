@@ -12,7 +12,7 @@ import (
 // children. Runtime state that the new fleet rebuilds (leases, assignments,
 // instances, nests' enrolment is kept) is not copied.
 var CopyTables = []string{
-	"definitions", "deployments", "nests", "api_tokens", "join_tokens", "webhook_secrets",
+	"definitions", "deployments", "deployment_versions", "nests", "api_tokens", "join_tokens", "webhook_secrets",
 	"sessions", "conversations", "messages", "runs", "spans", "effects", "delegations", "delegation_calls", "logs",
 	"tasks", "approvals", "trigger_events", "platform_secrets", "notification_targets",
 }
@@ -25,6 +25,7 @@ var skipTables = map[string]string{
 	"instances":         "Nests report their own",
 	"hub_ca":            "a new deployment has its own CA; Nests enrol again",
 	"hub_token_key":     "a new deployment signs call tokens with its own key (tokens are short-lived)",
+	"provider_holds":    "a provider account is held again if it still fails",
 }
 
 // CopyReport is the number of rows copied per table.

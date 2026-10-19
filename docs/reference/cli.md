@@ -26,8 +26,13 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen start <name>               resume a stopped deployment
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
+  agen wait <task-id>             wait for a task submitted earlier and print its result
+  agen cancel <task-id>           cancel a task (a running one stops)
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
-  agen tasks [name]               recent tasks
+  agen tasks [name]               recent tasks (--scheduled: waiting for their start time)
+  agen providers [resume ACCT]    provider accounts held after an account error
+  agen mcp workspace --root DIR  a built-in MCP tool server: files and a shell in one folder
+  agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
@@ -180,10 +185,20 @@ usage: agen store host-role --store postgres://<admin>@host/db [--role agen_host
 Usage of init:
   -example string
     	same as --template
+  -fallback string
+    	comma-separated models to try when the model keeps failing ("none" clears them)
+  -json
+    	with --list: print the templates as JSON
   -list
     	list the templates
+  -max-tier string
+    	highest cost tier a task may ask for (routing models)
+  -model string
+    	OpenRouter model instead of the template's (a routing model such as typesafe/jev-router picks the model per request)
   -template string
-    	template to start from: hello, researcher, writer, editor, support-triage, pr-reviewer, fleet-steward, cost-watchdog, approval-triage, assistant (default "hello")
+    	template to start from: hello, researcher, writer, editor, pr-reviewer, fleet-steward, approval-triage, assistant, coder, ci-fixer, support, incident-responder, data-analyst (default "hello")
+  -tier string
+    	default cost tier for a routing model: low, medium, high (xhigh, max for openrouter/auto)
 ```
 
 ## agen deploy
@@ -316,6 +331,8 @@ Usage of rm:
 
 ```text
 Usage of run:
+  -at string
+    	run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)
   -ca-hash string
     	pin the Hub CA of an https Hub
   -conversation string
@@ -324,6 +341,8 @@ Usage of run:
     	Hub URL
   -idempotency-key string
     	resubmitting the same key returns the same task
+  -in duration
+    	run no earlier than this long from now (e.g. 30m)
   -json
     	print the API response as JSON
   -label value
@@ -332,8 +351,44 @@ Usage of run:
     	namespace (default "default")
   -no-wait
     	print the task id and return
+  -tier string
+    	cost tier for a routing model: low, medium, high, xhigh or max
   -timeout duration
-    	how long to wait for the result (default 10m0s)
+    	how long to wait for the result (0: no limit); the task keeps running after it (default 10m0s)
+  -token string
+    	API token
+```
+
+## agen wait
+
+```text
+Usage of wait:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -timeout duration
+    	how long to wait (0: no limit)
+  -token string
+    	API token
+```
+
+## agen cancel
+
+```text
+Usage of cancel:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
   -token string
     	API token
 ```
@@ -370,8 +425,34 @@ Usage of tasks:
     	tasks (default 20)
   -n string
     	namespace (default "default")
+  -scheduled
+    	only tasks waiting for their start time
+  -state string
+    	only tasks in this state: queued, running, succeeded, failed, cancelled
   -token string
     	API token
+```
+
+## agen providers
+
+```text
+Usage of providers:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen mcp
+
+```text
+usage: agen mcp workspace --root DIR [--no-run] [--run-timeout D] | agen mcp sql [--dsn-env NAME]
 ```
 
 ## agen runs
@@ -531,7 +612,7 @@ Usage of approvals:
 ## agen notify
 
 ```text
-no Hub configured: run 'agen up', or pass --hub and --token (AGEN_HUB / AGEN_TOKEN)
+usage: agen notify set <name> <url> [--event E]... | agen notify ls | agen notify rm <name>
 ```
 
 ## agen join-token

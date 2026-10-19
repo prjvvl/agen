@@ -142,6 +142,64 @@ func (s *Store) RunOwner(ctx context.Context, runID string) (string, error) {
 	return owner, err
 }
 
+// EndOrphanedRuns ends unfinished runs that started before startedBeforeMs
+// and whose owner instance is no longer registered, unless their task is
+// still queued, leased or running (a requeued task's run is resumed). Such a
+// run would otherwise stay "running" forever and keep its conversation
+// closed to new tasks. It returns the runs it ended.
+func (s *Store) EndOrphanedRuns(ctx context.Context, startedBeforeMs int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT r.id, r.owner FROM runs r WHERE r.ended_ms IS NULL AND r.owner <> '' AND r.started_ms < $1 "+
+		"AND NOT EXISTS (SELECT 1 FROM instances i WHERE i.id = r.owner) "+
+		"AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = r.task_id AND t.state IN ('queued', 'leased', 'running'))", startedBeforeMs)
+	if err != nil {
+		return nil, err
+	}
+	type orphan struct{ id, owner string }
+	var found []orphan
+	for rows.Next() {
+		var o orphan
+		if err := rows.Scan(&o.id, &o.owner); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		found = append(found, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var ended []string
+	for _, o := range found {
+		err := s.inTx(ctx, func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx, "UPDATE runs SET status = 'failed', error = $1, ended_ms = $2, epoch = epoch + 1 WHERE id = $3 AND ended_ms IS NULL",
+				"its instance "+o.owner+" is gone", NowMs(), o.id)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				return nil
+			}
+			ended = append(ended, o.id)
+			return closeRunLeftovers(ctx, tx, o.id)
+		})
+		if err != nil {
+			return ended, err
+		}
+	}
+	return ended, nil
+}
+
+// closeRunLeftovers closes what an ended run left open: its unfinished
+// spans and its pending approvals.
+func closeRunLeftovers(ctx context.Context, tx *sql.Tx, runID string) error {
+	now := NowMs()
+	if _, err := tx.ExecContext(ctx, "UPDATE spans SET status = 'error', end_ms = $1 WHERE run_id = $2 AND status = 'unfinished'", now, runID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE approvals SET state = 'expired', decided_ms = $1 WHERE run_id = $2 AND state = 'pending'", now, runID)
+	return err
+}
+
 // PendingApproval returns the pending approval a run already raised for the
 // same tool and arguments (a resumed run asking again), or ErrNotFound.
 func (s *Store) PendingApproval(ctx context.Context, runID, tool string, args json.RawMessage) (Approval, error) {

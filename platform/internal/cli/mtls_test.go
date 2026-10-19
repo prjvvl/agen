@@ -20,6 +20,7 @@ import (
 
 // A TLS Hub issues Nest certificates at enrolment; NestService accepts
 // only those certificates; unenrolled or foreign Nests are rejected.
+// features: fleet.nests
 func TestNestEnrolmentWithHubIssuedCertificates(t *testing.T) {
 	bin := hostBin(t)
 	dir := t.TempDir()

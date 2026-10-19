@@ -204,6 +204,9 @@ type CallStat struct {
 	FromNamespace, FromDeployment string
 	ToNamespace, ToDeployment     string
 	Status                        string
+	// Async: started with start_agent (its result goes back as a task).
+	Async              bool
+	StartedMs, EndedMs int64
 }
 
 // CallStats returns delegated runs started since sinceMs with the deployment
@@ -219,7 +222,9 @@ func (s *Store) CallStats(ctx context.Context, namespaces []string, sinceMs int6
 		list := strings.Join(ph, ", ")
 		q.where = append(q.where, "(c.namespace IN ("+list+") OR p.namespace IN ("+list+"))")
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT p.namespace, p.deployment, c.namespace, c.deployment, c.status FROM runs c JOIN runs p ON p.id = c.parent_run_id"+q.clause(), q.args...)
+	rows, err := s.db.QueryContext(ctx, "SELECT p.namespace, p.deployment, c.namespace, c.deployment, c.status, "+
+		"CASE WHEN COALESCE(t.reply_deployment, '') <> '' THEN 1 ELSE 0 END, c.started_ms, COALESCE(c.ended_ms, 0) "+
+		"FROM runs c JOIN runs p ON p.id = c.parent_run_id LEFT JOIN tasks t ON t.id = c.task_id AND c.task_id <> ''"+q.clause(), q.args...)
 	if err != nil {
 		return nil, err
 	}
@@ -227,9 +232,11 @@ func (s *Store) CallStats(ctx context.Context, namespaces []string, sinceMs int6
 	var out []CallStat
 	for rows.Next() {
 		var c CallStat
-		if err := rows.Scan(&c.FromNamespace, &c.FromDeployment, &c.ToNamespace, &c.ToDeployment, &c.Status); err != nil {
+		var async int
+		if err := rows.Scan(&c.FromNamespace, &c.FromDeployment, &c.ToNamespace, &c.ToDeployment, &c.Status, &async, &c.StartedMs, &c.EndedMs); err != nil {
 			return nil, err
 		}
+		c.Async = async == 1
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -270,7 +277,9 @@ func (s *Store) PruneObservability(ctx context.Context, beforeMs int64) (int64, 
 	for _, q := range []string{
 		"DELETE FROM spans WHERE end_ms < $1 AND run_id IN (SELECT id FROM runs WHERE ended_ms IS NOT NULL AND ended_ms < $1)",
 		"DELETE FROM logs WHERE time_ms < $1",
-		"DELETE FROM trigger_events WHERE recorded_ms < $1",
+		// Each trigger keeps its latest event: cron catch-up reads it.
+		"DELETE FROM trigger_events WHERE recorded_ms < $1 AND due_ms < (SELECT MAX(o.due_ms) FROM trigger_events o " +
+			"WHERE o.namespace = trigger_events.namespace AND o.deployment = trigger_events.deployment AND o.trigger_name = trigger_events.trigger_name)",
 	} {
 		res, err := s.db.ExecContext(ctx, q, beforeMs)
 		if err != nil {

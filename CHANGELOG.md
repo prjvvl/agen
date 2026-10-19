@@ -1,5 +1,117 @@
 # Changelog
 
+## v0.1.3
+
+### Models and providers
+- `harness.json`: `fallbackModels` (tried in order when a model keeps failing
+  or gives no answer), `reasoningEffort`, `openrouter` (`provider` routing
+  and `plugins`, sent as given) and `router` for routing models
+  (`typesafe/jev-router` with tiers low to high, `openrouter/auto` and
+  `openrouter/auto-beta` with tiers low to max): `tier`, `maxTier`,
+  `budgetTier`, `allowedModels`, `excludedModels`. Tiers are checked per
+  router at deploy and start.
+- Model-call spans record the model that served the call
+  (`gen_ai.response.model`), the router's tier and decision, and fallbacks.
+- An empty answer is asked again once, then falls back; a run that gets no
+  answer from any model fails with `no_answer`.
+- Account errors (401, 402, 403; not a 403 for input flagged by moderation)
+  are never retried or failed over. The Hub
+  holds the provider account: its deployments take no new tasks, do not
+  scale up or wake, and one probe goes through after a backoff (5 min,
+  doubling to 1 h); a run that succeeds ends the hold. `ListProviderHolds`,
+  `ResumeProvider`, `agen providers [resume]`, and `provider.held` /
+  `provider.resumed` notifications.
+- Every way to add an agent can pick a routing model: `agen init --model
+  --tier --max-tier --fallback`, the console's New agent and Templates
+  forms, and the Python, Node and Go SDKs (`router`, `fallback_models`,
+  `reasoning_effort`, `openrouter`, `context_tokens`; a run's
+  `model_tier`), covered by the shared conformance cases.
+- The Python, Node and Go SDKs take `maxTokensPerRun` (the core already did).
+- SDK agents refuse misspelled settings and run tiers, and inline settings
+  next to a `bundle` (the bundle sets them), instead of ignoring them. Node's
+  types include `modelTier`; Go keeps tools in the order added, refuses a
+  duplicate name and returns a `closed` error after `Close`; Python's `arun`
+  takes the same options as `run`.
+- New guide: [Models and providers](docs/guides/models.md).
+
+### Tasks and schedules
+- Tasks take a model tier (`agen run --tier`, `modelTier`, A2A metadata
+  `agen.model_tier`) and a start time (`agen run --at` / `--in`,
+  `notBefore`); a task waiting for its start time holds up nothing.
+- At 80% of the daily budget, leased tasks carry `budget_pressure` and
+  routing models use the bundle's `budgetTier`.
+- `agen wait <task>`; `agen run --timeout 0` waits without a limit.
+- `agen cancel <task>`; `agen tasks --scheduled` and `--state`;
+  `agen init --list --json`.
+- A conversation key read back from a task can be sent again as is.
+- Cron triggers carry `nextDueAt` and `lastDueAt`; `ListTasks` with
+  `scheduled`; `ListTriggerEvents` across deployments and namespaces.
+
+### Delegation
+- `start_agent`: delegate without waiting. The task is queued on the
+  delegate and the result comes back as a task in the caller's conversation
+  (source `reply:<agent>`). A run started over A2A can start child tasks too.
+- A2A calls wait up to 10 min for a free instance (asleep, starting, busy or
+  waiting for Nest capacity) instead of failing after 60 s, and a running
+  call keeps its deployment awake. `call_agent` waits up to 75 min.
+- A run on an instance that is draining after a scale-down or redeploy can
+  keep delegating.
+- Idle deployments give their capacity back after 1 min while another
+  deployment waits for room on a full Nest.
+- Deleting a deployment ends its unfinished runs.
+
+### Engine
+- `contextTokens` (default 64000): a long run's oldest tool results are
+  shortened in what is sent to the model once the run outgrows it; the Store
+  keeps them whole.
+- `agent.md` `preloadSkills`: skills whose instructions are always in the
+  system prompt.
+- Failed tool spans carry `error.message`.
+
+### Console
+- Overview: a compact Needs attention (counts by kind, the full list in the
+  Inbox), a live fleet map (entry points, calls, async starts and results,
+  self-calls, travelling dots; pan, zoom and find for large fleets), Now
+  (every run in progress and what it is doing), and a per-agent timeline.
+- Schedules: cron triggers with their next and last run and Run now, tasks
+  waiting for their start time, webhooks with New secret, and missed and
+  refused events.
+- Costs by served model, and held provider accounts with Resume.
+- Deployments: bundle versions with roll back; tasks with start time, model
+  tier, where an async result goes, and Cancel; the run form takes a start
+  time and a tier. Fleet: add a Nest (join command) and revoke one.
+
+### API
+- `GET /api/v1/events` sends step events (a model or tool call starting or
+  ending).
+- `GetActivity`: unfinished runs and what they are doing, queues, and
+  warnings (near limits, quiet runs, long approval waits, queues waiting or
+  blocked by an approval, bursts, model errors, held providers, missed
+  schedules, refused webhooks).
+- `GetMetrics`: per served model, entry points, and async calls, calls in
+  flight and p95 per edge.
+
+### Tools and templates
+- Built-in tool servers: `agen mcp workspace --root DIR [--no-run]` (read,
+  list, grep, edit, write and run, confined to one folder) and
+  `agen mcp sql [--dsn-env NAME]` (read-only SQL on Postgres or SQLite).
+  Instances get `AGEN_BIN`, so `"command": "agen"` works without `agen` on
+  `PATH`.
+- New templates: coder, ci-fixer, support, incident-responder and
+  data-analyst. fleet-steward also reports live warnings and writes the
+  daily cost report. cost-watchdog and support-triage are removed.
+
+### Testing
+- `spec/features.yaml` lists every feature and the surfaces it must work on
+  (SDKs, API, MCP, CLI, console, agent-to-agent calls, installers, Docker,
+  Kubernetes). Tests tag what they cover, and a check fails when an API
+  method or field, bundle key, CLI command or SDK option belongs to no
+  feature, or a feature is untested on a surface without a recorded gap. The
+  [support matrix](docs/reference/support.md) is generated from it.
+- Scenarios (`spec/scenarios`) are written once as API calls and played
+  through the API, MCP and the CLI.
+- `agen notify set --event` lists every event, provider events included.
+
 ## v0.1.2
 
 ### Console

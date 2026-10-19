@@ -40,7 +40,14 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
   const [openTask, setOpenTask] = useState<string>();
 
   const d = dep.data?.deployment;
-  if (dep.error && !d) return <Alert>{dep.error}</Alert>;
+  if (dep.error && !d)
+    return /not.?found/i.test(dep.error) ? (
+      <Empty title={`No deployment ${namespace}/${name}`}>
+        <a href="#/deployments">All deployments</a>
+      </Empty>
+    ) : (
+      <Alert>{dep.error}</Alert>
+    );
   if (!d) return <SkeletonRows rows={3} />;
   const operator = can("operator");
   const setTab = (t: Tab) => go(["deployments", namespace, name, t === "overview" ? undefined : t]);
@@ -88,9 +95,13 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
               <Pencil size={15} aria-hidden />
               Edit bundle
             </a>
-            <button className="btn" onClick={() => act(() => call("PauseDeployment", { ref, paused: !d.paused }))}>
-              {d.paused ? "Start" : "Stop"}
-            </button>
+            {d.paused ? (
+              <button className="btn" onClick={() => act(() => call("PauseDeployment", { ref, paused: false }))}>
+                Resume
+              </button>
+            ) : (
+              <ConfirmButton label="Pause" confirm="Pause" onConfirm={() => act(() => call("PauseDeployment", { ref, paused: true }))} />
+            )}
             <ConfirmButton
               label="Delete…"
               confirm="Delete deployment"
@@ -125,7 +136,7 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
       ) : tab === "logs" ? (
         <Logs namespace={namespace} name={name} />
       ) : tab === "bundle" ? (
-        <BundleFiles digest={d.definitionDigest} />
+        <BundleTab d={d} />
       ) : tab === "triggers" ? (
         <Triggers d={d} />
       ) : (
@@ -190,7 +201,26 @@ function OverviewTab({ d, instances, onOpenTask }: { d: Deployment; instances: I
             <span className="hint">Where this deployment stands against what its bundle allows.</span>
           </div>
           <Meter label="Spend today" value={d.spentUsdToday ?? 0} max={d.budget?.maxUsdPerDay} format={money} />
-          <Meter label="Queued tasks" value={queued.data?.tasks?.length ?? 0} max={l.maxQueuedTasks} />
+          {(() => {
+            const all = queued.data?.tasks ?? [];
+            const now = Date.now();
+            const later = all.filter((t) => t.notBefore && Date.parse(t.notBefore) > now);
+            const due = all.filter((t) => !later.includes(t));
+            const oldest = due.reduce((m, t) => Math.min(m, Date.parse(t.createdAt ?? "") || now), now);
+            return (
+              <Meter
+                label={
+                  <>
+                    Queued tasks
+                    {later.length > 0 && <span className="muted"> · {later.length} scheduled for later</span>}
+                    {due.length > 0 && now - oldest > 60_000 && <span className="muted"> · oldest waiting {duration(now - oldest)}</span>}
+                  </>
+                }
+                value={all.length}
+                max={l.maxQueuedTasks}
+              />
+            );
+          })()}
           <Meter label="Instances" value={d.desired ?? 0} max={d.scale?.max ?? 1} neutral />
           <dl className="kv">
             <dt>Per run</dt>
@@ -258,6 +288,8 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
   const [input, setInput] = useState("");
   const [conversation, setConversation] = useState("");
   const [labels, setLabels] = useState("");
+  const [startAt, setStartAt] = useState("");
+  const [tier, setTier] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<string>();
@@ -276,6 +308,8 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
         input,
         conversationKey: conversation || undefined,
         labels: Object.keys(lab).length ? lab : undefined,
+        notBefore: startAt ? new Date(startAt).toISOString() : undefined,
+        modelTier: tier || undefined,
       });
       setError("");
       setSubmitted(r.task.id);
@@ -318,6 +352,21 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
         <label className="field">
           Labels <span className="help">Optional, comma separated key=value. They follow the task to its runs and tool calls.</span>
           <input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="team=support, customer=acme" />
+        </label>
+        <label className="field">
+          Start at <span className="help">Optional. The task waits until then (your local time); see Schedules.</span>
+          <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+        </label>
+        <label className="field">
+          Model tier <span className="help">Optional, for agents on a routing model: how capable (and costly) a model to pick.</span>
+          <select value={tier} onChange={(e) => setTier(e.target.value)}>
+            <option value="">The agent's default</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh (Auto Router)</option>
+            <option value="max">max (Auto Router)</option>
+          </select>
         </label>
         {error && <Alert>{error}</Alert>}
       </PanelForm>
@@ -401,6 +450,73 @@ function Logs({ namespace, name }: { namespace: string; name: string }) {
         </pre>
       )}
     </div>
+  );
+}
+
+/** The bundle's files, any earlier version of them, and rolling back. */
+function BundleTab({ d }: { d: Deployment }) {
+  const { can } = useSession();
+  const [view, setView] = useState<string>();
+  const [msg, setMsg] = useState("");
+  const versions = useQuery(
+    () => call<{ definitions?: Definition[] }>("ListDefinitions", { ref: { namespace: d.namespace, name: d.name } }),
+    [d.namespace, d.name, d.definitionDigest],
+  );
+  const list = [...(versions.data?.definitions ?? [])].sort((a, b) => Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? ""));
+  const shown = view ?? d.definitionDigest;
+  const rollBack = async (digest: string) => {
+    try {
+      const def = await call<{ definition: Definition }>("GetDefinition", { digest });
+      await call("UpdateDeployment", { ref: { namespace: d.namespace, name: d.name }, bundleFiles: def.definition.files });
+      setMsg(`${d.name} now runs version ${digest.replace("sha256:", "").slice(0, 12)}; instances restart on it.`);
+      setView(undefined);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      {msg && <Alert tone="info">{msg}</Alert>}
+      {list.length > 1 && (
+        <section className="section" aria-labelledby="versions">
+          <h3 id="versions">Versions</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Created</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {list.slice(0, 20).map((v) => (
+                  <tr key={v.digest} data-selected={v.digest === shown || undefined}>
+                    <td>
+                      <code>{v.digest.replace("sha256:", "").slice(0, 12)}</code>
+                      {v.digest === d.definitionDigest && <Badge tone="ok">running</Badge>}
+                    </td>
+                    <td>
+                      <Time t={v.createdAt} />
+                    </td>
+                    <td className="actions">
+                      <button className="btn sm" onClick={() => setView(v.digest)} disabled={v.digest === shown}>
+                        View
+                      </button>
+                      {can("operator") && v.digest !== d.definitionDigest && (
+                        <ConfirmButton className="btn sm" label="Roll back to this" confirm="Roll back" onConfirm={() => rollBack(v.digest)} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+      {view && view !== d.definitionDigest && <Alert tone="info">Showing an earlier version, not the one that runs.</Alert>}
+      <BundleFiles digest={shown} />
+    </>
   );
 }
 

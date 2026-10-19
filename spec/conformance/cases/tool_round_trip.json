@@ -1,6 +1,7 @@
 {
   "name": "tool_round_trip",
   "description": "A host-language tool is called with the model's arguments and its result reaches the model.",
+  "features": ["tools.host", "agent.basics", "tasks.run"],
   "agent": {
     "name": "c",
     "provider": {

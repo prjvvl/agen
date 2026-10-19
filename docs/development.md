@@ -32,6 +32,44 @@ release archives with `scripts/release.sh` and install one with
 Tests never call a real model; they use the `fake` and `replay` providers.
 Opt-in live smoke tests read `OPENROUTER_API_KEY` with `AGEN_LIVE_TESTS=1`.
 
+## Feature coverage
+
+Agen is used through several surfaces: the SDKs (Rust, Python, Node, Go),
+the fleet's API, MCP, CLI and console, agent-to-agent calls, and the
+installers, Docker and Kubernetes. `spec/features.yaml` lists every feature,
+what it covers (API methods and request fields, bundle keys, CLI commands, SDK
+options) and the surfaces it must work on. Tests say what they exercise with a
+tag:
+
+```go
+// features: tasks.tier, models.router
+func TestSomething(t *testing.T) {
+```
+
+(`#` in Python and shell; `"features": [...]` in a conformance case or
+scenario; `features[api,mcp]:` names the surfaces when the file's location
+does not.) `go test ./internal/features` in `platform/` fails when:
+
+- an API method or request field, bundle key, CLI command or SDK option
+  belongs to no feature;
+- a feature has no test on a surface it is offered on, unless that surface is
+  listed under `gap` (still to do) or `not` (deliberately not offered, with
+  the reason);
+- an SDK the feature is offered on does not take one of its options;
+- a tag names an unknown feature, or a `gap` is in fact tested.
+
+Fleet features are best covered by a scenario: `spec/scenarios/*.json` lists
+Hub API calls with their arguments and expected results, and
+`TestScenariosOnEverySurface` (in `platform/internal/cli`) plays each one
+through the API, the MCP tool generated from the same method, and the CLI
+command that does the same thing (`--json`). One scenario covers all three
+surfaces; when the CLI has no command or flag for a call, the scenario fails
+there until it gets one, or the step names the reason it is skipped.
+
+So a new feature adds an entry (or extends one), a test per surface, or an
+honest `gap`. The [support matrix](reference/support.md) is generated from
+the same data.
+
 ## Generated files
 
 Contracts live in `spec/` (bundle JSON Schemas, protobufs, SQL migrations).
@@ -41,6 +79,7 @@ platform. The CLI and API reference pages are generated from the code:
 
 ```sh
 cd platform && AGEN_UPDATE_DOCS=1 go test ./internal/cli -run TestReferenceDocs
+cd platform && AGEN_UPDATE_DOCS=1 go test ./internal/features   # support matrix
 ```
 
 CI fails when generated files are out of date, when the docs use a command

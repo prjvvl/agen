@@ -162,6 +162,43 @@ func (s *managerService) RequestApproval(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(&agenv1.RequestApprovalResponse{Approval: a}), nil
 }
 
+// StartTask queues a task on another deployment for one of the calling
+// instance's runs (async delegation). The Hub checks the run belongs to the
+// instance and derives the lineage; the result comes back as a task in the
+// caller's conversation. A short Hub outage is waited out.
+func (s *managerService) StartTask(ctx context.Context, req *connect.Request[agenv1.StartTaskRequest]) (*connect.Response[agenv1.StartTaskResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	ns := req.Msg.GetRef().GetNamespace()
+	if ns == "" {
+		ns = in.ns
+	}
+	sub := &agenv1.SubmitChildTaskRequest{NestId: s.m.nestID, InstanceId: id, Ref: &agenv1.DeploymentRef{Namespace: ns, Name: req.Msg.GetRef().GetName()},
+		Input: req.Msg.Input, ParentRunId: req.Msg.RunId, Traceparent: req.Msg.Traceparent, IdempotencyKey: req.Msg.IdempotencyKey,
+		ReplyConversationKey: req.Msg.ReplyConversationKey}
+	for attempt := 0; ; attempt++ {
+		c, cancel := context.WithTimeout(ctx, 10*time.Second)
+		r, err := s.m.hub().SubmitChildTask(c, connect.NewRequest(sub))
+		cancel()
+		switch {
+		case err == nil:
+			s.m.cfg.Log.Info("task started for a run", "task", r.Msg.Task.Id, "target", ns+"/"+sub.Ref.Name, "instance", id)
+			return connect.NewResponse(&agenv1.StartTaskResponse{Task: r.Msg.Task}), nil
+		case attempt < 15 && (connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown):
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	select {
 	case <-ctx.Done():

@@ -1,0 +1,19 @@
+{
+  "responses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "name": "load_skill",
+          "arguments": {
+            "name": "greeting"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Hello there.",
+      "expect": "One sentence, no emoji"
+    }
+  ]
+}

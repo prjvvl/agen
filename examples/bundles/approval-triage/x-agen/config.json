@@ -22,7 +22,19 @@
       {
         "tool": "agen.get_task",
         "action": "allow"
+      },
+      {
+        "tool": "agen.decide_approval",
+        "action": "deny"
       }
     ]
-  }
+  },
+  "triggers": [
+    {
+      "type": "cron",
+      "name": "triage",
+      "schedule": "*/10 * * * *",
+      "input": "Triage the pending approvals."
+    }
+  ]
 }

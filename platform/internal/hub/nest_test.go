@@ -56,6 +56,7 @@ func (e env) scheduler() *Scheduler {
 	return s
 }
 
+// features: fleet.nests
 func TestNestEnrollmentAndTokenIsolation(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -91,6 +92,9 @@ func TestNestEnrollmentAndTokenIsolation(t *testing.T) {
 	// Tokens with the nest scope cannot be minted through the API.
 	if _, err := e.client(admin).CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: "nest:" + idA, Scopes: []string{ScopeNest}})); code(err) != connect.CodeInvalidArgument {
 		t.Fatalf("mint nest token: %v", err)
+	}
+	if _, err := e.client(admin).CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := a.ReportStatus(ctx, connect.NewRequest(&agenv1.ReportStatusRequest{NestId: idA, Capacity: 4, Instances: []*agenv1.Instance{
 		{Id: "i1", Deployment: "hello", State: agenv1.InstanceState_INSTANCE_STATE_READY}}})); err != nil {
@@ -186,6 +190,7 @@ func TestSchedulerPlacesWatchesAndReschedulesLostNest(t *testing.T) {
 	}
 }
 
+// features: deploy.lifecycle
 func TestPlacementLabelsAndCapacity(t *testing.T) {
 	nests := []store.Nest{
 		{ID: "n1", State: "active", Capacity: 1, Labels: map[string]string{"gpu": "yes"}},
@@ -371,6 +376,7 @@ func TestNestTaskLeasingIsScopedToAssignments(t *testing.T) {
 	}
 }
 
+// features: deploy.versions
 func TestNamespaceScopedDefinitionsAndListLimits(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -417,6 +423,7 @@ func TestNamespaceScopedDefinitionsAndListLimits(t *testing.T) {
 	}
 }
 
+// features: deploy.lifecycle
 func TestPauseAndRedeployPolicy(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -472,6 +479,7 @@ func TestPauseAndRedeployPolicy(t *testing.T) {
 // An approval raised by a delegated run (no Hub task of its own) names the
 // submitter of its root run's task, so that person cannot approve it; a child
 // task's parent run must be the parent task's run.
+// features: approvals, delegation
 func TestDelegatedApprovalsNameTheRootSubmitter(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -562,5 +570,79 @@ func TestDelegatedApprovalsNameTheRootSubmitter(t *testing.T) {
 		ParentTaskId: l.Msg.Tasks[0].Id, ParentRunId: "root"}))
 	if err != nil || ch.Msg.Task.ParentRunId != "root" {
 		t.Fatalf("parent run of the parent task: %v %v", ch, err)
+	}
+}
+
+// An instance still finishing a run after its deployment was scaled down
+// (or redeployed) may keep delegating; once it is gone, or for an instance a
+// Nest was never allowed to run, Resolve names no caller.
+// features: delegation
+func TestDrainingInstanceCanStillDelegate(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "writer", BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	idA, a := e.enroll(t, "a", 4, map[string]string{"zone": "a"})
+	idB, b := e.enroll(t, "b", 4, map[string]string{"zone": "b"})
+	sched := e.scheduler()
+	if _, err := c.UpdateDeployment(ctx, connect.NewRequest(&agenv1.UpdateDeploymentRequest{Ref: ref("", "hello"),
+		Placement: &agenv1.Placement{Labels: map[string]string{"zone": "a"}}})); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"hello", "writer"} {
+		if _, err := c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref("", d), Desired: 1})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := sched.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	report := func(states ...agenv1.InstanceState) {
+		t.Helper()
+		var ins []*agenv1.Instance
+		for i, s := range states {
+			ins = append(ins, &agenv1.Instance{Id: fmt.Sprintf("h%d", i), Deployment: "hello", State: s})
+		}
+		if _, err := a.ReportStatus(ctx, connect.NewRequest(&agenv1.ReportStatusRequest{NestId: idA, Capacity: 4, GatewayUrl: "http://gw-a", Instances: ins})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolve := func() error {
+		_, err := a.Resolve(ctx, connect.NewRequest(&agenv1.ResolveRequest{Ref: ref("", "writer"), Caller: ref("", "hello")}))
+		return err
+	}
+	report(agenv1.InstanceState_INSTANCE_STATE_READY)
+	if err := resolve(); err != nil {
+		t.Fatalf("assigned caller: %v", err)
+	}
+	// Scaled to zero mid-run: the assignment goes, the instance drains.
+	if _, err := c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref("", "hello"), Desired: 0})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	report(agenv1.InstanceState_INSTANCE_STATE_DRAINING)
+	if err := resolve(); err != nil {
+		t.Fatalf("draining caller: %v", err)
+	}
+	report()
+	if err := resolve(); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("caller with no instance left: %v", err)
+	}
+	// A Nest cannot vouch for a deployment it may not run: b does not match
+	// hello's placement (zone=a), and "nope" does not exist.
+	if _, err := b.ReportStatus(ctx, connect.NewRequest(&agenv1.ReportStatusRequest{NestId: idB, Capacity: 4, Instances: []*agenv1.Instance{
+		{Id: "forged", Deployment: "hello", State: agenv1.InstanceState_INSTANCE_STATE_READY},
+		{Id: "ghost", Deployment: "nope", State: agenv1.InstanceState_INSTANCE_STATE_READY}}})); err != nil {
+		t.Fatal(err)
+	}
+	if insts, _ := e.store.ListInstances(ctx, "", "", idB); len(insts) != 0 {
+		t.Fatalf("instances a Nest may not run were recorded: %+v", insts)
 	}
 }

@@ -1,0 +1,65 @@
+{
+  "name": "router_tier",
+  "description": "A routing model gets its plugin with the default tier; a run may ask for another tier, capped at maxTier.",
+  "features": ["models.router", "tasks.tier"],
+  "agent": {
+    "name": "c",
+    "model": "typesafe/jev-router",
+    "router": {
+      "tier": "low",
+      "maxTier": "medium"
+    },
+    "fallbackModels": [
+      "deepseek/deepseek-v4-flash"
+    ],
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "cheap",
+          "expectModel": "typesafe/jev-router",
+          "expectExtra": {
+            "plugins": [
+              {
+                "id": "jev-router",
+                "cost_tier": "low"
+              }
+            ]
+          }
+        },
+        {
+          "text": "capped",
+          "expectExtra": {
+            "plugins": [
+              {
+                "id": "jev-router",
+                "cost_tier": "medium"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "a"
+    },
+    {
+      "input": "b",
+      "options": {
+        "modelTier": "high"
+      }
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "cheap"
+    },
+    {
+      "status": "succeeded",
+      "output": "capped"
+    }
+  ]
+}

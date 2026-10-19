@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -43,6 +44,16 @@ type Hub struct {
 
 	evOnce sync.Once
 	ev     *changeFeed
+
+	// Log receives operational messages (default: slog.Default()).
+	Log *slog.Logger
+}
+
+func (h *Hub) logger() *slog.Logger {
+	if h.Log != nil {
+		return h.Log
+	}
+	return slog.Default()
 }
 
 // New creates a Hub over a store; adminToken authenticates the admin.
@@ -344,8 +355,15 @@ func (h *Hub) DeleteDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err := requireNamespace(ctx, ns); err != nil {
 		return nil, err
 	}
+	// Tasks started with start_agent tell their caller they were cancelled.
+	replies, _ := h.Store.UnfinishedReplyTasks(ctx, ns, req.Msg.GetRef().GetName())
 	if err := h.Store.DeleteDeployment(ctx, ns, req.Msg.GetRef().GetName()); err != nil {
 		return nil, connectErr(err)
+	}
+	for _, id := range replies {
+		if t, err := h.Store.GetTask(ctx, id); err == nil {
+			h.replyResult(ctx, t)
+		}
 	}
 	return connect.NewResponse(&agenv1.DeleteDeploymentResponse{}), nil
 }
@@ -409,9 +427,19 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkWorkIdentity(req.Msg.ConversationKey, req.Msg.Labels); err != nil {
 		return nil, err
 	}
+	if err := checkTier(req.Msg.ModelTier); err != nil {
+		return nil, err
+	}
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier}
+	if nb := req.Msg.GetNotBefore(); nb != nil {
+		at := nb.AsTime()
+		if at.After(time.Now().Add(maxScheduleAhead)) {
+			return nil, invalid(fmt.Sprintf("not_before is more than %s ahead", maxScheduleAhead))
+		}
+		task.NotBeforeMs = at.UnixMilli()
+	}
 	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
 		return nil, err
 	}
@@ -527,13 +555,22 @@ func (h *Hub) ListTasks(ctx context.Context, req *connect.Request[agenv1.ListTas
 	limit := listLimit(req.Msg.Limit, 100)
 	var list []store.Task
 	for _, ns := range nss {
-		part, err := h.Store.ListTasks(ctx, ns, req.Msg.Deployment, taskStateName(req.Msg.State), limit)
+		var part []store.Task
+		var err error
+		if req.Msg.Scheduled {
+			part, err = h.Store.ScheduledTasks(ctx, ns, req.Msg.Deployment, limit)
+		} else {
+			part, err = h.Store.ListTasks(ctx, ns, req.Msg.Deployment, taskStateName(req.Msg.State), limit)
+		}
 		if err != nil {
 			return nil, connectErr(err)
 		}
 		list = append(list, part...)
 	}
 	sort.Slice(list, func(i, j int) bool {
+		if req.Msg.Scheduled {
+			return list[i].NotBeforeMs < list[j].NotBeforeMs
+		}
 		if list[i].CreatedMs != list[j].CreatedMs {
 			return list[i].CreatedMs > list[j].CreatedMs
 		}
@@ -601,6 +638,8 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	// A cancelled child still answers the run that started it.
+	h.replyResult(ctx, t)
 	return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t)}), nil
 }
 
@@ -687,6 +726,9 @@ func (h *Hub) Wake(ctx context.Context, ns, name string) (store.Deployment, erro
 	}
 	if spent, exhausted, err := h.spentToday(ctx, d); err == nil && exhausted {
 		return d, budgetError(d, spent)
+	}
+	if hold, ok := h.providerHold(ctx, d); ok && store.NowMs() < hold.RetryMs {
+		return d, heldError(hold)
 	}
 	if max := int(PolicyOf(d).Scale.Max); d.Desired >= 1 || max < 1 {
 		return d, h.Store.TouchActivity(ctx, ns, name)
@@ -807,7 +849,17 @@ func (h *Hub) visibleDigests(ctx context.Context) (map[string]bool, error) {
 }
 
 func (h *Hub) ListDefinitions(ctx context.Context, req *connect.Request[agenv1.ListDefinitionsRequest]) (*connect.Response[agenv1.ListDefinitionsResponse], error) {
-	list, err := h.Store.ListDefinitions(ctx, req.Msg.Name)
+	var list []store.Definition
+	var err error
+	if r := req.Msg.GetRef(); r.GetName() != "" {
+		ns := nsOr(r.GetNamespace())
+		if err := requireNamespace(ctx, ns); err != nil {
+			return nil, err
+		}
+		list, err = h.Store.DeploymentVersions(ctx, ns, r.GetName())
+	} else {
+		list, err = h.Store.ListDefinitions(ctx, req.Msg.Name)
+	}
 	if err != nil {
 		return nil, connectErr(err)
 	}
@@ -843,15 +895,29 @@ func (h *Hub) GetDefinition(ctx context.Context, req *connect.Request[agenv1.Get
 // ---- triggers ----
 
 func (h *Hub) ListTriggerEvents(ctx context.Context, req *connect.Request[agenv1.ListTriggerEventsRequest]) (*connect.Response[agenv1.ListTriggerEventsResponse], error) {
-	ns := nsOr(req.Msg.GetRef().GetNamespace())
-	if err := requireNamespace(ctx, ns); err != nil {
+	nss, err := namespacesFor(ctx, req.Msg.GetRef().GetNamespace())
+	if err != nil {
 		return nil, err
+	}
+	if req.Msg.GetRef().GetName() != "" && req.Msg.GetRef().GetNamespace() == "" {
+		nss = []string{"default"}
+		if err := requireNamespace(ctx, "default"); err != nil {
+			return nil, err
+		}
 	}
 	states := map[agenv1.TriggerEventState]string{agenv1.TriggerEventState_TRIGGER_EVENT_STATE_FIRED: "fired",
 		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_MISSED: "missed", agenv1.TriggerEventState_TRIGGER_EVENT_STATE_REJECTED: "rejected"}
-	list, err := h.Store.ListTriggerEvents(ctx, ns, req.Msg.GetRef().GetName(), states[req.Msg.State], int(req.Msg.Limit))
-	if err != nil {
-		return nil, connectErr(err)
+	var list []store.TriggerEvent
+	for _, ns := range nss {
+		part, err := h.Store.ListTriggerEvents(ctx, ns, req.Msg.GetRef().GetName(), states[req.Msg.State], int(req.Msg.Limit))
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		list = append(list, part...)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].DueMs > list[j].DueMs })
+	if l := listLimit(req.Msg.Limit, 100); len(list) > l {
+		list = list[:l]
 	}
 	back := map[string]agenv1.TriggerEventState{}
 	for k, v := range states {
@@ -912,6 +978,9 @@ func (h *Hub) GetLogs(ctx context.Context, req *connect.Request[agenv1.GetLogsRe
 // ---- access ----
 
 func (h *Hub) CreateJoinToken(ctx context.Context, req *connect.Request[agenv1.CreateJoinTokenRequest]) (*connect.Response[agenv1.CreateJoinTokenResponse], error) {
+	if err := requireGlobal(ctx, "adding a nest"); err != nil {
+		return nil, err
+	}
 	ttl := int64(req.Msg.TtlSeconds)
 	if ttl <= 0 {
 		ttl = 3600
@@ -936,6 +1005,10 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 			return nil, invalid("unknown scope " + s)
 		}
 	}
+	// A namespace-limited admin mints tokens within its own namespaces only.
+	if !PrincipalFrom(ctx).AllowsAllOf(req.Msg.Namespaces) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("a token limited to namespaces can only create tokens limited to some of them"))
+	}
 	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf)
 	if err != nil {
 		return nil, connectErr(err)
@@ -953,8 +1026,11 @@ func (h *Hub) ListApiTokens(ctx context.Context, _ *connect.Request[agenv1.ListA
 		return nil, connectErr(err)
 	}
 	out := &agenv1.ListApiTokensResponse{}
+	p := PrincipalFrom(ctx)
 	for _, t := range list {
-		out.Tokens = append(out.Tokens, tokenProto(t))
+		if p.AllowsAllOf(t.Namespaces) {
+			out.Tokens = append(out.Tokens, tokenProto(t))
+		}
 	}
 	return connect.NewResponse(out), nil
 }
@@ -963,6 +1039,9 @@ func (h *Hub) RevokeNest(ctx context.Context, req *connect.Request[agenv1.Revoke
 	if req.Msg.Id == "" {
 		return nil, invalid("id is required")
 	}
+	if err := requireGlobal(ctx, "revoking a nest"); err != nil {
+		return nil, err
+	}
 	if err := h.Store.RevokeNest(ctx, req.Msg.Id); err != nil {
 		return nil, connectErr(err)
 	}
@@ -970,6 +1049,9 @@ func (h *Hub) RevokeNest(ctx context.Context, req *connect.Request[agenv1.Revoke
 }
 
 func (h *Hub) RevokeApiToken(ctx context.Context, req *connect.Request[agenv1.RevokeApiTokenRequest]) (*connect.Response[agenv1.RevokeApiTokenResponse], error) {
+	if t, err := h.Store.GetAPIToken(ctx, req.Msg.Id); err == nil && !PrincipalFrom(ctx).AllowsAllOf(t.Namespaces) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("that token reaches namespaces this token does not"))
+	}
 	if err := h.Store.RevokeAPIToken(ctx, req.Msg.Id); err != nil {
 		return nil, connectErr(err)
 	}

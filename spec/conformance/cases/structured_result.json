@@ -1,6 +1,7 @@
 {
   "name": "structured_result",
   "description": "Non-string tool results are sent to the model as JSON.",
+  "features": ["tools.host"],
   "agent": {
     "name": "c",
     "provider": {

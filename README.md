@@ -50,7 +50,8 @@ model and a real tool.
 ## What an agent can do
 
 - Use tools: any MCP server, or your own functions (SDK).
-- Load skills when it needs them, and call other agents over A2A, with
+- Load skills when it needs them, and call other agents over A2A, waiting
+  for the answer or getting it back later in the same conversation, with
   depth and fan-out limits.
 - Ask a person first: an `ask` permission pauses the run until someone
   approves it from the CLI, web UI or MCP.
@@ -61,9 +62,14 @@ model and a real tool.
 - Keep secrets out of logs, traces, storage and model input.
 - Be traced end to end, across agents: the console shows every model call
   and tool call, with what was sent and what came back.
-- Stay bounded: run time, turns, output, repeated calls, delegation and
-  spend all have limits by default.
-- Use any model through OpenRouter or an OpenAI-compatible API.
+- Stay bounded: run time, turns, output, repeated calls and delegation have
+  limits by default; budgets cap tokens and spend per run and per day.
+- Use any model through OpenRouter or an OpenAI-compatible API, with
+  fallback models, routing models and cost tiers, and a hold on a provider
+  account whose key or credit stops working.
+- Run on a schedule, from a webhook, or once at a later time.
+- Work in a folder (files and a shell) or query a database read-only with
+  Agen's built-in tool servers.
 
 ## Docs
 
@@ -73,13 +79,15 @@ model and a real tool.
   [traces](docs/guides/traces.md), [templates](docs/guides/templates.md),
   [tools](docs/guides/tools.md),
   [connecting agents](docs/guides/agents.md),
+  [models and providers](docs/guides/models.md),
   [permissions and approvals](docs/guides/permissions.md),
   [budgets and limits](docs/guides/budgets.md),
   [notifications](docs/guides/notifications.md), [triggers](docs/guides/triggers.md),
   [memory](docs/guides/memory.md), [MCP clients](docs/guides/mcp.md),
   [running a fleet](docs/deploy.md), [troubleshooting](docs/troubleshooting.md)
 - Reference: [bundle](docs/reference/bundle.md), [CLI](docs/reference/cli.md),
-  [API](docs/reference/api.md), [SDKs](docs/reference/sdks.md)
+  [API](docs/reference/api.md), [SDKs](docs/reference/sdks.md),
+  [support matrix](docs/reference/support.md)
 - Explanation: [architecture](docs/architecture.md), [security](docs/security.md)
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), and
   [developing Agen](docs/development.md) (building from source, tests, layout)

@@ -1,0 +1,5 @@
+{
+  "name": "ci-fixer",
+  "version": "0.1.0",
+  "description": "Reproduces a failing CI job in a local clone, finds the cause and fixes it"
+}

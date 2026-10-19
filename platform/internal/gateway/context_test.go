@@ -36,6 +36,7 @@ func sendInContext(t *testing.T, url, messageID, contextID string, labels map[st
 
 // An A2A context continues one conversation; messages of one context run
 // one at a time; labels in the message metadata reach the run.
+// features: delegation
 func TestA2AContextsAreConversations(t *testing.T) {
 	k := startStack(t)
 	ctx := context.Background()

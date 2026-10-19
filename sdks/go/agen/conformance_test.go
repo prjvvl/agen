@@ -3,6 +3,7 @@ package agen_test
 // Shared SDK conformance suite (spec/conformance/cases) for the Go SDK.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 type confCase struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
+	Features    []string        `json:"features"`
 	Agent       json.RawMessage `json:"agent"`
 	Tools       []confTool      `json:"tools"`
 	Approvals   string          `json:"approvals"`
@@ -49,7 +51,8 @@ type confRun struct {
 }
 
 type confOptions struct {
-	TaskID string `json:"taskId"`
+	TaskID    string `json:"taskId"`
+	ModelTier string `json:"modelTier"`
 }
 
 type confExpect struct {
@@ -154,14 +157,22 @@ func runConfCase(t *testing.T, root string, c confCase) {
 		t.Fatal(err)
 	}
 	allowed := map[string]bool{"name": true, "bundle": true, "instructions": true, "model": true, "provider": true,
-		"permissions": true, "maxTurns": true, "approvalTimeoutSeconds": true}
+		"permissions": true, "maxTurns": true, "approvalTimeoutSeconds": true, "router": true, "fallbackModels": true,
+		"openrouter": true, "maxTokensPerRun": true}
 	for k := range agentKeys {
 		if !allowed[k] {
 			t.Fatalf("agent: unknown key %q (update the runner)", k)
 		}
 	}
+	// A misspelled key cannot reach the core from Go (Spec is a struct); the
+	// strict decode stands in for the compiler refusing it.
 	var spec agen.Spec
-	if err := json.Unmarshal(c.Agent, &spec); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(c.Agent))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&spec); err != nil {
+		if c.CreateError == "invalid_spec" {
+			return
+		}
 		t.Fatal(err)
 	}
 	if spec.Bundle != "" {
@@ -235,6 +246,9 @@ func runConfCase(t *testing.T, root string, c confCase) {
 				}
 				if run.CloseAfterMs != nil {
 					time.AfterFunc(time.Duration(*run.CloseAfterMs)*time.Millisecond, a.Close)
+				}
+				if tier := run.Options.ModelTier; tier != "" {
+					ropts = append(ropts, agen.ModelTier(tier))
 				}
 				if id := run.Options.TaskID; id != "" {
 					ropts = append(ropts, agen.TaskID(id))

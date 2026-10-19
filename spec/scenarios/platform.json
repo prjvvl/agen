@@ -1,0 +1,48 @@
+{
+  "name": "platform",
+  "description": "Templates, platform secrets, notification targets and provider holds.",
+  "features": ["deploy.templates", "secrets", "observe.notifications", "models.holds"],
+  "steps": [
+    {
+      "call": "ListTemplates",
+      "args": {},
+      "expect": { "templates": { "has": { "name": "coder" } } }
+    },
+    {
+      "call": "GetBundleGuide",
+      "args": {},
+      "expect": { "schemas": { "exists": true } },
+      "skip": { "cli": "the CLI starts from templates (agen init) and checks bundles with agen deploy --validate" }
+    },
+    {
+      "call": "SetSecret",
+      "args": { "namespace": "$ns", "name": "DEMO_KEY", "value": "s3cret", "deployments": ["greeter"] }
+    },
+    {
+      "call": "ListSecrets",
+      "args": { "namespace": "$ns" },
+      "expect": { "secrets": { "has": { "name": "DEMO_KEY" } } }
+    },
+    {
+      "call": "DeleteSecret",
+      "args": { "namespace": "$ns", "name": "DEMO_KEY" }
+    },
+    {
+      "call": "SetNotificationTarget",
+      "args": { "target": { "namespace": "$ns", "name": "ops", "url": "https://example.invalid/hook", "events": ["provider.held", "task.failed"] } }
+    },
+    {
+      "call": "ListNotificationTargets",
+      "args": { "namespace": "$ns" },
+      "expect": { "targets": { "has": { "name": "ops" } } }
+    },
+    {
+      "call": "DeleteNotificationTarget",
+      "args": { "namespace": "$ns", "name": "ops" }
+    },
+    {
+      "call": "ListProviderHolds",
+      "args": {}
+    }
+  ]
+}

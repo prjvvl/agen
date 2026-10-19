@@ -8,6 +8,7 @@ import {
   LayoutTemplate,
   LogOut,
   Menu,
+  CalendarClock,
   MessageSquare,
   Monitor,
   Moon,
@@ -23,6 +24,7 @@ import { Assistant } from "./pages/Assistant";
 import { BundleEditor } from "./pages/BundleEditor";
 import { CommandPalette } from "./pages/CommandPalette";
 import { Costs } from "./pages/Costs";
+import { Schedules } from "./pages/Schedules";
 import { DeploymentDetail } from "./pages/DeploymentDetail";
 import { Deployments } from "./pages/Deployments";
 import { Fleet } from "./pages/Fleet";
@@ -103,6 +105,7 @@ const NAV: { id: string; label: string; icon: typeof Activity; match: (r: Route)
   { id: "inbox", label: "Inbox", icon: InboxIcon, match: (r) => r.path[0] === "inbox" },
   { id: "deployments", label: "Deployments", icon: Boxes, match: (r) => ["deployments", "new", "edit"].includes(r.path[0]) },
   { id: "runs", label: "Runs", icon: Activity, match: (r) => r.path[0] === "runs" || r.path[0] === "trace" },
+  { id: "schedules", label: "Schedules", icon: CalendarClock, match: (r) => r.path[0] === "schedules" },
   { id: "costs", label: "Costs", icon: Coins, match: (r) => r.path[0] === "costs" },
   { id: "templates", label: "Templates", icon: LayoutTemplate, match: (r) => r.path[0] === "templates" },
   { id: "fleet", label: "Fleet", icon: Server, match: (r) => r.path[0] === "fleet" },
@@ -114,6 +117,29 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
   const live = useLiveState();
   const [theme, nextTheme] = useTheme();
   const [menu, setMenu] = useState(false);
+  // Desktop: the sidebar can be hidden (remembered); narrow screens: the
+  // menu opens it over the page.
+  const [navHidden, setNavHidden] = useState(() => {
+    try {
+      return localStorage.getItem("agen.nav") === "hidden";
+    } catch {
+      return false;
+    }
+  });
+  const toggleNav = () => {
+    if (matchMedia("(max-width: 860px)").matches) {
+      setMenu((m) => !m);
+      return;
+    }
+    setNavHidden((h) => {
+      try {
+        localStorage.setItem("agen.nav", h ? "shown" : "hidden");
+      } catch {
+        /* private mode: not remembered */
+      }
+      return !h;
+    });
+  };
   const [palette, setPalette] = useState(false);
   const [assistant, setAssistant] = useState<{ open: boolean; prompt?: string }>({ open: false });
   const who = useQuery(() => call<WhoAmI>("WhoAmI"), []);
@@ -162,6 +188,9 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
     case "costs":
       body = <Costs />;
       break;
+    case "schedules":
+      body = <Schedules />;
+      break;
     case "templates":
       body = <Templates selected={a} />;
       break;
@@ -183,7 +212,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
 
   return (
     <SessionContext.Provider value={session}>
-      <div className="shell" data-menu={menu ? "open" : undefined}>
+      <div className="shell" data-menu={menu ? "open" : undefined} data-nav={navHidden ? "hidden" : undefined}>
         <nav className="sidebar" aria-label="Main">
           <a className="brand" href="#/">
             <span className="brand-mark" aria-hidden>
@@ -245,7 +274,13 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
         </nav>
         <div className="main">
           <header className="topbar">
-            <button className="btn ghost icon menu-btn" aria-label="Menu" onClick={() => setMenu((m) => !m)}>
+            <button
+              className="btn ghost icon menu-btn"
+              aria-label={navHidden ? "Show the menu" : "Menu"}
+              aria-expanded={menu || !navHidden}
+              title="Show or hide the menu"
+              onClick={toggleNav}
+            >
               <Menu size={18} />
             </button>
             <button className="search-btn" onClick={() => setPalette(true)}>

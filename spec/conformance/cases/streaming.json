@@ -1,6 +1,7 @@
 {
   "name": "streaming",
   "description": "Text streams as delta events and matches the final output.",
+  "features": ["tasks.streaming"],
   "agent": {
     "name": "c",
     "provider": {

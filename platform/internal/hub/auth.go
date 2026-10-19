@@ -64,6 +64,34 @@ func (p Principal) AllowsNamespace(ns string) bool {
 	return false
 }
 
+// Global reports whether the principal is not limited to namespaces.
+func (p Principal) Global() bool { return len(p.Namespaces) == 0 }
+
+// AllowsAllOf reports whether a token limited to these namespaces stays
+// within the principal's (a limited principal never covers a global one).
+func (p Principal) AllowsAllOf(namespaces []string) bool {
+	if p.Global() {
+		return true
+	}
+	if len(namespaces) == 0 {
+		return false
+	}
+	for _, ns := range namespaces {
+		if !p.AllowsNamespace(ns) {
+			return false
+		}
+	}
+	return true
+}
+
+// requireGlobal refuses fleet-wide actions to namespace-limited tokens.
+func requireGlobal(ctx context.Context, what string) error {
+	if !PrincipalFrom(ctx).Global() {
+		return connect.NewError(connect.CodePermissionDenied, errors.New(what+" needs a token that is not limited to namespaces"))
+	}
+	return nil
+}
+
 type principalKey struct{}
 
 // PrincipalFrom returns the authenticated caller.
@@ -123,10 +151,10 @@ func procedureScope(procedure string) string {
 	switch name {
 	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "Resolve",
 		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide",
-		"GetTranscript", "GetMetrics", "ListTemplates":
+		"GetTranscript", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds":
 		return ScopeViewer
 	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "RequestWake",
-		"CreateWebhookSecret":
+		"CreateWebhookSecret", "ResumeProvider":
 		return ScopeOperator
 	case "ListApprovals", "DecideApproval":
 		return ScopeApprover

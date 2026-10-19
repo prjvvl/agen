@@ -21,6 +21,137 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type StartTaskRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ref   *DeploymentRef         `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Input string                 `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
+	// The calling run; it must be a run of the calling instance.
+	RunId       string `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Traceparent string `protobuf:"bytes,4,opt,name=traceparent,proto3" json:"traceparent,omitempty"`
+	// Where the result goes: the caller's conversation key.
+	ReplyConversationKey string `protobuf:"bytes,5,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
+	// The same key returns the same task (a retried or resumed call).
+	IdempotencyKey string `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *StartTaskRequest) Reset() {
+	*x = StartTaskRequest{}
+	mi := &file_agen_v1_host_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartTaskRequest) ProtoMessage() {}
+
+func (x *StartTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_host_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartTaskRequest.ProtoReflect.Descriptor instead.
+func (*StartTaskRequest) Descriptor() ([]byte, []int) {
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *StartTaskRequest) GetRef() *DeploymentRef {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
+func (x *StartTaskRequest) GetInput() string {
+	if x != nil {
+		return x.Input
+	}
+	return ""
+}
+
+func (x *StartTaskRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *StartTaskRequest) GetTraceparent() string {
+	if x != nil {
+		return x.Traceparent
+	}
+	return ""
+}
+
+func (x *StartTaskRequest) GetReplyConversationKey() string {
+	if x != nil {
+		return x.ReplyConversationKey
+	}
+	return ""
+}
+
+func (x *StartTaskRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type StartTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Task          *Task                  `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartTaskResponse) Reset() {
+	*x = StartTaskResponse{}
+	mi := &file_agen_v1_host_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartTaskResponse) ProtoMessage() {}
+
+func (x *StartTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_host_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartTaskResponse.ProtoReflect.Descriptor instead.
+func (*StartTaskResponse) Descriptor() ([]byte, []int) {
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *StartTaskResponse) GetTask() *Task {
+	if x != nil {
+		return x.Task
+	}
+	return nil
+}
+
 type RequestApprovalRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	InstanceId string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
@@ -35,7 +166,7 @@ type RequestApprovalRequest struct {
 
 func (x *RequestApprovalRequest) Reset() {
 	*x = RequestApprovalRequest{}
-	mi := &file_agen_v1_host_proto_msgTypes[0]
+	mi := &file_agen_v1_host_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -47,7 +178,7 @@ func (x *RequestApprovalRequest) String() string {
 func (*RequestApprovalRequest) ProtoMessage() {}
 
 func (x *RequestApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[0]
+	mi := &file_agen_v1_host_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60,7 +191,7 @@ func (x *RequestApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestApprovalRequest.ProtoReflect.Descriptor instead.
 func (*RequestApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{0}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RequestApprovalRequest) GetInstanceId() string {
@@ -107,7 +238,7 @@ type RequestApprovalResponse struct {
 
 func (x *RequestApprovalResponse) Reset() {
 	*x = RequestApprovalResponse{}
-	mi := &file_agen_v1_host_proto_msgTypes[1]
+	mi := &file_agen_v1_host_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -119,7 +250,7 @@ func (x *RequestApprovalResponse) String() string {
 func (*RequestApprovalResponse) ProtoMessage() {}
 
 func (x *RequestApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[1]
+	mi := &file_agen_v1_host_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -132,7 +263,7 @@ func (x *RequestApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestApprovalResponse.ProtoReflect.Descriptor instead.
 func (*RequestApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{1}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RequestApprovalResponse) GetApproval() *Approval {
@@ -152,7 +283,7 @@ type ResolveSecretRequest struct {
 
 func (x *ResolveSecretRequest) Reset() {
 	*x = ResolveSecretRequest{}
-	mi := &file_agen_v1_host_proto_msgTypes[2]
+	mi := &file_agen_v1_host_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -164,7 +295,7 @@ func (x *ResolveSecretRequest) String() string {
 func (*ResolveSecretRequest) ProtoMessage() {}
 
 func (x *ResolveSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[2]
+	mi := &file_agen_v1_host_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -177,7 +308,7 @@ func (x *ResolveSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveSecretRequest.ProtoReflect.Descriptor instead.
 func (*ResolveSecretRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{2}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ResolveSecretRequest) GetInstanceId() string {
@@ -203,7 +334,7 @@ type ResolveSecretResponse struct {
 
 func (x *ResolveSecretResponse) Reset() {
 	*x = ResolveSecretResponse{}
-	mi := &file_agen_v1_host_proto_msgTypes[3]
+	mi := &file_agen_v1_host_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -215,7 +346,7 @@ func (x *ResolveSecretResponse) String() string {
 func (*ResolveSecretResponse) ProtoMessage() {}
 
 func (x *ResolveSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[3]
+	mi := &file_agen_v1_host_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -228,7 +359,7 @@ func (x *ResolveSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveSecretResponse.ProtoReflect.Descriptor instead.
 func (*ResolveSecretResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{3}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ResolveSecretResponse) GetValue() string {
@@ -246,7 +377,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_agen_v1_host_proto_msgTypes[4]
+	mi := &file_agen_v1_host_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -258,7 +389,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[4]
+	mi := &file_agen_v1_host_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -271,7 +402,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{4}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{6}
 }
 
 type HealthResponse struct {
@@ -288,7 +419,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_agen_v1_host_proto_msgTypes[5]
+	mi := &file_agen_v1_host_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -300,7 +431,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[5]
+	mi := &file_agen_v1_host_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -313,7 +444,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{5}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *HealthResponse) GetInstanceId() string {
@@ -369,7 +500,7 @@ type RunTaskRequest struct {
 
 func (x *RunTaskRequest) Reset() {
 	*x = RunTaskRequest{}
-	mi := &file_agen_v1_host_proto_msgTypes[6]
+	mi := &file_agen_v1_host_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -381,7 +512,7 @@ func (x *RunTaskRequest) String() string {
 func (*RunTaskRequest) ProtoMessage() {}
 
 func (x *RunTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[6]
+	mi := &file_agen_v1_host_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -394,7 +525,7 @@ func (x *RunTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunTaskRequest.ProtoReflect.Descriptor instead.
 func (*RunTaskRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{6}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RunTaskRequest) GetTask() *Task {
@@ -423,7 +554,7 @@ type RunTaskResponse struct {
 
 func (x *RunTaskResponse) Reset() {
 	*x = RunTaskResponse{}
-	mi := &file_agen_v1_host_proto_msgTypes[7]
+	mi := &file_agen_v1_host_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -435,7 +566,7 @@ func (x *RunTaskResponse) String() string {
 func (*RunTaskResponse) ProtoMessage() {}
 
 func (x *RunTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[7]
+	mi := &file_agen_v1_host_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -448,7 +579,7 @@ func (x *RunTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunTaskResponse.ProtoReflect.Descriptor instead.
 func (*RunTaskResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{7}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RunTaskResponse) GetSuccess() bool {
@@ -488,7 +619,7 @@ type HostCancelTaskRequest struct {
 
 func (x *HostCancelTaskRequest) Reset() {
 	*x = HostCancelTaskRequest{}
-	mi := &file_agen_v1_host_proto_msgTypes[8]
+	mi := &file_agen_v1_host_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +631,7 @@ func (x *HostCancelTaskRequest) String() string {
 func (*HostCancelTaskRequest) ProtoMessage() {}
 
 func (x *HostCancelTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[8]
+	mi := &file_agen_v1_host_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +644,7 @@ func (x *HostCancelTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostCancelTaskRequest.ProtoReflect.Descriptor instead.
 func (*HostCancelTaskRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{8}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *HostCancelTaskRequest) GetTaskId() string {
@@ -532,7 +663,7 @@ type HostCancelTaskResponse struct {
 
 func (x *HostCancelTaskResponse) Reset() {
 	*x = HostCancelTaskResponse{}
-	mi := &file_agen_v1_host_proto_msgTypes[9]
+	mi := &file_agen_v1_host_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +675,7 @@ func (x *HostCancelTaskResponse) String() string {
 func (*HostCancelTaskResponse) ProtoMessage() {}
 
 func (x *HostCancelTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[9]
+	mi := &file_agen_v1_host_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +688,7 @@ func (x *HostCancelTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostCancelTaskResponse.ProtoReflect.Descriptor instead.
 func (*HostCancelTaskResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{9}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *HostCancelTaskResponse) GetCancelled() bool {
@@ -575,7 +706,7 @@ type DrainRequest struct {
 
 func (x *DrainRequest) Reset() {
 	*x = DrainRequest{}
-	mi := &file_agen_v1_host_proto_msgTypes[10]
+	mi := &file_agen_v1_host_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -587,7 +718,7 @@ func (x *DrainRequest) String() string {
 func (*DrainRequest) ProtoMessage() {}
 
 func (x *DrainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[10]
+	mi := &file_agen_v1_host_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -600,7 +731,7 @@ func (x *DrainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DrainRequest.ProtoReflect.Descriptor instead.
 func (*DrainRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{10}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{12}
 }
 
 type DrainResponse struct {
@@ -611,7 +742,7 @@ type DrainResponse struct {
 
 func (x *DrainResponse) Reset() {
 	*x = DrainResponse{}
-	mi := &file_agen_v1_host_proto_msgTypes[11]
+	mi := &file_agen_v1_host_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +754,7 @@ func (x *DrainResponse) String() string {
 func (*DrainResponse) ProtoMessage() {}
 
 func (x *DrainResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_host_proto_msgTypes[11]
+	mi := &file_agen_v1_host_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,14 +767,23 @@ func (x *DrainResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DrainResponse.ProtoReflect.Descriptor instead.
 func (*DrainResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_host_proto_rawDescGZIP(), []int{11}
+	return file_agen_v1_host_proto_rawDescGZIP(), []int{13}
 }
 
 var File_agen_v1_host_proto protoreflect.FileDescriptor
 
 const file_agen_v1_host_proto_rawDesc = "" +
 	"\n" +
-	"\x12agen/v1/host.proto\x12\aagen.v1\x1a\x11agen/v1/hub.proto\x1a\x17agen/v1/resources.proto\"\xac\x01\n" +
+	"\x12agen/v1/host.proto\x12\aagen.v1\x1a\x11agen/v1/hub.proto\x1a\x17agen/v1/resources.proto\"\xea\x01\n" +
+	"\x10StartTaskRequest\x12(\n" +
+	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
+	"\x05input\x18\x02 \x01(\tR\x05input\x12\x15\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12 \n" +
+	"\vtraceparent\x18\x04 \x01(\tR\vtraceparent\x124\n" +
+	"\x16reply_conversation_key\x18\x05 \x01(\tR\x14replyConversationKey\x12'\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"6\n" +
+	"\x11StartTaskResponse\x12!\n" +
+	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\"\xac\x01\n" +
 	"\x16RequestApprovalRequest\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x15\n" +
@@ -688,11 +828,12 @@ const file_agen_v1_host_proto_rawDesc = "" +
 	"\aRunTask\x12\x17.agen.v1.RunTaskRequest\x1a\x18.agen.v1.RunTaskResponse\x12M\n" +
 	"\n" +
 	"CancelTask\x12\x1e.agen.v1.HostCancelTaskRequest\x1a\x1f.agen.v1.HostCancelTaskResponse\x126\n" +
-	"\x05Drain\x12\x15.agen.v1.DrainRequest\x1a\x16.agen.v1.DrainResponse2\xf4\x01\n" +
+	"\x05Drain\x12\x15.agen.v1.DrainRequest\x1a\x16.agen.v1.DrainResponse2\xb8\x02\n" +
 	"\x0eManagerService\x12T\n" +
 	"\x0fRequestApproval\x12\x1f.agen.v1.RequestApprovalRequest\x1a .agen.v1.RequestApprovalResponse\x12N\n" +
 	"\rResolveSecret\x12\x1d.agen.v1.ResolveSecretRequest\x1a\x1e.agen.v1.ResolveSecretResponse\x12<\n" +
-	"\aResolve\x12\x17.agen.v1.ResolveRequest\x1a\x18.agen.v1.ResolveResponseB4Z2github.com/prjvvl/agen/platform/gen/agen/v1;agenv1b\x06proto3"
+	"\aResolve\x12\x17.agen.v1.ResolveRequest\x1a\x18.agen.v1.ResolveResponse\x12B\n" +
+	"\tStartTask\x12\x19.agen.v1.StartTaskRequest\x1a\x1a.agen.v1.StartTaskResponseB4Z2github.com/prjvvl/agen/platform/gen/agen/v1;agenv1b\x06proto3"
 
 var (
 	file_agen_v1_host_proto_rawDescOnce sync.Once
@@ -706,51 +847,58 @@ func file_agen_v1_host_proto_rawDescGZIP() []byte {
 	return file_agen_v1_host_proto_rawDescData
 }
 
-var file_agen_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_agen_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_agen_v1_host_proto_goTypes = []any{
-	(*RequestApprovalRequest)(nil),  // 0: agen.v1.RequestApprovalRequest
-	(*RequestApprovalResponse)(nil), // 1: agen.v1.RequestApprovalResponse
-	(*ResolveSecretRequest)(nil),    // 2: agen.v1.ResolveSecretRequest
-	(*ResolveSecretResponse)(nil),   // 3: agen.v1.ResolveSecretResponse
-	(*HealthRequest)(nil),           // 4: agen.v1.HealthRequest
-	(*HealthResponse)(nil),          // 5: agen.v1.HealthResponse
-	(*RunTaskRequest)(nil),          // 6: agen.v1.RunTaskRequest
-	(*RunTaskResponse)(nil),         // 7: agen.v1.RunTaskResponse
-	(*HostCancelTaskRequest)(nil),   // 8: agen.v1.HostCancelTaskRequest
-	(*HostCancelTaskResponse)(nil),  // 9: agen.v1.HostCancelTaskResponse
-	(*DrainRequest)(nil),            // 10: agen.v1.DrainRequest
-	(*DrainResponse)(nil),           // 11: agen.v1.DrainResponse
-	(*Approval)(nil),                // 12: agen.v1.Approval
-	(*ToolServer)(nil),              // 13: agen.v1.ToolServer
-	(*Task)(nil),                    // 14: agen.v1.Task
-	(*Run)(nil),                     // 15: agen.v1.Run
-	(*ResolveRequest)(nil),          // 16: agen.v1.ResolveRequest
-	(*ResolveResponse)(nil),         // 17: agen.v1.ResolveResponse
+	(*StartTaskRequest)(nil),        // 0: agen.v1.StartTaskRequest
+	(*StartTaskResponse)(nil),       // 1: agen.v1.StartTaskResponse
+	(*RequestApprovalRequest)(nil),  // 2: agen.v1.RequestApprovalRequest
+	(*RequestApprovalResponse)(nil), // 3: agen.v1.RequestApprovalResponse
+	(*ResolveSecretRequest)(nil),    // 4: agen.v1.ResolveSecretRequest
+	(*ResolveSecretResponse)(nil),   // 5: agen.v1.ResolveSecretResponse
+	(*HealthRequest)(nil),           // 6: agen.v1.HealthRequest
+	(*HealthResponse)(nil),          // 7: agen.v1.HealthResponse
+	(*RunTaskRequest)(nil),          // 8: agen.v1.RunTaskRequest
+	(*RunTaskResponse)(nil),         // 9: agen.v1.RunTaskResponse
+	(*HostCancelTaskRequest)(nil),   // 10: agen.v1.HostCancelTaskRequest
+	(*HostCancelTaskResponse)(nil),  // 11: agen.v1.HostCancelTaskResponse
+	(*DrainRequest)(nil),            // 12: agen.v1.DrainRequest
+	(*DrainResponse)(nil),           // 13: agen.v1.DrainResponse
+	(*DeploymentRef)(nil),           // 14: agen.v1.DeploymentRef
+	(*Task)(nil),                    // 15: agen.v1.Task
+	(*Approval)(nil),                // 16: agen.v1.Approval
+	(*ToolServer)(nil),              // 17: agen.v1.ToolServer
+	(*Run)(nil),                     // 18: agen.v1.Run
+	(*ResolveRequest)(nil),          // 19: agen.v1.ResolveRequest
+	(*ResolveResponse)(nil),         // 20: agen.v1.ResolveResponse
 }
 var file_agen_v1_host_proto_depIdxs = []int32{
-	12, // 0: agen.v1.RequestApprovalResponse.approval:type_name -> agen.v1.Approval
-	13, // 1: agen.v1.HealthResponse.tool_servers:type_name -> agen.v1.ToolServer
-	14, // 2: agen.v1.RunTaskRequest.task:type_name -> agen.v1.Task
-	15, // 3: agen.v1.RunTaskResponse.run:type_name -> agen.v1.Run
-	4,  // 4: agen.v1.HostService.Health:input_type -> agen.v1.HealthRequest
-	6,  // 5: agen.v1.HostService.RunTask:input_type -> agen.v1.RunTaskRequest
-	8,  // 6: agen.v1.HostService.CancelTask:input_type -> agen.v1.HostCancelTaskRequest
-	10, // 7: agen.v1.HostService.Drain:input_type -> agen.v1.DrainRequest
-	0,  // 8: agen.v1.ManagerService.RequestApproval:input_type -> agen.v1.RequestApprovalRequest
-	2,  // 9: agen.v1.ManagerService.ResolveSecret:input_type -> agen.v1.ResolveSecretRequest
-	16, // 10: agen.v1.ManagerService.Resolve:input_type -> agen.v1.ResolveRequest
-	5,  // 11: agen.v1.HostService.Health:output_type -> agen.v1.HealthResponse
-	7,  // 12: agen.v1.HostService.RunTask:output_type -> agen.v1.RunTaskResponse
-	9,  // 13: agen.v1.HostService.CancelTask:output_type -> agen.v1.HostCancelTaskResponse
-	11, // 14: agen.v1.HostService.Drain:output_type -> agen.v1.DrainResponse
-	1,  // 15: agen.v1.ManagerService.RequestApproval:output_type -> agen.v1.RequestApprovalResponse
-	3,  // 16: agen.v1.ManagerService.ResolveSecret:output_type -> agen.v1.ResolveSecretResponse
-	17, // 17: agen.v1.ManagerService.Resolve:output_type -> agen.v1.ResolveResponse
-	11, // [11:18] is the sub-list for method output_type
-	4,  // [4:11] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	14, // 0: agen.v1.StartTaskRequest.ref:type_name -> agen.v1.DeploymentRef
+	15, // 1: agen.v1.StartTaskResponse.task:type_name -> agen.v1.Task
+	16, // 2: agen.v1.RequestApprovalResponse.approval:type_name -> agen.v1.Approval
+	17, // 3: agen.v1.HealthResponse.tool_servers:type_name -> agen.v1.ToolServer
+	15, // 4: agen.v1.RunTaskRequest.task:type_name -> agen.v1.Task
+	18, // 5: agen.v1.RunTaskResponse.run:type_name -> agen.v1.Run
+	6,  // 6: agen.v1.HostService.Health:input_type -> agen.v1.HealthRequest
+	8,  // 7: agen.v1.HostService.RunTask:input_type -> agen.v1.RunTaskRequest
+	10, // 8: agen.v1.HostService.CancelTask:input_type -> agen.v1.HostCancelTaskRequest
+	12, // 9: agen.v1.HostService.Drain:input_type -> agen.v1.DrainRequest
+	2,  // 10: agen.v1.ManagerService.RequestApproval:input_type -> agen.v1.RequestApprovalRequest
+	4,  // 11: agen.v1.ManagerService.ResolveSecret:input_type -> agen.v1.ResolveSecretRequest
+	19, // 12: agen.v1.ManagerService.Resolve:input_type -> agen.v1.ResolveRequest
+	0,  // 13: agen.v1.ManagerService.StartTask:input_type -> agen.v1.StartTaskRequest
+	7,  // 14: agen.v1.HostService.Health:output_type -> agen.v1.HealthResponse
+	9,  // 15: agen.v1.HostService.RunTask:output_type -> agen.v1.RunTaskResponse
+	11, // 16: agen.v1.HostService.CancelTask:output_type -> agen.v1.HostCancelTaskResponse
+	13, // 17: agen.v1.HostService.Drain:output_type -> agen.v1.DrainResponse
+	3,  // 18: agen.v1.ManagerService.RequestApproval:output_type -> agen.v1.RequestApprovalResponse
+	5,  // 19: agen.v1.ManagerService.ResolveSecret:output_type -> agen.v1.ResolveSecretResponse
+	20, // 20: agen.v1.ManagerService.Resolve:output_type -> agen.v1.ResolveResponse
+	1,  // 21: agen.v1.ManagerService.StartTask:output_type -> agen.v1.StartTaskResponse
+	14, // [14:22] is the sub-list for method output_type
+	6,  // [6:14] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_host_proto_init() }
@@ -766,7 +914,7 @@ func file_agen_v1_host_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_host_proto_rawDesc), len(file_agen_v1_host_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

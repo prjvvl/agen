@@ -12,6 +12,7 @@ import (
 // Platform secrets go in through the API and never come back out of it;
 // a Nest gets a value only for a deployment assigned to it whose bundle
 // declares that name with source "platform".
+// features: secrets
 func TestPlatformSecrets(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

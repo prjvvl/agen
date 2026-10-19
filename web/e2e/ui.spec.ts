@@ -57,6 +57,7 @@ test("sign-in: a wrong token is refused, the sign-in link works", async ({ page 
   await signIn(page);
 });
 
+// features: agent.basics, deploy.lifecycle, tasks.run, observe.runs
 test("create an agent from the form, run a task, follow it into its trace and transcript", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: "Deployments" }).click();
@@ -88,6 +89,7 @@ test("create an agent from the form, run a task, follow it into its trace and tr
   await expect(page.locator('.msg[data-role="assistant"]')).toContainText("Hello from the UI agent.");
 });
 
+// features: deploy.lifecycle, fleet.nests
 test("scale, stop and start from the list; the fleet shows the instances", async ({ page }) => {
   await api("CreateDeployment", { name: "scaler", bundleFiles: bundle("scaler", { kind: "pool", scale: { min: 0, max: 2 } }, { cycle: true, responses: [{ text: "ok" }] }) });
   await signIn(page);
@@ -105,14 +107,16 @@ test("scale, stop and start from the list; the fleet shows the instances", async
   await expect(page.locator('tr[data-instance="scaler"]')).toHaveCount(2);
 
   await page.getByRole("link", { name: "Deployments" }).click();
-  await row.getByRole("button", { name: "Stop" }).click();
+  await row.getByRole("button", { name: "Pause" }).click();
+  await row.getByRole("button", { name: "Pause" }).click(); // confirm
   await expect(row.locator('[data-field="status"]')).toContainText("stopped");
   await expect(row.locator('[data-field="desired"]')).toHaveText("0");
   await expect(page.getByRole("button", { name: "scale scaler up" })).toBeDisabled();
-  await row.getByRole("button", { name: "Start" }).click();
+  await row.getByRole("button", { name: "Resume" }).click();
   await expect(row.locator('[data-field="status"]')).not.toContainText("stopped");
 });
 
+// features: deploy.lifecycle, deploy.validate
 test("edit a bundle and roll out the new version", async ({ page }) => {
   await api("CreateDeployment", { name: "editme", bundleFiles: bundle("editme", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "version one" }] }) });
   await signIn(page);
@@ -134,6 +138,7 @@ test("edit a bundle and roll out the new version", async ({ page }) => {
   await expect(page.locator("tr[data-task]").first()).toContainText("version two", { timeout: 60_000 });
 });
 
+// features: approvals
 test("approve an agent's pending ask from the inbox", async ({ page }) => {
   await api("CreateDeployment", { name: "drafter", bundleFiles: bundle("drafter", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "Draft ready." }] }) });
   await api("CreateDeployment", {
@@ -171,6 +176,7 @@ test("approve an agent's pending ask from the inbox", async ({ page }) => {
   expect(done.task.output).toBe("published");
 });
 
+// features: agent.bundle, deploy.lifecycle
 test("upload a bundle folder (with a large binary file)", async ({ page }) => {
   const { mkdtempSync, mkdirSync, writeFileSync, cpSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -194,6 +200,7 @@ test("upload a bundle folder (with a large binary file)", async ({ page }) => {
   expect(Buffer.from(def.definition.files["assets/blob.bin"], "base64").equals(big)).toBe(true);
 });
 
+// features: observe.runs, approvals
 test("cross-agent trace with inspector, deny and delete", async ({ page }) => {
   await api("CreateDeployment", { name: "helper", bundleFiles: bundle("helper", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "helped" }] }) });
   await api("CreateDeployment", {
@@ -253,6 +260,7 @@ test("cross-agent trace with inspector, deny and delete", async ({ page }) => {
   await expect(page.locator('tr[data-deployment="asker"]')).toHaveCount(0);
 });
 
+// features: deploy.templates, agent.skills, secrets, observe.metrics, observe.notifications
 test("deploy from a template; costs and notification targets", async ({ page }) => {
   await signIn(page);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
@@ -271,7 +279,7 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   // Agents that talk to the Hub each get their own token, and share its URL.
   for (const [tpl, name] of [
     ["Fleet steward", "steward-a"],
-    ["Cost watchdog", "watchdog-b"],
+    ["Incident responder", "incident-b"],
   ]) {
     await page.getByRole("link", { name: "Templates" }).click();
     await page.getByRole("link", { name: `Use the ${tpl} template` }).click();
@@ -282,8 +290,8 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   const { secrets } = await api<{ secrets: { name: string; deployments: string[] }[] }>("ListSecrets", { namespace: "default" });
   const grants = Object.fromEntries(secrets.map((s) => [s.name, [...s.deployments].sort()]));
   expect(grants["AGEN_TOKEN.steward-a"]).toEqual(["steward-a"]);
-  expect(grants["AGEN_TOKEN.watchdog-b"]).toEqual(["watchdog-b"]);
-  expect(grants["AGEN_HUB_URL"]).toEqual(["steward-a", "watchdog-b"]);
+  expect(grants["AGEN_TOKEN.incident-b"]).toEqual(["incident-b"]);
+  expect(grants["AGEN_HUB_URL"]).toEqual(["incident-b", "steward-a"]);
 
   await page.getByRole("link", { name: "Costs" }).click();
   await expect(page.getByRole("heading", { name: "Costs" })).toBeVisible();
@@ -295,6 +303,88 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   await page.getByRole("dialog").getByRole("button", { name: "Add target" }).click();
   await expect(page.getByRole("status")).toContainText("Signing secret");
   await expect(page.locator("td", { hasText: "ops-chat" })).toBeVisible();
+});
+
+// features: models.router, models.fallback, agent.basics
+test("add agents on a routing model from the form and from a template", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Deployments" }).click();
+  await page.getByRole("link", { name: "New agent" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("routed");
+  await page.getByLabel("Description").fill("Routed per request");
+  await page.getByLabel("Model provider").selectOption("router");
+  await expect(page.getByLabel("Routing model")).toHaveValue("typesafe/jev-router");
+  // Auto offers max; Jev Router tops out at high, so switching back fits the tier.
+  await page.getByLabel("Routing model").selectOption("openrouter/auto");
+  await page.getByLabel("Highest tier").selectOption("max");
+  await page.getByLabel("Routing model").selectOption("typesafe/jev-router");
+  await expect(page.getByLabel("Highest tier")).toHaveValue("high");
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(page.getByRole("heading", { name: "routed" })).toBeVisible();
+  await page.goto("/#/edit/default/routed");
+  await page.getByRole("button", { name: "x-agen/harness.json" }).click();
+  const harness = page.getByLabel("content of x-agen/harness.json");
+  await expect(harness).toContainText('"model": "typesafe/jev-router"');
+  await expect(harness).toContainText('"maxTier": "high"');
+  await expect(harness).toContainText('"fallbackModels"');
+
+  // A template on a routing model, moved to a plain model, loses its router settings.
+  await page.getByRole("link", { name: "Templates" }).click();
+  await page.getByRole("link", { name: "Use the Coding agent template" }).click();
+  await expect(page.getByLabel("Cost tier")).toHaveValue("medium");
+  await page.getByLabel("Name", { exact: true }).fill("coder-plain");
+  await page.getByLabel("Model", { exact: true }).fill("deepseek/deepseek-v4-flash");
+  await expect(page.getByLabel("Cost tier")).toHaveCount(0);
+  await page.getByRole("button", { name: "Deploy" }).click();
+  await expect(page.getByRole("heading", { name: "coder-plain" })).toBeVisible();
+  await page.goto("/#/edit/default/coder-plain");
+  await page.getByRole("button", { name: "x-agen/harness.json" }).click();
+  await expect(page.getByLabel("content of x-agen/harness.json")).not.toContainText('"router"');
+});
+
+// features: tasks.tier, tasks.schedule, tasks.cancel, triggers, deploy.versions, budgets, observe.logs
+test("schedule a task with a tier and cancel it; schedules, budget, logs and roll back", async ({ page }) => {
+  const config = {
+    kind: "pool",
+    scale: { min: 0, max: 1 },
+    budget: { maxUsdPerDay: 3 },
+    triggers: [{ type: "cron", name: "nightly", schedule: "0 3 * * *", input: "report" }],
+  };
+  const first = await api<{ deployment: { definitionDigest: string } }>("CreateDeployment", {
+    name: "planner-ui",
+    bundleFiles: bundle("planner-ui", config, { cycle: true, responses: [{ text: "planned" }] }),
+  });
+  await api("UpdateDeployment", { ref: { name: "planner-ui" }, bundleFiles: bundle("planner-ui", config, { cycle: true, responses: [{ text: "planned again" }] }) });
+  await signIn(page);
+  await page.goto("/#/deployments/default/planner-ui");
+  await expect(page.getByText("Spend today")).toBeVisible();
+
+  await page.getByRole("button", { name: "Run a task" }).click();
+  await page.getByLabel("Task input").fill("plan next week");
+  const at = new Date(Date.now() + 30 * 86400_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  await page.getByLabel("Start at").fill(`${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T09:00`);
+  await page.getByLabel("Model tier").selectOption("max");
+  await page.getByRole("button", { name: "Submit task" }).click();
+  const details = page.getByRole("dialog");
+  await expect(details).toContainText("max");
+  await expect(details).toContainText(String(at.getFullYear()));
+  await page.getByRole("button", { name: "Cancel task" }).click();
+  await expect(details).toContainText("cancelled");
+
+  await page.goto("/#/schedules");
+  await expect(page.getByRole("region", { name: "Recurring" })).toContainText("planner-ui");
+  await expect(page.getByRole("region", { name: "Recurring" })).toContainText("nightly");
+
+  await page.goto("/#/deployments/default/planner-ui/logs");
+  await expect(page.getByLabel("Log level")).toBeVisible();
+
+  await page.goto("/#/deployments/default/planner-ui/bundle");
+  await page.getByRole("button", { name: "Roll back to this" }).click();
+  await page.getByRole("button", { name: "Roll back", exact: true }).click();
+  await expect
+    .poll(async () => (await api<{ deployment: { definitionDigest: string } }>("GetDeployment", { ref: { name: "planner-ui" } })).deployment.definitionDigest)
+    .toBe(first.deployment.definitionDigest);
 });
 
 test("command palette jumps to a deployment", async ({ page }) => {
@@ -325,6 +415,7 @@ test("pages are accessible and fit a phone screen", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Runs" })).toBeVisible();
 });
 
+// features: access.tokens
 test("a namespace-scoped token sees only its namespace; a revoked token signs out", async ({ page }) => {
   await api("CreateDeployment", { namespace: "team", name: "teamapp", bundleFiles: bundle("teamapp", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "t" }] }) });
   const tok = await api<{ secret: string; token: { id: string } }>("CreateApiToken", { name: "team-viewer", scopes: ["viewer"], namespaces: ["team"] });

@@ -57,9 +57,10 @@ export function runStatus(status?: string): StatusSpec {
   }
 }
 
-export function taskStatus(state: string, pendingApproval?: string): StatusSpec {
+export function taskStatus(state: string, pendingApproval?: string, notBefore?: string): StatusSpec {
   const s = state.replace("TASK_STATE_", "").toLowerCase();
   if (pendingApproval) return runStatus("waiting_approval");
+  if (s === "queued" && notBefore && Date.parse(notBefore) > Date.now()) return { tone: "muted", label: "scheduled", icon: Clock };
   switch (s) {
     case "queued":
       return { tone: "muted", label: "queued", icon: Clock };
@@ -73,7 +74,8 @@ export function taskStatus(state: string, pendingApproval?: string): StatusSpec 
 export function deploymentStatus(d: Deployment): StatusSpec {
   if (d.paused) return { tone: "muted", label: "stopped", icon: CirclePause };
   if (d.budgetExhausted) return { tone: "warn", label: "daily budget used", icon: AlertTriangle };
-  if ((d.ready ?? 0) > 0) return { tone: "ok", label: `running · ${d.ready}`, icon: CircleDot };
+  if (d.providerHold) return { tone: "err", label: "provider held", icon: AlertTriangle };
+  if ((d.ready ?? 0) > 0) return { tone: "ok", label: `up · ${d.ready} ${d.ready === 1 ? "instance" : "instances"}`, icon: CircleDot };
   if ((d.desired ?? 0) > 0) return { tone: "info", label: "starting", icon: Loader2, active: true };
   return { tone: "muted", label: "asleep", icon: Moon };
 }

@@ -1,0 +1,79 @@
+{
+  "name": "fleet",
+  "description": "A deployment with cron and webhook triggers, a daily budget and limits; its trigger events and a webhook secret; bundle versions; metrics and live activity; Nests and join tokens.",
+  "features": ["deploy.lifecycle", "triggers", "budgets", "engine.limits", "deploy.versions", "observe.metrics", "fleet.nests"],
+  "bundles": {
+    "scheduled": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/config.json": {
+          "triggers": [
+            { "type": "cron", "name": "nightly", "schedule": "0 3 * * *", "input": "report" },
+            { "type": "webhook", "name": "hook" }
+          ],
+          "budget": { "maxUsdPerDay": 2 },
+          "limits": { "maxQueuedTasks": 50 }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "nightly", "bundleText": "$bundle:scheduled" },
+      "expect": { "deployment.name": "nightly" },
+      "save": { "digest": "deployment.definitionDigest" }
+    },
+    {
+      "call": "ListDeployments",
+      "args": { "namespace": "$ns" },
+      "expect": { "deployments": { "has": { "name": "nightly", "budget.maxUsdPerDay": 2, "limits.maxQueuedTasks": 50 } } }
+    },
+    {
+      "call": "ListTriggerEvents",
+      "args": { "ref": { "namespace": "$ns", "name": "nightly" } }
+    },
+    {
+      "call": "CreateWebhookSecret",
+      "args": { "ref": { "namespace": "$ns", "name": "nightly" }, "trigger": "hook" },
+      "expect": { "secret": { "exists": true }, "path": { "contains": "/hook" } }
+    },
+    {
+      "call": "CreateWebhookSecret",
+      "args": { "ref": { "namespace": "$ns", "name": "nightly" }, "trigger": "nightly" },
+      "error": "webhook"
+    },
+    {
+      "call": "ListDefinitions",
+      "args": { "name": "hello" },
+      "expect": { "definitions": { "has": { "digest": "$digest" } } },
+      "skip": { "cli": "versions are in the console and API (list_definitions); the CLI redeploys a folder" }
+    },
+    {
+      "call": "GetDefinition",
+      "args": { "digest": "$digest" },
+      "expect": { "definition.digest": "$digest", "textFiles": { "exists": true } },
+      "skip": { "cli": "versions are in the console and API (get_definition)" }
+    },
+    {
+      "call": "GetMetrics",
+      "args": { "namespace": "$ns", "windowSeconds": 3600 },
+      "skip": { "cli": "metrics are in the console and API" }
+    },
+    {
+      "call": "GetActivity",
+      "args": { "namespace": "$ns" },
+      "skip": { "cli": "live activity is in the console and API" }
+    },
+    {
+      "call": "ListNests",
+      "args": {},
+      "expect": { "nests": { "len": 1 } }
+    },
+    {
+      "call": "CreateJoinToken",
+      "args": { "ttlSeconds": 600 },
+      "expect": { "token": { "exists": true } }
+    }
+  ]
+}

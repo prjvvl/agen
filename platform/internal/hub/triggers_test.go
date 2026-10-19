@@ -35,6 +35,7 @@ func events(t *testing.T, c interface {
 	return out
 }
 
+// features: triggers
 func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -104,6 +105,7 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	}
 }
 
+// features: triggers
 func TestWebhookTriggers(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -177,6 +179,7 @@ func TestWebhookTriggers(t *testing.T) {
 // A cron trigger added by a later update, or a deployment re-created under
 // the same name, does not back-fill "missed" windows; rm drops webhook
 // secrets.
+// features: triggers
 func TestTriggersStartWhenAddedAndRmDropsSecrets(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

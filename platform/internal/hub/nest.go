@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,10 +268,30 @@ func (n *NestAPI) ReportStatus(ctx context.Context, req *connect.Request[agenv1.
 	if err := n.hub.Store.Heartbeat(ctx, m.NestId, int(m.Capacity), m.GatewayUrl); err != nil {
 		return nil, connectErr(err)
 	}
+	// Instance rows vouch for a deployment running on this Nest (Resolve
+	// trusts them for draining instances), so a Nest may add an instance only
+	// for a deployment it may run; known instances keep reporting as they drain.
+	known := map[string]bool{}
+	if prev, err := n.hub.Store.ListInstances(ctx, "", "", m.NestId); err == nil {
+		for _, in := range prev {
+			known[in.ID] = true
+		}
+	} else {
+		return nil, connectErr(err)
+	}
 	list := make([]store.Instance, 0, len(m.Instances))
 	for _, in := range m.Instances {
 		if in.Id == "" || in.Deployment == "" {
 			return nil, invalid("every instance needs an id and a deployment")
+		}
+		if !known[in.Id] {
+			ok, err := n.eligible(ctx, m.NestId, nsOr(in.Namespace), in.Deployment)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return nil, connectErr(err)
+			}
+			if !ok {
+				continue
+			}
 		}
 		si := store.Instance{ID: in.Id, Namespace: nsOr(in.Namespace), Deployment: in.Deployment, NestID: m.NestId,
 			DefinitionDigest: in.DefinitionDigest, State: InstanceStateName(in.State), Endpoint: in.Endpoint,
@@ -317,12 +338,43 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 	if !assigned {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s/%s is not assigned to nest %s", ns, name, m.NestId))
 	}
+	pressure := false
 	if d, err := n.hub.Store.GetDeployment(ctx, ns, name); err == nil {
-		if _, exhausted, err := n.hub.spentToday(ctx, d); err == nil && exhausted {
+		spent, exhausted, err := n.hub.spentToday(ctx, d)
+		if err == nil && exhausted {
 			return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil // no new work today
+		}
+		if max := PolicyOf(d).Budget.MaxUsdPerDay; err == nil && max > 0 && spent >= BudgetPressure*max {
+			pressure = true
 		}
 		if d.Paused {
 			return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
+		}
+		// A held provider account takes one probe task once its retry time
+		// has come, and nothing else.
+		if hold, held := n.hub.providerHold(ctx, d); held {
+			// A claim is held only while its lease is made; one left by a
+			// Hub that stopped midway is released after a minute.
+			if ms, ok := claimTime(hold.ProbeTask); ok && store.NowMs()-ms > 60_000 {
+				_ = n.hub.Store.ReleaseProbe(ctx, hold.Account, hold.ProbeTask)
+			}
+			claim := fmt.Sprintf("claim:%d:%s", store.NowMs(), m.NestId)
+			if ok, err := n.hub.Store.ClaimProbe(ctx, hold.Account, claim); err != nil || !ok {
+				return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
+			}
+			list, err := n.hub.Store.LeaseTasks(ctx, m.NestId, ns, name, 1, n.leaseMs(m.LeaseSeconds))
+			if err != nil || len(list) == 0 {
+				_ = n.hub.Store.ReleaseProbe(ctx, hold.Account, claim)
+				if err != nil {
+					return nil, connectErr(err)
+				}
+				return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
+			}
+			_ = n.hub.Store.SetProbeTask(ctx, hold.Account, claim, list[0].ID)
+			n.hub.logger().Info("probe task for held provider account", "account", hold.Account, "task", list[0].ID)
+			pt := TaskProto(list[0])
+			pt.BudgetPressure = pressure
+			return connect.NewResponse(&agenv1.LeaseTasksResponse{Tasks: []*agenv1.Task{pt}}), nil
 		}
 	}
 	max := int(m.Max)
@@ -335,7 +387,9 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 	}
 	out := &agenv1.LeaseTasksResponse{}
 	for _, t := range list {
-		out.Tasks = append(out.Tasks, TaskProto(t))
+		pt := TaskProto(t)
+		pt.BudgetPressure = pressure
+		out.Tasks = append(out.Tasks, pt)
 	}
 	if len(list) > 0 {
 		_ = n.hub.Store.TouchActivity(ctx, ns, name)
@@ -502,6 +556,23 @@ func (n *NestAPI) assigned(ctx context.Context, nestID, ns, deployment string) b
 	return false
 }
 
+// runsThere reports whether a deployment runs on a nest: it is assigned
+// there, or it still has a live instance there (one draining after a scale
+// down or redeploy keeps finishing its runs, and those may delegate).
+func (n *NestAPI) runsThere(ctx context.Context, nestID, ns, deployment string) bool {
+	if n.assigned(ctx, nestID, ns, deployment) {
+		return true
+	}
+	insts, _ := n.hub.Store.ListInstances(ctx, ns, deployment, nestID)
+	for _, in := range insts {
+		switch in.State {
+		case "starting", "ready", "busy", "draining":
+			return true
+		}
+	}
+	return false
+}
+
 // eligible reports whether a nest may run a deployment: it is assigned, or
 // the nest is active and matches the deployment's placement labels (a
 // Gateway waking a deployment that has no instances yet).
@@ -620,7 +691,7 @@ func (n *NestAPI) Resolve(ctx context.Context, req *connect.Request[agenv1.Resol
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("delegation stays within a namespace (%s -> %s)", cns, ns))
 		}
 		nest := callerNest(ctx)
-		if nest == "" || !n.assigned(ctx, nest, cns, c.GetName()) {
+		if nest == "" || !n.runsThere(ctx, nest, cns, c.GetName()) {
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s/%s is not assigned to this nest", cns, c.GetName()))
 		}
 		if err := n.hub.issueCallToken(ctx, out, "agent:"+cns+"/"+c.GetName(), nest, ns, name, agentCallTokenTTL); err != nil {
@@ -637,15 +708,9 @@ func (n *NestAPI) Resolve(ctx context.Context, req *connect.Request[agenv1.Resol
 // namespace.
 func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agenv1.SubmitChildTaskRequest]) (*connect.Response[agenv1.SubmitChildTaskResponse], error) {
 	m := req.Msg
-	if m.ParentTaskId == "" {
-		return nil, invalid("parent_task_id is required")
-	}
-	parent, err := n.requireNestTask(ctx, m.NestId, m.ParentTaskId)
+	parent, err := n.childParent(ctx, m)
 	if err != nil {
 		return nil, err
-	}
-	if parent.Terminal() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("parent task %s already finished", parent.ID))
 	}
 	ns, name := nsOr(m.GetRef().GetNamespace()), m.GetRef().GetName()
 	if ns != parent.Namespace {
@@ -656,7 +721,7 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 		return nil, connectErr(err)
 	}
 	parentRun := m.ParentRunId
-	if parentRun != "" {
+	if parentRun != "" && parent.ID != "" {
 		run, err := n.hub.Store.GetRun(ctx, parentRun)
 		if err != nil || run.TaskID != parent.ID {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("run %q is not the parent task's run", parentRun))
@@ -670,12 +735,27 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	if max := int(PolicyOf(d).Limits.MaxDelegationDepth); max > 0 && depth > max {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("delegation depth %d exceeds max_delegation_depth %d of %s/%s", depth, max, ns, name))
 	}
-	t, err := n.hub.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
+	child := store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
 		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
-		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+	if m.ReplyConversationKey != "" {
+		child.ReplyDeployment, child.ReplyConversationKey = parent.Deployment, m.ReplyConversationKey
+	}
+	t, err := n.hub.Store.SubmitTask(ctx, child)
 	if err != nil {
 		return nil, connectErr(err)
 	}
 	_ = n.hub.Store.TouchActivity(ctx, ns, name)
 	return connect.NewResponse(&agenv1.SubmitChildTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// claimTime reads the time out of a probe claim ("claim:<unix ms>:<nest>").
+func claimTime(probe string) (int64, bool) {
+	rest, ok := strings.CutPrefix(probe, "claim:")
+	if !ok {
+		return 0, false
+	}
+	ms, _, _ := strings.Cut(rest, ":")
+	n, err := strconv.ParseInt(ms, 10, 64)
+	return n, err == nil
 }

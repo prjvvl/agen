@@ -1,0 +1,13 @@
+{
+  "provider": "openrouter",
+  "model": "typesafe/jev-router",
+  "router": {
+    "tier": "low",
+    "maxTier": "medium",
+    "budgetTier": "low"
+  },
+  "fallbackModels": [
+    "deepseek/deepseek-v4-flash"
+  ],
+  "maxOutputTokens": 4000
+}

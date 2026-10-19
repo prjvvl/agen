@@ -1,6 +1,7 @@
 {
   "name": "trace_shape",
   "description": "A run's trace contains the run, model and tool spans.",
+  "features": ["observe.runs"],
   "agent": {
     "name": "c",
     "provider": {

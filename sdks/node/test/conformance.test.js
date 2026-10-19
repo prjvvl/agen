@@ -11,11 +11,11 @@ const DIR = path.join(ROOT, 'spec', 'conformance', 'cases');
 const CASES = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).sort();
 
 const KEYS = {
-  case: ['name', 'description', 'agent', 'tools', 'approvals', 'runs', 'expect', 'createError'],
-  agent: ['name', 'bundle', 'instructions', 'model', 'provider', 'permissions', 'maxTurns', 'approvalTimeoutSeconds'],
+  case: ['name', 'description', 'features', 'agent', 'tools', 'approvals', 'runs', 'expect', 'createError'],
+  agent: ['name', 'bundle', 'instructions', 'model', 'provider', 'permissions', 'maxTurns', 'approvalTimeoutSeconds', 'router', 'fallbackModels', 'openrouter', 'maxTokensPerRun'],
   tool: ['name', 'readOnly', 'timeoutSeconds', 'behavior'],
   run: ['input', 'options', 'sameSession', 'cancelAfterMs', 'cancelBeforeStart', 'closeAfterMs', 'concurrent'],
-  options: ['taskId'],
+  options: ['taskId', 'modelTier'],
   expect: ['status', 'output', 'minDeltas', 'deltasEqualOutput', 'toolCalls', 'approvalsAsked', 'toolCancelled',
     'sameConversationAsPrevious', 'sameRunAsPrevious', 'maxWallMs', 'traceIncludes'],
 };
@@ -62,6 +62,7 @@ async function runOnce(agent, run, prev) {
   const deltas = [];
   const opts = { onDelta: (d) => deltas.push(d), onReset: () => (deltas.length = 0) };
   if (run.options?.taskId) opts.taskId = run.options.taskId;
+  if (run.options?.modelTier) opts.modelTier = run.options.modelTier;
   if (run.sameSession) opts.sessionId = prev.sessionId;
   const ac = new AbortController();
   if (run.cancelBeforeStart) ac.abort();

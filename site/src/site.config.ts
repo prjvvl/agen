@@ -30,7 +30,12 @@ export const siteConfig = {
       icon: "guides",
       match: ["/guides/", "/deploy/", "/troubleshooting/"],
     },
-    { label: "Reference", href: "/reference/bundle/", icon: "reference", match: ["/reference/"] },
+    {
+      label: "Reference",
+      href: "/reference/bundle/",
+      icon: "reference",
+      match: ["/reference/", "/concepts/", "/architecture/", "/security/", "/development/"],
+    },
   ],
 
   /** The docs sidebar. Pages are files in the repository's docs/ directory,
@@ -46,6 +51,7 @@ export const siteConfig = {
         "guides/templates",
         "guides/tools",
         "guides/agents",
+        "guides/models",
         "guides/permissions",
         "guides/budgets",
         "guides/notifications",
@@ -56,7 +62,7 @@ export const siteConfig = {
         "troubleshooting",
       ],
     },
-    { group: "Reference", icon: "reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks"] },
+    { group: "Reference", icon: "reference", pages: ["reference/bundle", "reference/cli", "reference/api", "reference/sdks", "reference/support"] },
     { group: "Explanation", icon: "explanation", pages: ["concepts", "architecture", "security", "development"] },
   ],
 } as const;

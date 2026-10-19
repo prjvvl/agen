@@ -24,12 +24,6 @@
     "description": "Plans a piece, asks the researcher for facts and the writer for a draft, then checks it. Deploy researcher and writer too."
   },
   {
-    "name": "support-triage",
-    "title": "Support triage",
-    "category": "support",
-    "description": "A webhook receives customer messages; the agent classifies each one and drafts a first reply as JSON."
-  },
-  {
     "name": "pr-reviewer",
     "title": "Pull request reviewer",
     "category": "engineering",
@@ -39,13 +33,7 @@
     "name": "fleet-steward",
     "title": "Fleet steward",
     "category": "operations",
-    "description": "Every 30 minutes, finds failed tasks, reads their logs and reports the likely cause. Read-only."
-  },
-  {
-    "name": "cost-watchdog",
-    "title": "Cost watchdog",
-    "category": "operations",
-    "description": "A daily report of model spend per deployment that flags sudden jumps and budgets running out. Read-only."
+    "description": "Every 30 minutes reports new failures and warnings (bursts, quiet runs, blocked queues, held providers); every morning a cost report. Read-only."
   },
   {
     "name": "approval-triage",
@@ -58,5 +46,35 @@
     "title": "Console assistant",
     "category": "operations",
     "description": "The chat assistant in the console: answers questions about the fleet and makes changes you confirm, with your permissions."
+  },
+  {
+    "name": "coder",
+    "title": "Coding agent",
+    "category": "engineering",
+    "description": "Makes code changes in one project folder on this machine: reads, edits and runs the project's tests (each command asks first). Set the folder in mcp.json."
+  },
+  {
+    "name": "ci-fixer",
+    "title": "CI fixer",
+    "category": "engineering",
+    "description": "A failing CI job arrives on a signed webhook; the agent reproduces it in a local clone, finds the cause and fixes it. Never pushes."
+  },
+  {
+    "name": "support",
+    "title": "Support agent",
+    "category": "support",
+    "description": "Answers customer messages from your documentation folder with sources, and flags the ones a person must handle."
+  },
+  {
+    "name": "incident-responder",
+    "title": "Incident responder",
+    "category": "operations",
+    "description": "An alert arrives on a webhook; the agent reads your runbooks and the fleet and writes the impact, likely cause and next steps. Read-only."
+  },
+  {
+    "name": "data-analyst",
+    "title": "Data analyst",
+    "category": "data",
+    "description": "Answers questions about a Postgres or SQLite database with read-only SQL and shows the queries it ran."
   }
 ]

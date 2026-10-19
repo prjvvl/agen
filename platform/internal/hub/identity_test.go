@@ -126,6 +126,7 @@ func TestKeyFrom(t *testing.T) {
 	}
 }
 
+// features: tasks.conversations
 func TestConversationKeysLabelsAndLeasingOrder(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -206,6 +207,7 @@ func TestConversationKeysLabelsAndLeasingOrder(t *testing.T) {
 	}
 }
 
+// features: deploy.validate, agent.bundle, access.tokens
 func TestValidateOnlyGuideAndWhoAmI(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -273,6 +275,7 @@ func TestValidateOnlyGuideAndWhoAmI(t *testing.T) {
 	}
 }
 
+// features: approvals, observe.notifications
 func TestApprovalRecordsAndNotifications(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -321,6 +324,7 @@ func TestApprovalRecordsAndNotifications(t *testing.T) {
 	e.hub.notifyApproval(ctx, store.Approval{ID: "x", Namespace: "default", Deployment: "missing"})
 }
 
+// features: observe.logs
 func TestLifecycleLogs(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

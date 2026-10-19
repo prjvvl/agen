@@ -30,8 +30,9 @@ whole run tree.
 |---|---|
 | `ListRuns` | Runs, newest first. Filters: `status`, `labels`, `since`, `taskId`; `rootsOnly` for one row per trace with `treeUsage` and `treeRuns`; paged with `pageToken`. |
 | `GetTrace` | Every span and run of a trace. |
+| `GetActivity` | Runs in progress and what each is doing, queues, and warnings (near limits, quiet runs, waiting approvals, blocked queues, held providers, missed schedules, refused webhooks). |
 | `GetTranscript` | A run's messages (role, content, tool calls with arguments, tool results), with `includeHistory` the earlier messages of its conversation, and the system prompt of its bundle version. |
-| `GetMetrics` | Per deployment over a window: runs, failures, p50/p95 duration, tokens, cost, per-bucket counts, and the delegation edges between deployments. |
+| `GetMetrics` | Per deployment over a window: runs, failures, p50/p95 duration, tokens, cost, per-bucket counts; per served model (`models`); entry points (`entries`); and the delegation edges between deployments with async calls, calls in flight and p95. |
 
 A model-call span (`gen_ai.chat`) carries `agen.message.seq`, the position of
 its reply in the conversation, and `agen.request.messages`, how many messages
@@ -51,8 +52,9 @@ event: change
 data: {"kind":"run","id":"01J...","namespace":"default","deployment":"researcher","state":"running","traceId":"4bf9..."}
 ```
 
-`kind` is `task`, `run`, `approval` (only with the approver scope),
-`instance` or `deployment`; `?namespace=` narrows the stream. Events say what
+`kind` is `task`, `run`, `step` (a model or tool call starting or ending,
+with `runId`, `name`, `tool`, `target`, `startMs` and `endMs`), `approval`
+(only with the approver scope), `instance` or `deployment`; `?namespace=` narrows the stream. Events say what
 changed, not everything about it: fetch the details with the API. A client
 that reconnects should refetch what it shows.
 

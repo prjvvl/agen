@@ -1,6 +1,7 @@
 {
   "name": "tool_error",
   "description": "A tool error is reported to the model as a tool result, not a crash.",
+  "features": ["tools.host"],
   "agent": {
     "name": "c",
     "provider": {

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
+	"github.com/prjvvl/agen/platform/gen/agen/v1/agenv1connect"
 	"github.com/prjvvl/agen/platform/internal/definition"
 )
 
@@ -332,6 +333,8 @@ func (e *env) cmdPs(ctx context.Context, args []string) error {
 			status = "stopped"
 		case d.BudgetExhausted:
 			status = fmt.Sprintf("daily budget used ($%.2f)", d.SpentUsdToday)
+		case d.ProviderHold != nil:
+			status = "provider held (agen providers)"
 		}
 		fmt.Fprintf(w, "%s/%s\t%s\t%d\t%d\t%d..%d\t%s\t%s\n", d.Namespace, d.Name, stateName(d.Kind, "DEPLOYMENT_KIND_"), d.Ready, d.Desired,
 			d.GetScale().GetMin(), d.GetScale().GetMax(), shortDigest(d.DefinitionDigest), status)
@@ -351,6 +354,9 @@ func (e *env) cmdLogs(ctx context.Context, args []string) error {
 	}
 	if len(pos) != 1 {
 		return usageErr("agen logs <name> [-f] [--instance ID]")
+	}
+	if *follow && cf.json {
+		return usageErr("agen logs: --json prints one response; it does not combine with -f")
 	}
 	c, err := e.client(cf)
 	if err != nil {
@@ -402,24 +408,40 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("run", &cf)
 	noWait := fs.Bool("no-wait", false, "print the task id and return")
-	timeout := fs.Duration("timeout", 10*time.Minute, "how long to wait for the result")
+	timeout := fs.Duration("timeout", 10*time.Minute, "how long to wait for the result (0: no limit); the task keeps running after it")
 	key := fs.String("idempotency-key", "", "resubmitting the same key returns the same task")
 	conversation := fs.String("conversation", "", "continue the conversation of earlier tasks with this key")
 	labels := labelFlag{}
 	fs.Var(labels, "label", "label the task, key=value (repeatable)")
+	tier := fs.String("tier", "", "cost tier for a routing model: low, medium, high, xhigh or max")
+	at := fs.String("at", "", "run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)")
+	in := fs.Duration("in", 0, "run no earlier than this long from now (e.g. 30m)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--at TIME | --in D] [--no-wait] [--timeout D]")
+	}
+	var notBefore *timestamppb.Timestamp
+	switch {
+	case *at != "" && *in != 0:
+		return usageErr("use --at or --in, not both")
+	case *at != "":
+		ts, err := time.Parse(time.RFC3339, *at)
+		if err != nil {
+			return usageErr("--at: " + err.Error())
+		}
+		notBefore = timestamppb.New(ts)
+	case *in > 0:
+		notBefore = timestamppb.New(time.Now().Add(*in))
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
 	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
-		ConversationKey: *conversation, Labels: labels}))
+		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, NotBefore: notBefore}))
 	if err != nil {
 		return err
 	}
@@ -431,10 +453,64 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		fmt.Fprintln(e.stdout, t.Id)
 		return nil
 	}
-	deadline := time.Now().Add(*timeout)
+	return e.waitTask(ctx, c, t, *timeout, cf.json)
+}
+
+// cmdWait waits for a task submitted earlier (agen run --no-wait, or one
+// that outlasted agen run's timeout) and prints its result.
+func (e *env) cmdWait(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("wait", &cf)
+	timeout := fs.Duration("timeout", 0, "how long to wait (0: no limit)")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen wait <task-id> [--timeout D]")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: pos[0]}))
+	if err != nil {
+		return err
+	}
+	return e.waitTask(ctx, c, r.Msg.Task, *timeout, cf.json)
+}
+
+// cmdCancel cancels a task; a running task's run stops.
+func (e *env) cmdCancel(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("cancel", &cf)
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen cancel <task-id>")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0]}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Task.Id, stateName(r.Msg.Task.State, "TASK_STATE_"))
+	return nil
+}
+
+func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t *agenv1.Task, timeout time.Duration, asJSON bool) error {
+	deadline := time.Now().Add(timeout)
 	for !terminal(t.State) {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("task %s still %s after %s", t.Id, stateName(t.State, "TASK_STATE_"), *timeout)
+		if timeout > 0 && time.Now().After(deadline) {
+			return fmt.Errorf("task %s still %s after %s; it keeps running (agen wait %s)", t.Id, stateName(t.State, "TASK_STATE_"), timeout, t.Id)
 		}
 		r, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: t.Id, WaitSeconds: 30}))
 		if err != nil {
@@ -445,13 +521,17 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		}
 		t = r.Msg.Task
 	}
-	if cf.json {
-		return e.printJSON(t)
+	if asJSON {
+		if err := e.printJSON(t); err != nil {
+			return err
+		}
 	}
 	if t.State != agenv1.TaskState_TASK_STATE_SUCCEEDED {
 		return fmt.Errorf("task %s %s: %s", t.Id, stateName(t.State, "TASK_STATE_"), t.Error)
 	}
-	fmt.Fprintln(e.stdout, t.Output)
+	if !asJSON {
+		fmt.Fprintln(e.stdout, t.Output)
+	}
 	return nil
 }
 
@@ -463,6 +543,8 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("tasks", &cf)
 	limit := fs.Int("limit", 20, "tasks")
+	scheduled := fs.Bool("scheduled", false, "only tasks waiting for their start time")
+	state := fs.String("state", "", "only tasks in this state: queued, running, succeeded, failed, cancelled")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -475,7 +557,18 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit)}))
+	if *scheduled && *state != "" {
+		return usageErr("agen tasks: --scheduled lists queued tasks waiting for their start time; it does not combine with --state")
+	}
+	req := &agenv1.ListTasksRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit), Scheduled: *scheduled}
+	if *state != "" {
+		v, ok := agenv1.TaskState_value["TASK_STATE_"+strings.ToUpper(*state)]
+		if !ok {
+			return fmt.Errorf("unknown state %q: use queued, running, succeeded, failed or cancelled", *state)
+		}
+		req.State = agenv1.TaskState(v)
+	}
+	r, err := c.ListTasks(ctx, connect.NewRequest(req))
 	if err != nil {
 		return err
 	}
@@ -668,6 +761,9 @@ func (e *env) cmdJoinToken(ctx context.Context, args []string) error {
 	r, err := c.CreateJoinToken(ctx, connect.NewRequest(&agenv1.CreateJoinTokenRequest{TtlSeconds: int32(ttl.Seconds())}))
 	if err != nil {
 		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
 	}
 	fmt.Fprintln(e.stdout, r.Msg.Token)
 	if r.Msg.CaHash != "" {

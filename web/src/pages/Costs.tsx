@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import { call, Deployment, Metrics, num } from "../api";
+import { CircleCheck, XCircle } from "lucide-react";
+import { call, Deployment, Metrics, ModelMetrics, num, ProviderHold } from "../api";
+import { useSession } from "../App";
 import { compact, duration, money, pct } from "../format";
 import { useQuery } from "../live";
 import { deploymentHref } from "../router";
-import { Alert, Empty, Segmented, SkeletonRows } from "../ui";
+import { Alert, Empty, Segmented, SkeletonRows, Time } from "../ui";
 import { depKey } from "./Deployments";
 
 const WINDOWS = { "24h": [86400, 24], "7d": [7 * 86400, 28], "30d": [30 * 86400, 30] } as const;
@@ -111,9 +113,115 @@ export function Costs() {
               </tbody>
             </table>
           </div>
+          <ModelsSection models={metrics.data?.models ?? []} />
         </>
       )}
+      <ProviderHolds />
     </div>
+  );
+}
+
+/** Model calls by the model that served them (routers and aliases resolved). */
+function ModelsSection({ models }: { models: ModelMetrics[] }) {
+  return (
+    <section className="section" aria-labelledby="models">
+      <div className="section-head">
+        <h2 id="models">Models</h2>
+        <span className="hint">Every model call, by the model that actually answered it: a routing model shows here as the models it picked.</span>
+      </div>
+      {!models.length ? (
+        <Empty title="No model calls in this window" />
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th className="num">Calls</th>
+                <th className="num">Failed</th>
+                <th className="num">Fallbacks</th>
+                <th className="num">p50 / p95</th>
+                <th className="num">Tokens in / out</th>
+                <th className="num">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {models.map((m) => (
+                <tr key={m.model}>
+                  <td>
+                    <code>{m.model}</code>
+                    {m.provider && <span className="muted"> · {m.provider}</span>}
+                  </td>
+                  <td className="num">{compact(m.calls)}</td>
+                  <td className="num" data-tone={(m.failed ?? 0) > 0 ? "err" : undefined}>
+                    {m.failed ?? 0}
+                    {m.calls ? <span className="muted"> ({pct(m.failed ?? 0, m.calls)})</span> : null}
+                  </td>
+                  <td className="num">{m.fallbacks ?? 0}</td>
+                  <td className="num">
+                    {duration(num(m.p50Ms))} / {duration(num(m.p95Ms))}
+                  </td>
+                  <td className="num">
+                    {compact(num(m.usage?.inputTokens))} / {compact(num(m.usage?.outputTokens))}
+                  </td>
+                  <td className="num">{money(m.usage?.costUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Provider accounts held after an account error, with a way to resume. */
+function ProviderHolds() {
+  const { can } = useSession();
+  const holds = useQuery(() => call<{ holds?: ProviderHold[] }>("ListProviderHolds", {}), [], { on: ["task", "deployment"], every: 30_000 });
+  const [err, setErr] = useState("");
+  const list = holds.data?.holds ?? [];
+  return (
+    <section className="section" aria-labelledby="providers">
+      <div className="section-head">
+        <h2 id="providers">Provider accounts</h2>
+        <span className="hint">An invalid key or used-up credit holds every agent on that account; one task probes it after a backoff.</span>
+      </div>
+      {err && <Alert>{err}</Alert>}
+      {holds.error && <Alert>{holds.error}</Alert>}
+      {!list.length ? (
+        <p className="soft toolbar">
+          <CircleCheck size={16} style={{ color: "var(--ok)" }} aria-hidden /> Every provider account works.
+        </p>
+      ) : (
+        <ul className="list">
+          {list.map((h) => (
+            <li key={h.account}>
+              <XCircle size={16} style={{ color: "var(--err)" }} aria-hidden />
+              <span className="grow" style={{ flex: 1, minWidth: 0 }}>
+                <b>{h.account}</b> held since <Time t={h.heldAt} />: {h.reason}
+                <span className="muted">
+                  {" "}
+                  · next try <Time t={h.retryAt} /> · {h.failures} {h.failures === 1 ? "failure" : "failures"}
+                </span>
+              </span>
+              {can("admin") && (
+                <button
+                  className="btn sm"
+                  onClick={() =>
+                    call("ResumeProvider", { account: h.account })
+                      .then(() => (setErr(""), holds.reload()))
+                      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+                  }
+                >
+                  Resume now
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -121,7 +229,7 @@ export function Costs() {
 function CostChart({ metrics }: { metrics: Metrics }) {
   const deps = [...(metrics.deployments ?? [])].sort((a, b) => (b.usage?.costUsd ?? 0) - (a.usage?.costUsd ?? 0));
   const byCost = deps.some((d) => (d.usage?.costUsd ?? 0) > 0);
-  const top = deps.slice(0, 4);
+  const top = deps.slice(0, 8);
   const rest = deps.slice(4);
   const n = deps[0]?.buckets?.length ?? 0;
   const value = (b?: { costUsd?: number; runs?: number }) => (byCost ? (b?.costUsd ?? 0) : (b?.runs ?? 0));
@@ -169,7 +277,7 @@ function CostChart({ metrics }: { metrics: Metrics }) {
       <div className="chart-x" aria-hidden>
         <span>{label(0)}</span>
         <span>{label(Math.floor(n / 2))}</span>
-        <span>{label(n - 1)}</span>
+        <span>now</span>
       </div>
       <div className="legend toolbar">
         {series.map((s) => (

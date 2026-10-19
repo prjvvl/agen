@@ -1,0 +1,12 @@
+{
+  "kind": "pool",
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "load_skill",
+        "action": "allow"
+      }
+    ]
+  }
+}

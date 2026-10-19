@@ -9,6 +9,8 @@ URL per namespace that receives these events as signed JSON:
 | `approval.pending` | An agent waits for an approval. |
 | `task.failed` | A task ended with an error. |
 | `budget.exhausted` | A deployment used its daily budget (once per UTC day). |
+| `provider.held` | A provider account was held after an account error ([Models](models.md#account-errors-and-provider-holds)). |
+| `provider.resumed` | A held provider account works again (a run succeeded, or an operator resumed it). |
 
 ```sh
 agen notify set ops-chat https://hooks.example.com/agen --event approval.pending --event task.failed
@@ -30,8 +32,9 @@ A `POST` with `Content-Type: application/json`, the event type in
 {"type": "task.failed", "task": {"id": "01J...", "namespace": "default", "deployment": "researcher", "state": "TASK_STATE_FAILED", "error": "..."}}
 ```
 
-`approval.pending` carries `approval` and `budget.exhausted` carries
-`deployment`, in the same shape as the API returns them.
+`approval.pending` carries `approval`, `budget.exhausted` carries
+`deployment`, and `provider.held` and `provider.resumed` carry `hold` (a
+`ProviderHold`), in the same shape as the API returns them.
 
 `X-Agen-Signature: sha256=<hex>` is the HMAC-SHA256 of the raw body with the
 target's secret. Check it before trusting the body, for example in Python:

@@ -143,6 +143,7 @@ func findKind() string {
 	return filepath.Join(home, "go", "bin", name)
 }
 
+// features: deploy.lifecycle, fleet.nests
 func TestKubernetesBackend(t *testing.T) {
 	if os.Getenv("AGEN_KIND_E2E") != "1" {
 		t.Skip("set AGEN_KIND_E2E=1 (needs Docker, kind, kubectl and the agen:dev image)")

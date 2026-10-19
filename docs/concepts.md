@@ -20,9 +20,9 @@ The words Agen uses, from the agent outwards.
 | **Conversation** | The message history inside a session. Runs in the same conversation see earlier turns. Tasks with the same **conversation key** (or A2A messages with the same `contextId`) continue one conversation. See [Memory](guides/memory.md). |
 | **Labels** | Free-form `key=value` pairs on a task, copied to its runs, traces, tool calls and delegated tasks, for grouping work by project, workspace or tenant. |
 | **Trace / span** | The record of a run: one span per model call, tool call, approval wait and delegation, across agents. `agen trace <task-id>`. |
-| **Tool** | Something the model can call: tools of MCP servers in `mcp.json` (named `<server>.<tool>`), `load_skill` for skills, and `call_agent` for delegates. |
+| **Tool** | Something the model can call: tools of MCP servers in `mcp.json` (named `<server>.<tool>`), `load_skill` for skills, and `call_agent` and `start_agent` for delegates. |
 | **Skill** | A Markdown file of instructions (`skills/<name>/SKILL.md`) the agent loads when it needs it. |
-| **Delegate** | Another deployment this agent may call over A2A through its `call_agent` tool. See [Connecting agents](guides/agents.md). |
+| **Delegate** | Another deployment this agent may call over A2A through its `call_agent` tool, or start a task on with `start_agent`. See [Connecting agents](guides/agents.md). |
 | **Permission** | A rule that allows, asks for approval, or denies a tool call. See [Permissions and approvals](guides/permissions.md). |
 | **Approval** | A durable request for a person to allow one tool call. The principal whose work asked cannot decide it. |
 | **Trigger** | A cron schedule or webhook that submits tasks. See [Triggers](guides/triggers.md). |

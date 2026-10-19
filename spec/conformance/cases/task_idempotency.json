@@ -1,6 +1,7 @@
 {
   "name": "task_idempotency",
   "description": "Running the same task id twice returns the first run's result without running again.",
+  "features": ["tasks.run"],
   "agent": {
     "name": "c",
     "provider": {

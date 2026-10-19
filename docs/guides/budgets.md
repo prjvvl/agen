@@ -19,19 +19,34 @@ Budgets stop an agent from spending more than you meant it to. They are set in
 
 - Before each model call, the output limit (`max_tokens`) is lowered to what
   is left of `maxTokensPerRun`, so a single answer cannot jump far past it.
-  This applies to the `maxOutputTokens` you set in `x-agen/harness.json`; if
-  you set none, the remaining budget is only sent once it is below 8192
-  tokens, because some providers reject or pre-charge large limits.
+  This applies to `maxOutputTokens` (8192 by default for bundles). An SDK
+  agent defined in code without `maxOutputTokens` sends the remaining budget
+  only once it is below 8192 tokens, because some providers reject or
+  pre-charge large limits.
 - The input of the next call still counts, so a run can end slightly over
   `maxTokensPerRun`. Keep `maxOutputTokens` modest for tight budgets.
 - `maxUsdPerDay` is checked when work starts, so the day's spend can overshoot
   by the runs already in flight (at most `maxUsdPerRun` × concurrency).
 
+## Budget pressure
+
+Once a deployment has spent 80% of its `maxUsdPerDay`, the tasks it leases
+carry `budget_pressure`. An agent on a [routing model](models.md#routing-models-and-tiers)
+then runs at its `router.budgetTier` (default `low`), or lower if the task
+asked for less, so the rest of the day's budget goes further. Other models are
+not affected.
+
+The console's Overview warns when a daily budget is 80% spent and when it is
+used up, and a task's details show its tier and whether it ran under budget
+pressure.
+
 ## Seeing spend
 
 Each run records its tokens and cost: `agen logs <name>` prints them per run,
 `ListRuns` returns them, and the web UI shows them per deployment. `agen ps`
-marks a deployment whose daily budget is used up.
+marks a deployment whose daily budget is used up. The console's **Costs** page
+also breaks calls down by the model that served them, with fallbacks,
+latency, tokens and cost (`GetMetrics` `models`).
 
 ## Limits
 

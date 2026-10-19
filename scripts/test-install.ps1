@@ -2,6 +2,7 @@
 # a task, agen down, uninstall --purge; fails if anything is left running,
 # registered or on disk. Also checks the installer's safety rails (checksum,
 # purge refusal). Usage: .\scripts\test-install.ps1 dist\agen_<v>_windows_amd64.zip
+# features: fleet.local, deploy.templates, deploy.lifecycle, tasks.run
 param([Parameter(Mandatory)][string]$Archive)
 $ErrorActionPreference = "Stop"
 $base = Join-Path $env:TEMP ("agen-install-" + [guid]::NewGuid())

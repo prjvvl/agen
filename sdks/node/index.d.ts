@@ -41,6 +41,17 @@ export interface AgentOptions {
   permissions?: object;
   maxTurns?: number;
   maxOutputTokens?: number;
+  /** Models tried in order when the model keeps failing or gives no answer. */
+  fallbackModels?: string[];
+  /** A routing model's settings (model "typesafe/jev-router", "openrouter/auto" or "openrouter/auto-beta"). */
+  router?: { tier?: string; maxTier?: string; budgetTier?: string; allowedModels?: string[]; excludedModels?: string[] };
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  /** OpenRouter request settings sent as given. */
+  openrouter?: { provider?: Record<string, unknown>; plugins?: Record<string, unknown>[] };
+  /** About how many tokens of conversation one model call may send. */
+  contextTokens?: number;
+  /** A run that uses more tokens than this fails (model calls across all turns). */
+  maxTokensPerRun?: number;
   temperature?: number;
   approvalTimeoutSeconds?: number;
   namespace?: string;
@@ -54,6 +65,8 @@ export interface RunOptions {
   taskId?: string;
   newConversation?: boolean;
   traceparent?: string;
+  /** For a routing model: this run's cost tier, capped at the agent's maxTier. */
+  modelTier?: "low" | "medium" | "high" | "xhigh" | "max";
   signal?: AbortSignal;
 }
 

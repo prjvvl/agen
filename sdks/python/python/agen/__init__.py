@@ -230,6 +230,12 @@ class Agent:
         approval_timeout_seconds: Optional[int] = None,
         namespace: Optional[str] = None,
         deployment: Optional[str] = None,
+        fallback_models: Optional[typing.Sequence[str]] = None,
+        router: Optional[dict] = None,
+        reasoning_effort: Optional[str] = None,
+        openrouter: Optional[dict] = None,
+        context_tokens: Optional[int] = None,
+        max_tokens_per_run: Optional[int] = None,
     ):
         self._tools = {t.name: t for t in tools}
         self._approve = approve
@@ -254,6 +260,12 @@ class Agent:
                 "approvalTimeoutSeconds": approval_timeout_seconds,
                 "namespace": namespace,
                 "deployment": deployment,
+                "fallbackModels": list(fallback_models) if fallback_models else None,
+                "router": router,
+                "reasoningEffort": reasoning_effort,
+                "openrouter": openrouter,
+                "contextTokens": context_tokens,
+                "maxTokensPerRun": max_tokens_per_run,
             }.items()
             if v is not None
         }
@@ -335,6 +347,7 @@ class Agent:
         new_conversation: bool = False,
         traceparent: Optional[str] = None,
         cancel: Optional["CancelScope"] = None,
+        model_tier: Optional[str] = None,
     ) -> RunResult:
         """Run to completion (blocking; other Python threads keep running)."""
         if self._closed:
@@ -348,6 +361,8 @@ class Agent:
             opts["newConversation"] = True
         if traceparent:
             opts["traceparent"] = traceparent
+        if model_tier:
+            opts["modelTier"] = model_tier
         key = f"py-{next(_keys)}"
         opts["cancelKey"] = key
         if cancel is not None:
@@ -374,9 +389,29 @@ class Agent:
         except _NativeError as e:
             raise AgenError._from_native(e) from None
 
-    async def arun(self, input: str, **kwargs: Any) -> RunResult:
+    async def arun(
+        self,
+        input: str,
+        *,
+        on_delta: Optional[Callable[[str], None]] = None,
+        on_reset: Optional[Callable[[], None]] = None,
+        session_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        new_conversation: bool = False,
+        traceparent: Optional[str] = None,
+        model_tier: Optional[str] = None,
+    ) -> RunResult:
         """Async ``run``. Cancelling the awaiting task cancels the run.
         ``async def`` tools then run on this event loop."""
+        kwargs = dict(
+            on_delta=on_delta,
+            on_reset=on_reset,
+            session_id=session_id,
+            task_id=task_id,
+            new_conversation=new_conversation,
+            traceparent=traceparent,
+            model_tier=model_tier,
+        )
         scope = CancelScope()
         loop = asyncio.get_running_loop()
         self._loops[loop] = self._loops.get(loop, 0) + 1

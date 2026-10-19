@@ -76,7 +76,16 @@ pub struct AgentConfig {
     pub name: String,
     pub system_prompt: String,
     pub skills: Vec<Skill>,
+    /// Skills whose instructions are always in the system prompt.
+    pub preload_skills: Vec<String>,
     pub model: String,
+    /// Models tried in order when `model` keeps failing or gives no answer.
+    pub fallback_models: Vec<String>,
+    /// Provider-specific request fields (OpenRouter `provider`, `plugins`,
+    /// `reasoning`), sent with every model request.
+    pub request_extra: serde_json::Map<String, Value>,
+    /// Settings for a routing model (cost tier, allowed models).
+    pub router: Option<crate::provider::router::RouterSettings>,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
     pub max_turns: u32,
@@ -109,7 +118,11 @@ impl AgentConfig {
             name: name.into(),
             system_prompt: system_prompt.into(),
             skills: vec![],
+            preload_skills: vec![],
             model: model.into(),
+            fallback_models: vec![],
+            request_extra: Default::default(),
+            router: None,
             temperature: None,
             max_output_tokens: None,
             max_turns: 16,
@@ -158,6 +171,12 @@ pub struct RunOptions {
     pub root_run_id: String,
     /// Delegation depth of this run (from the task or the A2A call).
     pub depth: u32,
+    /// Cost tier asked for this run (routing models only; capped by the
+    /// harness `router.maxTier`).
+    pub model_tier: Option<String>,
+    /// The deployment has spent most of its daily budget: routing models use
+    /// the harness `router.budgetTier` (low).
+    pub near_budget: bool,
     /// Who asked for the run when it is not a Hub task (from a verified A2A
     /// call token); recorded on the run for approvals.
     pub requested_by: String,
@@ -298,6 +317,9 @@ pub struct BundleOptions {
     pub mcp: crate::mcp::McpOptions,
     /// Resolves `delegates` without a fixed url (managed mode: the Manager).
     pub resolver: Option<Arc<dyn crate::delegate::Resolver>>,
+    /// Queues async delegations (managed mode: the Manager); enables the
+    /// `start_agent` tool.
+    pub task_starter: Option<Arc<dyn crate::delegate::TaskStarter>>,
 }
 
 /// A run being driven by this process.
@@ -355,7 +377,14 @@ impl Agent {
         let provider = crate::provider::from_harness(bundle, &secrets)?;
         let mut cfg = AgentConfig::new(bundle.name(), &bundle.system_prompt, &bundle.harness.model);
         cfg.skills = bundle.skills.clone();
+        cfg.preload_skills = bundle.agent.preload_skills.clone();
+        if let Some(n) = bundle.harness.context_tokens {
+            cfg.context_tokens = n;
+        }
         cfg.temperature = bundle.harness.temperature;
+        cfg.fallback_models = bundle.harness.fallback_models.clone();
+        cfg.router = bundle.harness.router.clone();
+        cfg.request_extra = request_extra(&bundle.harness);
         cfg.max_output_tokens = Some(
             bundle
                 .harness
@@ -390,6 +419,16 @@ impl Agent {
         cfg.namespace = namespace.clone();
         cfg.deployment = opts.deployment.unwrap_or_else(|| bundle.name().into());
         cfg.definition_digest = bundle.digest.clone();
+        // An MCP call may take as long as limits.toolTimeout allows (0: no
+        // limit), not the transport's own default.
+        let mcp_opts = crate::mcp::McpOptions {
+            call_timeout: if cfg.tool_timeout.is_zero() {
+                Duration::from_secs(7 * 24 * 3600)
+            } else {
+                cfg.tool_timeout.max(opts.mcp.call_timeout)
+            },
+            connect_timeout: opts.mcp.connect_timeout,
+        };
         let mut b = Agent::builder(cfg, store.clone())
             .provider(provider)
             .secrets(secrets.clone());
@@ -410,6 +449,17 @@ impl Agent {
                 bundle.config.limits.clone(),
                 store.clone(),
             )));
+            if let Some(starter) = opts.task_starter.clone() {
+                if bundle.config.delegates.iter().any(|d| d.url.is_none()) {
+                    b = b.tool(Arc::new(crate::delegate::StartAgent::new(
+                        bundle.config.delegates.clone(),
+                        &namespace,
+                        starter,
+                        bundle.config.limits.clone(),
+                        store.clone(),
+                    )));
+                }
+            }
         }
         if let Some(m) = &bundle.mcp {
             let redactor = Redactor::new();
@@ -420,7 +470,7 @@ impl Agent {
                 &bundle.config.tools,
                 &secrets,
                 &redactor,
-                &opts.mcp,
+                &mcp_opts,
             )
             .await
             .map_err(|e| AgentError::Config(e.to_string()))?;
@@ -814,6 +864,7 @@ impl Agent {
                 tools: self.tools.specs(),
                 temperature: self.cfg.temperature,
                 max_output_tokens: self.output_cap(&live.rec.usage),
+                extra: Default::default(),
             };
             let mut span = tracer.start(ctx, "gen_ai.chat");
             span.set("gen_ai.operation.name", "chat");
@@ -821,21 +872,59 @@ impl Agent {
             span.set("gen_ai.request.model", self.cfg.model.clone());
             span.set("agen.request.messages", req.messages.len() as u64);
             tracer.record_open(&span).await;
+            // An empty answer only counts as the end of the work after tool
+            // results; a run that got nothing at all asks again.
+            let after_tools = req.messages.iter().any(|m| m.role == provider::Role::Tool);
+            let mut wasted = Usage::default();
             let resp = tokio::select! {
-                r = self.complete_with_retry(&req, opts) => r,
+                r = self.complete_with_fallback(req, opts, &mut wasted) => r,
                 _ = opts.cancel.cancelled() => {
                     tracer.end(span, "cancelled").await;
                     return Ok(Outcome::Cancelled);
                 }
             };
-            let resp = match resp {
+            let (resp, sent) = match resp {
                 Ok(r) => r,
                 Err(e) => {
+                    live.rec.usage.add(wasted);
                     span.set("error.type", e.to_string());
                     tracer.end(span, "error").await;
                     return Err(e.into());
                 }
             };
+            if sent.model != self.cfg.model {
+                span.set("gen_ai.request.model", sent.model.clone());
+                span.set("agen.fallback", true);
+            }
+            if !resp.model.is_empty() {
+                span.set("gen_ai.response.model", resp.model.clone());
+            }
+            if let Some(t) = &sent.tier {
+                span.set("agen.router.tier", t.clone());
+            }
+            if let Some(route) = &resp.route {
+                for (k, v) in route.as_object().into_iter().flatten() {
+                    if let Some(v) = v.as_str() {
+                        span.set(&format!("agen.router.{k}"), v.to_string());
+                    }
+                }
+            }
+            if resp.is_empty() && !empty_ends_work(after_tools, &resp) {
+                // Every model tried came back with nothing to act on.
+                let why = format!(
+                    "no_answer: the model returned no text and no tool calls (finish_reason {:?}{})",
+                    resp.finish_reason,
+                    if resp.finish_reason == "length" {
+                        "; raise maxOutputTokens, reasoning may have used it all"
+                    } else {
+                        ""
+                    }
+                );
+                live.rec.usage.add(resp.usage);
+                span.set("error.type", why.clone());
+                tracer.end(span, "error").await;
+                return Ok(Outcome::Failed(why));
+            }
             span.set("gen_ai.usage.input_tokens", resp.usage.input_tokens);
             span.set("gen_ai.usage.output_tokens", resp.usage.output_tokens);
             span.set("gen_ai.response.tool_calls", resp.tool_calls.len() as u64);
@@ -876,7 +965,8 @@ impl Agent {
 
     /// Conversation history for the model: earlier runs' messages (trimmed
     /// oldest-first to fit `context_tokens`, starting at a user message) plus
-    /// all of the current run's messages, with orphaned tool calls answered.
+    /// the current run's messages (oldest tool results shortened when they
+    /// alone exceed it), with orphaned tool calls answered.
     async fn request_messages(&self, rec: &RunRecord) -> Result<Vec<Message>, AgentError> {
         let all = self.store.messages(&rec.conversation_id).await?;
         let current = self.store.run_messages(&rec.id).await?;
@@ -894,8 +984,100 @@ impl Agent {
             drop += 1;
         }
         history.drain(..drop);
-        history.extend(current);
+        history.extend(compact_run(current, self.cfg.context_tokens));
         Ok(answer_orphans(history))
+    }
+
+    /// The request for one model (extras, and a routing model's tier).
+    fn request_for(&self, base: &ModelRequest, model: &str, opts: &RunOptions) -> (ModelRequest, Sent) {
+        let mut req = base.clone();
+        req.model = model.to_string();
+        req.extra = self.cfg.request_extra.clone();
+        let mut tier = None;
+        if let Some(kind) = crate::provider::router::router_for(model) {
+            let settings = self.cfg.router.clone().unwrap_or_default();
+            tier = settings.tier_for(opts.model_tier.as_deref(), opts.near_budget, kind);
+            if tier.is_some() || !settings.allowed_models.is_empty() || !settings.excluded_models.is_empty() {
+                let plugin = settings.plugin(kind, tier.as_deref());
+                match req.extra.get_mut("plugins").and_then(Value::as_array_mut) {
+                    Some(list) => list.push(plugin),
+                    None => {
+                        req.extra.insert("plugins".into(), Value::Array(vec![plugin]));
+                    }
+                }
+            }
+        }
+        (
+            req,
+            Sent {
+                model: model.to_string(),
+                tier,
+            },
+        )
+    }
+
+    /// One model turn: the configured model (retried), then each fallback
+    /// model, until one answers. An empty answer is asked once more before
+    /// moving on. Account errors (bad key, no credit) end it at once: another
+    /// model on the same account will not help.
+    async fn complete_with_fallback(
+        &self,
+        base: ModelRequest,
+        opts: &RunOptions,
+        wasted: &mut Usage,
+    ) -> Result<(provider::ModelResponse, Sent), ProviderError> {
+        let after_tools = base.messages.iter().any(|m| m.role == provider::Role::Tool);
+        let models: Vec<String> = std::iter::once(self.cfg.model.clone())
+            .chain(self.cfg.fallback_models.iter().cloned())
+            .collect();
+        let mut last: Option<Result<(provider::ModelResponse, Sent), ProviderError>> = None;
+        let mut spent = Usage::default();
+        for (i, model) in models.iter().enumerate() {
+            if i > 0 {
+                let why = match &last {
+                    Some(Err(e)) => e.to_string(),
+                    _ => "no answer".into(),
+                };
+                self.log(
+                    "warn",
+                    &format!("model {} failed ({why}); trying {model}", models[i - 1]),
+                )
+                .await;
+            }
+            let (req, sent) = self.request_for(&base, model, opts);
+            for attempt in 0..2 {
+                match self.complete_with_retry(&req, opts).await {
+                    Ok(mut r) if r.is_empty() && !empty_ends_work(after_tools, &r) => {
+                        spent.add(r.usage);
+                        if attempt == 0 {
+                            self.log("warn", &format!("model {model} returned no answer; asking again"))
+                                .await;
+                            continue;
+                        }
+                        r.usage = spent;
+                        last = Some(Ok((r, sent.clone())));
+                    }
+                    Ok(mut r) => {
+                        spent.add(r.usage);
+                        r.usage = spent;
+                        return Ok((r, sent));
+                    }
+                    // Another model on the same account will not help; a test
+                    // script that did not match must not be hidden by one.
+                    Err(e @ (ProviderError::Account(_) | ProviderError::Script(_))) => {
+                        *wasted = spent;
+                        return Err(e);
+                    }
+                    Err(e) => last = Some(Err(e)),
+                }
+                break;
+            }
+        }
+        let last = last.expect("at least one model");
+        if last.is_err() {
+            *wasted = spent;
+        }
+        last
     }
 
     async fn complete_with_retry(
@@ -962,6 +1144,15 @@ impl Agent {
                                 cb(&tail);
                             }
                         }
+                    } else {
+                        // A fallback model (or the failure) follows: what this
+                        // attempt streamed is not the answer.
+                        stream.lock().unwrap().reset();
+                        if emitted.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                            if let Some(reset) = &opts.on_reset {
+                                reset();
+                            }
+                        }
                     }
                     return result;
                 }
@@ -1007,9 +1198,17 @@ impl Agent {
 
     fn system_prompt(&self) -> String {
         let mut s = self.cfg.system_prompt.clone();
-        if !self.cfg.skills.is_empty() {
+        let (pre, lazy): (Vec<&Skill>, Vec<&Skill>) = self
+            .cfg
+            .skills
+            .iter()
+            .partition(|sk| self.cfg.preload_skills.contains(&sk.name));
+        for sk in pre {
+            s.push_str(&format!("\n\n## Skill: {}\n{}\n", sk.name, sk.body.trim()));
+        }
+        if !lazy.is_empty() {
             s.push_str("\n\n## Skills\nCall load_skill with a name to read a skill before using it.\n");
-            for sk in &self.cfg.skills {
+            for sk in lazy {
                 s.push_str(&format!("- {}: {}\n", sk.name, sk.description));
             }
         }
@@ -1053,6 +1252,12 @@ impl Agent {
         let mut span = tracer.start(ctx, "agen.tool");
         span.set("gen_ai.tool.name", call.name.clone());
         span.set("gen_ai.tool.call.id", call.id.clone());
+        if call.name == crate::delegate::CALL_AGENT || call.name == crate::delegate::START_AGENT {
+            // Which agent it waits for (live views draw the call).
+            if let Some(a) = call.arguments.get("agent").and_then(Value::as_str) {
+                span.set("agen.delegate.target", a.to_string());
+            }
+        }
         if self.cfg.trace_tool_arguments {
             let mut args = self.redactor.redact_json(&call.arguments).to_string();
             if args.len() > 4096 {
@@ -1068,6 +1273,20 @@ impl Agent {
         tracer.record_open(&span).await;
         let (result, status) = self.execute_call_inner(live, call, tracer, &mut span, opts).await?;
         span.set("agen.tool.result_chars", result.len() as u64);
+        if status != "ok" {
+            // Why it failed, on the span itself (the tool message is in the
+            // transcript, but a trace should explain a failure on its own).
+            let mut msg = self.redactor.redact(result.trim_start_matches("error: "));
+            if msg.len() > 1000 {
+                let mut cut = 1000;
+                while !msg.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                msg.truncate(cut);
+                msg.push('…');
+            }
+            span.set("error.message", msg);
+        }
         tracer.end(span, status).await;
         Ok(result)
     }
@@ -1274,8 +1493,108 @@ fn duration_setting(name: &str, value: &str) -> Result<Duration, AgentError> {
     crate::bundle::parse_duration(value).ok_or_else(|| AgentError::Config(format!("invalid {name} {value:?}")))
 }
 
+/// What was sent for a model turn.
+#[derive(Debug, Clone)]
+struct Sent {
+    model: String,
+    tier: Option<String>,
+}
+
+/// Request extras from a bundle's harness: OpenRouter settings as given and
+/// the reasoning effort in the provider's wire form.
+fn request_extra(h: &crate::bundle::Harness) -> serde_json::Map<String, Value> {
+    request_extras(&h.provider, h.openrouter.as_ref(), h.reasoning_effort.as_deref())
+}
+
+/// Request extras for a provider: OpenRouter settings as given and the
+/// reasoning effort in the provider's wire form (also for agents defined in
+/// code).
+pub fn request_extras(
+    provider: &str,
+    openrouter: Option<&crate::bundle::OpenRouterOptions>,
+    reasoning_effort: Option<&str>,
+) -> serde_json::Map<String, Value> {
+    let mut extra = serde_json::Map::new();
+    if let Some(o) = openrouter {
+        if let Some(p) = &o.provider {
+            extra.insert("provider".into(), p.clone());
+        }
+        if let Some(p) = &o.plugins {
+            extra.insert("plugins".into(), Value::Array(p.clone()));
+        }
+    }
+    if let Some(e) = reasoning_effort {
+        match provider {
+            "openrouter" => {
+                extra.insert("reasoning".into(), serde_json::json!({"effort": e}));
+            }
+            "openai" => {
+                extra.insert("reasoning_effort".into(), Value::String(e.to_string()));
+            }
+            _ => {}
+        }
+    }
+    extra
+}
+
+/// An empty answer after tool results is how some models end work done
+/// through tools; it is only a failure when output was cut off.
+fn empty_ends_work(after_tools: bool, r: &provider::ModelResponse) -> bool {
+    after_tools && r.finish_reason != "length"
+}
+
 fn backoff(attempt: u32) -> Duration {
     Duration::from_millis(500u64.saturating_mul(1 << attempt.min(6))).min(Duration::from_secs(30))
+}
+
+/// Tool results always kept whole at the end of a run (the model is working
+/// with them).
+const KEEP_RECENT_RESULTS: usize = 4;
+/// Results are shortened in blocks, so the request prefix (and the provider's
+/// prompt cache) changes rarely.
+const COMPACT_BLOCK: usize = 8;
+/// A shortened result keeps this much of its start.
+const COMPACT_HEAD_CHARS: usize = 300;
+
+/// Shortens the oldest tool results of a run whose messages exceed `limit`
+/// tokens, until they fit in about two thirds of it: each keeps its start and
+/// says how much was left out. The latest results stay whole. Nothing is
+/// lost: the full results stay in the Store and the transcript.
+fn compact_run(mut msgs: Vec<Message>, limit: u64) -> Vec<Message> {
+    let total: u64 = msgs.iter().map(message_tokens).sum();
+    if limit == 0 || total <= limit {
+        return msgs;
+    }
+    let target = limit * 2 / 3;
+    let results: Vec<usize> = msgs
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.role == Role::Tool && m.content.len() > COMPACT_HEAD_CHARS * 2)
+        .map(|(i, _)| i)
+        .collect();
+    let candidates = results.len().saturating_sub(KEEP_RECENT_RESULTS);
+    let mut over = total.saturating_sub(target);
+    let mut n = 0;
+    while n < candidates && over > 0 {
+        let m = &msgs[results[n]];
+        over = over.saturating_sub(message_tokens(m).saturating_sub(COMPACT_HEAD_CHARS as u64 / 4 + 30));
+        n += 1;
+    }
+    // Round up to a whole block (within the candidates).
+    n = (n.div_ceil(COMPACT_BLOCK) * COMPACT_BLOCK).min(candidates);
+    for &i in &results[..n] {
+        let m = &mut msgs[i];
+        let mut cut = COMPACT_HEAD_CHARS;
+        while !m.content.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let left = m.content.len() - cut;
+        m.content = format!(
+            "{}\n[… {left} more characters of this older tool result were left out to keep the conversation within its context budget; call the tool again if you need them]",
+            &m.content[..cut]
+        );
+    }
+    msgs
 }
 
 fn message_tokens(m: &Message) -> u64 {
@@ -1385,6 +1704,52 @@ mod tests {
         // Trailing orphans (end of list) are left for the loop to execute.
         let tail = answer_orphans(vec![Message::assistant("", vec![call("9")])]);
         assert_eq!(tail.len(), 1);
+    }
+
+    fn run_with_results(n: usize, size: usize) -> Vec<Message> {
+        let mut v = vec![Message::user("go")];
+        for i in 0..n {
+            let id = format!("c{i}");
+            v.push(Message::assistant(
+                "",
+                vec![ToolCall {
+                    id: id.clone(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({"i": i}),
+                }],
+            ));
+            v.push(Message::tool(&id, format!("{i}:{}", "x".repeat(size))));
+        }
+        v
+    }
+
+    #[test]
+    fn compaction_shortens_oldest_results_in_blocks() {
+        // Under the limit: untouched.
+        let small = run_with_results(5, 1000);
+        assert_eq!(compact_run(small.clone(), 64_000), small);
+        // 40 results of ~2.5k tokens each = ~100k tokens over a 40k limit.
+        let big = run_with_results(40, 10_000);
+        let out = compact_run(big.clone(), 40_000);
+        let total: u64 = out.iter().map(message_tokens).sum();
+        assert!(total <= 40_000 * 2 / 3 + 3_000, "still {total} tokens");
+        let shortened: Vec<usize> = out
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.content.contains("were left out"))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(shortened.len() % COMPACT_BLOCK, 0, "whole blocks");
+        // Oldest first, the latest results stay whole, calls are untouched.
+        assert_eq!(shortened[0], 2);
+        let tools: Vec<&Message> = out.iter().filter(|m| m.role == Role::Tool).collect();
+        assert!(tools[tools.len() - KEEP_RECENT_RESULTS..]
+            .iter()
+            .all(|m| !m.content.contains("left out")));
+        assert_eq!(out.len(), big.len());
+        assert!(out[shortened[0]].content.starts_with("0:xxx"));
+        // Deterministic: the same input gives the same request.
+        assert_eq!(compact_run(big, 40_000), out);
     }
 
     #[test]

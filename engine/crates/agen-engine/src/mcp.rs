@@ -264,6 +264,13 @@ async fn connect_one(
 /// Relative commands that exist inside the bundle run from there; others are
 /// looked up on PATH (handles Windows `.cmd`/`.exe` shims).
 fn resolve_program(root: &Path, command: &str) -> std::path::PathBuf {
+    // "agen" is the platform binary (agen mcp workspace); its Manager says
+    // where it is, so it need not be on PATH.
+    if command == "agen" {
+        if let Some(p) = std::env::var_os("AGEN_BIN").filter(|p| !p.is_empty()) {
+            return p.into();
+        }
+    }
     let local = root.join(command);
     if (command.contains('/') || command.contains('\\')) && local.exists() {
         return local;

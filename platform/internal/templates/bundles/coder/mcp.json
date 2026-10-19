@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "workspace": {
+      "command": "agen",
+      "args": [
+        "mcp",
+        "workspace",
+        "--root",
+        "/path/to/your/project"
+      ]
+    }
+  }
+}

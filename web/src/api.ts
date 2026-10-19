@@ -96,6 +96,12 @@ export interface Trigger {
   name: string;
   schedule?: string;
   input?: string;
+  catchUp?: boolean;
+  auth?: { type?: string; header?: string; algorithm?: string; secret?: string };
+  labels?: Record<string, string>;
+  /** Cron triggers: when it fires next, and when it was last due. */
+  nextDueAt?: string;
+  lastDueAt?: string;
 }
 
 export interface Deployment {
@@ -109,6 +115,7 @@ export interface Deployment {
   paused?: boolean;
   budgetExhausted?: boolean;
   spentUsdToday?: number;
+  providerHold?: ProviderHold;
   budget?: { maxTokensPerRun?: Int; maxUsdPerRun?: number; maxUsdPerDay?: number };
   limits?: Limits;
   triggers?: Trigger[];
@@ -161,6 +168,17 @@ export interface Task {
   conversationKey?: string;
   labels?: Record<string, string>;
   pendingApprovalId?: string;
+  /** Not started before this time (a scheduled task). */
+  notBefore?: string;
+  /** Cost tier for a routing model. */
+  modelTier?: string;
+  /** Leased while the deployment has spent most of its daily budget. */
+  budgetPressure?: boolean;
+  /** Async work: where its result goes when it ends. */
+  replyDeployment?: string;
+  replyConversationKey?: string;
+  parentTaskId?: string;
+  depth?: number;
 }
 
 export interface Usage {
@@ -252,6 +270,8 @@ export interface LogLine {
 }
 
 export interface TriggerEvent {
+  namespace?: string;
+  deployment?: string;
   trigger: string;
   state: string;
   dueAt?: string;
@@ -282,6 +302,22 @@ export interface CallEdge {
   to: Ref;
   calls?: number;
   failed?: number;
+  /** Of calls: started with start_agent (the result comes back later). */
+  asyncCalls?: number;
+  /** Of calls: still running. */
+  active?: number;
+  p95Ms?: Int;
+}
+
+export interface ModelMetrics {
+  model: string;
+  provider?: string;
+  calls?: number;
+  failed?: number;
+  fallbacks?: number;
+  p50Ms?: Int;
+  p95Ms?: Int;
+  usage?: Usage;
 }
 
 export interface Metrics {
@@ -289,6 +325,72 @@ export interface Metrics {
   edges?: CallEdge[];
   since?: string;
   bucketSeconds?: number;
+  models?: ModelMetrics[];
+  entries?: EntryEdge[];
+}
+
+/** Work that no agent of the fleet sent (api, cron, webhook, outside a2a), or async results going back (reply). */
+export interface EntryEdge {
+  source: "api" | "cron" | "webhook" | "a2a" | "reply";
+  from?: Ref;
+  to: Ref;
+  runs?: number;
+  failed?: number;
+}
+
+export interface ProviderHold {
+  account: string;
+  reason?: string;
+  failures?: number;
+  heldAt?: string;
+  retryAt?: string;
+  probeTaskId?: string;
+}
+
+/** What an unfinished run is doing now. */
+export interface ActiveRun {
+  runId: string;
+  ref: Ref;
+  taskId?: string;
+  input?: string;
+  startedAt?: string;
+  turns?: Int;
+  maxTurns?: number;
+  usage?: Usage;
+  traceId?: string;
+  parentRunId?: string;
+  rootRunId?: string;
+  activity?: "model" | "tool" | "agent" | "approval" | "idle";
+  detail?: string;
+  activitySince?: string;
+  approvalId?: string;
+  conversationKey?: string;
+  source?: string;
+  lastStepAt?: string;
+  /** The deployment of the run that started this one. */
+  caller?: Ref;
+}
+
+export interface QueueStatus {
+  ref: Ref;
+  queued?: number;
+  scheduled?: number;
+  oldestQueuedAt?: string;
+}
+
+export interface ActivityWarning {
+  kind: string;
+  severity: "warning" | "critical";
+  ref?: Ref;
+  runId?: string;
+  message: string;
+}
+
+export interface Activity {
+  runs?: ActiveRun[];
+  queues?: QueueStatus[];
+  warnings?: ActivityWarning[];
+  now?: string;
 }
 
 export interface Template {

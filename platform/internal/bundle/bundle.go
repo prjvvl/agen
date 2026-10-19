@@ -128,7 +128,10 @@ type Bundle struct {
 	Files    map[string][]byte
 
 	// What the agent can use, for warnings about likely mistakes.
-	Provider        string
+	Provider string
+	Model    string
+	// MaxTurns is agent.md's maxTurns (0: the engine default, 16).
+	MaxTurns        int
 	ToolServers     []string
 	Delegates       []Delegate
 	Skills          int
@@ -209,6 +212,10 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 
 	b := &Bundle{Files: clean, Kind: "pool", Scale: Scale{Min: 0, Max: 1}, Budget: json.RawMessage("{}"), Limits: json.RawMessage("{}")}
 	b.Provider, _ = harness["provider"].(string)
+	b.Model, _ = harness["model"].(string)
+	for _, msg := range checkHarness(harness) {
+		add("x-agen/harness.json: %s", msg)
+	}
 	if servers, ok := mcp["mcpServers"].(map[string]any); ok {
 		for name := range servers {
 			b.ToolServers = append(b.ToolServers, name)
@@ -238,6 +245,20 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 			}
 			if name, _ := front["name"].(string); name != "" {
 				b.Name = name
+			}
+			if mt, ok := front["maxTurns"].(int); ok {
+				b.MaxTurns = mt
+			}
+			skills, _ := front["skills"].([]any)
+			pre, _ := front["preloadSkills"].([]any)
+			for _, p := range pre {
+				found := false
+				for _, s := range skills {
+					found = found || s == p
+				}
+				if !found {
+					add("x-agen/agent.md: preloaded skill %v is not in skills", p)
+				}
 			}
 		}
 		if strings.TrimSpace(string(m[2])) == "" {

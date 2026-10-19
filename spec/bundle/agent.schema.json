@@ -8,6 +8,11 @@
     "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
     "description": { "type": "string", "minLength": 1 },
     "skills": { "type": "array", "items": { "type": "string" } },
+    "preloadSkills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Skills (from skills) whose instructions are always in the system prompt instead of loaded on demand"
+    },
     "maxTurns": { "type": "integer", "minimum": 1, "maximum": 1000 }
   },
   "additionalProperties": false

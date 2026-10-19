@@ -123,6 +123,8 @@ async fn build_agent(bundle_dir: &Path, common: &Common) -> anyhow::Result<Agent
         // raised through the Nest Manager.
         resolver: agen_engine::delegate::ManagerResolver::from_env()
             .map(|r| Arc::new(r) as Arc<dyn agen_engine::delegate::Resolver>),
+        task_starter: agen_engine::delegate::ManagerResolver::from_env()
+            .map(|r| Arc::new(r) as Arc<dyn agen_engine::delegate::TaskStarter>),
         approver: agen_engine::managed::ManagerApprover::from_env(
             bundle
                 .config
@@ -307,6 +309,8 @@ struct TaskIn {
     conversation_key: String,
     labels: std::collections::BTreeMap<String, String>,
     attempts: u32,
+    model_tier: String,
+    budget_pressure: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -542,6 +546,8 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         conversation_key: req.task.conversation_key,
         labels: req.task.labels,
         attempt: req.task.attempts,
+        model_tier: (!req.task.model_tier.is_empty()).then_some(req.task.model_tier),
+        near_budget: req.task.budget_pressure,
         traceparent: (!traceparent.is_empty()).then_some(traceparent),
         cancel,
         ..Default::default()

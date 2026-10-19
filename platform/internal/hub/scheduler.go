@@ -35,7 +35,15 @@ type Scheduler struct {
 	// once an hour (0 keeps them).
 	Retention time.Duration
 	pruned    time.Time
+	lastSweep time.Time
 }
+
+// Runs whose instance is gone are ended after orphanGrace (an instance
+// reports itself within seconds of starting), checked every orphanSweepEvery.
+const (
+	orphanGrace      = 2 * time.Minute
+	orphanSweepEvery = 30 * time.Second
+)
 
 // NewScheduler returns a scheduler with default timings.
 func (h *Hub) NewScheduler(holder string) *Scheduler {
@@ -105,6 +113,19 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	// same tick.
 	if err := s.FireTriggers(ctx, epoch); err != nil {
 		return epoch, err
+	}
+	if time.Since(s.lastSweep) >= orphanSweepEvery {
+		s.lastSweep = time.Now()
+		ended, err := st.EndOrphanedRuns(ctx, store.NowMs()-orphanGrace.Milliseconds())
+		if err != nil {
+			s.Log.Warn("ending orphaned runs failed", "err", err)
+		}
+		for _, id := range ended {
+			s.Log.Warn("ended a run whose instance is gone", "run", id)
+		}
+	}
+	if err := s.Hub.checkProviderHolds(ctx); err != nil {
+		s.Log.Warn("provider holds check failed", "err", err)
 	}
 	if s.Autoscaling {
 		if err := s.Autoscale(ctx, epoch); err != nil {

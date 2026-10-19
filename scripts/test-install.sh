@@ -2,6 +2,7 @@
 # Install check (Linux/macOS): install a release tarball into a temp dir, agen
 # up, run a task, agen down, uninstall --purge; fails if anything is left.
 # Also checks the installer's safety rails (checksum, purge refusal).
+# features: fleet.local, deploy.templates, deploy.lifecycle, tasks.run
 set -euo pipefail
 archive="${1:?usage: test-install.sh dist/agen_<v>_<os>_<arch>.tar.gz}"
 here="$(cd "$(dirname "$0")" && pwd)"

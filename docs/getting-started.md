@@ -38,7 +38,7 @@ agen run hello "hi"
 ```
 
 ```text
-wrote the hello example to hello
+wrote the hello template to hello
 next: agen deploy hello --replicas 1
 deployed default/hello definition <digest> desired 1
 Hello! Nice to meet you.

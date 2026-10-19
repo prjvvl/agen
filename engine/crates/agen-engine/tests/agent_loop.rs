@@ -554,3 +554,59 @@ async fn provider_retry_then_success() {
     let r = agent.run("x", RunOptions::default()).await.unwrap();
     assert_eq!((r.status, r.output.as_str()), (RunStatus::Succeeded, "recovered"));
 }
+
+#[tokio::test]
+async fn failed_tool_span_says_why() {
+    let (s, _d) = store().await;
+    let broken: Arc<dyn Tool> = Arc::new(FnTool::new(
+        "fetch",
+        "Fetch a page",
+        json!({"type":"object"}),
+        false,
+        |_a: Value, _| async move { Err::<String, _>(ToolError::new("upstream answered 502")) },
+    ));
+    let p = Arc::new(FakeProvider::new(vec![
+        call("fetch", json!({})),
+        say("could not fetch", Some("502")),
+    ]));
+    let agent = Agent::builder(cfg(), s.clone())
+        .provider(p)
+        .tool(broken)
+        .build()
+        .unwrap();
+    let r = agent.run("get it", RunOptions::default()).await.unwrap();
+    let spans = s.trace(&r.trace_id).await.unwrap();
+    let tool = spans.iter().find(|s| s.name == "agen.tool").unwrap();
+    assert_eq!(tool.status, "error");
+    let msg = tool.attributes["error.message"].as_str().unwrap_or_default();
+    assert!(msg.contains("upstream answered 502"), "{:?}", tool.attributes);
+}
+
+#[tokio::test]
+async fn preloaded_skills_are_in_the_system_prompt() {
+    let (s, _d) = store().await;
+    let mut c = cfg();
+    c.skills = vec![
+        Skill {
+            name: "style".into(),
+            description: "house style".into(),
+            body: "Answer in one line.".into(),
+        },
+        Skill {
+            name: "math".into(),
+            description: "how to add".into(),
+            body: "Always show your work.".into(),
+        },
+    ];
+    c.preload_skills = vec!["style".into()];
+    let rec = Arc::new(RecordingProvider::new(FakeProvider::new(vec![say("ok", None)])));
+    let agent = Agent::builder(c, s).provider(rec.clone()).build().unwrap();
+    agent.run("hi", RunOptions::default()).await.unwrap();
+    let system = &rec.cassette().interactions[0].request.system;
+    assert!(system.contains("## Skill: style\nAnswer in one line."), "{system}");
+    assert!(
+        !system.contains("- style:"),
+        "a preloaded skill is not offered for loading"
+    );
+    assert!(system.contains("- math: how to add") && !system.contains("Always show your work."));
+}

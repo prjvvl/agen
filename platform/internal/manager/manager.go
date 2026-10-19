@@ -711,7 +711,7 @@ func (m *Manager) start(ctx context.Context, a *agenv1.Assignment) error {
 		env: []string{"AGEN_STORE=" + m.storeFor(in.ns), "AGEN_INSTANCE_ID=" + in.id, "AGEN_MANAGER_URL=" + m.managerURL, "AGEN_MANAGER_TOKEN=" + token, "AGEN_HOST_TOKEN=" + in.hostToken,
 			// Tool servers may write into the shared definition directory, so
 			// the host must not re-derive the digest from what is on disk.
-			"AGEN_DEFINITION_DIGEST=" + in.digest}})
+			"AGEN_DEFINITION_DIGEST=" + in.digest, "AGEN_BIN=" + agenBin()}})
 	if err != nil {
 		m.mu.Lock()
 		delete(m.instanceTokens, token)
@@ -905,9 +905,11 @@ func (m *Manager) dispatch(ctx context.Context) {
 		for _, t := range resp.Msg.Tasks {
 			in := m.pick(s.ns, s.dep)
 			if in == nil {
-				// Slots vanished (instance retired); the lease expires and
-				// the task is requeued.
-				m.cfg.Log.Warn("no free instance for leased task", "task", t.Id)
+				// Slots vanished (instance retired): give the task back now,
+				// without counting the attempt, instead of letting the lease
+				// expire.
+				m.cfg.Log.Warn("no free instance for leased task; releasing it", "task", t.Id)
+				m.releaseTask(ctx, t, true)
 				continue
 			}
 			m.wg.Add(1)
@@ -994,7 +996,8 @@ func (m *Manager) runTask(ctx context.Context, in *instance, t *agenv1.Task) {
 		}
 	}()
 	res, err := in.host.RunTask(runCtx, HostTask{ID: t.Id, Input: t.Input, ParentRunID: t.ParentRunId, RootRunID: t.RootRunId, Traceparent: t.Traceparent,
-		Depth: int(t.Depth), ConversationKey: t.ConversationKey, Labels: t.Labels, Attempts: int(t.Attempts)})
+		Depth: int(t.Depth), ConversationKey: t.ConversationKey, Labels: t.Labels, Attempts: int(t.Attempts),
+		ModelTier: t.ModelTier, BudgetPressure: t.BudgetPressure})
 	stopRun()
 	var he *HostError
 	switch {
@@ -1122,4 +1125,17 @@ func hostEnviron() []string {
 		}
 	}
 	return out
+}
+
+// agenBin is this binary's path: bundles may run "agen" as a tool server
+// (agen mcp workspace) without agen being on the hosts' PATH.
+func agenBin() string {
+	if p := os.Getenv("AGEN_BIN"); p != "" {
+		return p // set by whoever started this process (tests, wrappers)
+	}
+	p, err := os.Executable()
+	if err != nil {
+		return "agen"
+	}
+	return p
 }

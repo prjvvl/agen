@@ -72,10 +72,17 @@ service HubService {
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
   // A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
   rpc GetTranscript(GetTranscriptRequest) returns (GetTranscriptResponse);
-  // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, and who calls whom.
+  // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
   rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+  // What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
+  rpc GetActivity(GetActivityRequest) returns (GetActivityResponse);
   // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+
+  // Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
+  rpc ListProviderHolds(ListProviderHoldsRequest) returns (ListProviderHoldsResponse);
+  // End a provider hold now (e.g. after fixing the key or adding credit).
+  rpc ResumeProvider(ResumeProviderRequest) returns (ResumeProviderResponse);
 
   // A single-use token for enrolling a Nest (agen nest run --join-token).
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
@@ -102,6 +109,16 @@ service HubService {
   // Remove a notification target.
   rpc DeleteNotificationTarget(DeleteNotificationTargetRequest) returns (DeleteNotificationTargetResponse);
 }
+
+message ListProviderHoldsRequest {}
+message ListProviderHoldsResponse {
+  repeated ProviderHold holds = 1;
+}
+
+message ResumeProviderRequest {
+  string account = 1;
+}
+message ResumeProviderResponse {}
 
 message ListTemplatesRequest {}
 message Template {
@@ -282,6 +299,10 @@ message SubmitTaskRequest {
   string conversation_key = 4;
   // Free-form labels, copied to runs, tool calls and delegated tasks.
   map<string, string> labels = 5;
+  // Cost tier for a routing model; see Task.model_tier.
+  string model_tier = 6;
+  // Run no earlier than this (a scheduled task); unset: as soon as possible.
+  google.protobuf.Timestamp not_before = 7;
 }
 message SubmitTaskResponse {
   Task task = 1;
@@ -302,6 +323,8 @@ message ListTasksRequest {
   string deployment = 2;
   TaskState state = 3;
   int32 limit = 4;
+  // Only tasks waiting for their start time (not_before), soonest first.
+  bool scheduled = 5;
 }
 message ListTasksResponse {
   repeated Task tasks = 1;
@@ -441,6 +464,24 @@ message CallEdge {
   DeploymentRef to = 2;
   int32 calls = 3;
   int32 failed = 4;
+  // Of calls: started with start_agent (async; the result comes back later).
+  int32 async_calls = 5;
+  // Of calls: still running.
+  int32 active = 6;
+  int64 p95_ms = 7;
+}
+// Model calls by the model that served them (a routing model or provider
+// alias may serve another model than requested).
+message ModelMetrics {
+  string model = 1;
+  string provider = 2;
+  int32 calls = 3;
+  int32 failed = 4;
+  // Calls served by a fallback model.
+  int32 fallbacks = 5;
+  int64 p50_ms = 6;
+  int64 p95_ms = 7;
+  Usage usage = 8;
 }
 message GetMetricsResponse {
   repeated DeploymentMetrics deployments = 1;
@@ -448,6 +489,79 @@ message GetMetricsResponse {
   repeated CallEdge edges = 2;
   google.protobuf.Timestamp since = 3;
   int32 bucket_seconds = 4;
+  repeated ModelMetrics models = 5;
+  // Where work came from that no agent of the fleet sent: the API or CLI,
+  // schedules, webhooks, A2A callers outside the fleet; and results of async
+  // work going back to the agent that started it (source "reply").
+  repeated EntryEdge entries = 6;
+}
+message EntryEdge {
+  // "api", "cron", "webhook", "a2a" (outside callers) or "reply".
+  string source = 1;
+  // For "reply": the agent the result came from.
+  DeploymentRef from = 2;
+  DeploymentRef to = 3;
+  int32 runs = 4;
+  int32 failed = 5;
+}
+
+message GetActivityRequest {
+  // Empty: every namespace the caller may see.
+  string namespace = 1;
+}
+// An unfinished run and what it is doing now.
+message ActiveRun {
+  string run_id = 1;
+  DeploymentRef ref = 2;
+  string task_id = 3;
+  // The start of its input.
+  string input = 4;
+  google.protobuf.Timestamp started_at = 5;
+  int64 turns = 6;
+  // The agent's maxTurns.
+  int32 max_turns = 7;
+  Usage usage = 8;
+  string trace_id = 9;
+  string parent_run_id = 10;
+  string root_run_id = 11;
+  // "model" (waiting for the model), "tool", "agent" (waiting for another
+  // agent), "approval" (waiting for a decision) or "idle" (between steps).
+  string activity = 12;
+  // The tool, or the agent waited for.
+  string detail = 13;
+  google.protobuf.Timestamp activity_since = 14;
+  string approval_id = 15;
+  string conversation_key = 16;
+  // Where its task came from ("api", "cron:x", "reply:y"; empty over A2A).
+  string source = 17;
+  google.protobuf.Timestamp last_step_at = 18;
+  // The deployment of the run that started this one (a call, or an async
+  // start whose caller may have finished).
+  DeploymentRef caller = 19;
+}
+message QueueStatus {
+  DeploymentRef ref = 1;
+  // Due and waiting for an instance.
+  int32 queued = 2;
+  // Waiting for their start time.
+  int32 scheduled = 3;
+  google.protobuf.Timestamp oldest_queued_at = 4;
+}
+message ActivityWarning {
+  // near_turn_limit, near_run_budget, near_daily_budget, quiet_run,
+  // waiting_approval, queue_waiting, burst, model_errors, provider_held.
+  string kind = 1;
+  // "warning" or "critical".
+  string severity = 2;
+  DeploymentRef ref = 3;
+  string run_id = 4;
+  string message = 5;
+}
+message GetActivityResponse {
+  repeated ActiveRun runs = 1;
+  repeated QueueStatus queues = 2;
+  repeated ActivityWarning warnings = 3;
+  google.protobuf.Timestamp now = 4;
 }
 
 message GetTraceRequest {
@@ -460,6 +574,9 @@ message GetTraceResponse {
 
 message ListDefinitionsRequest {
   string name = 1;
+  // The versions this deployment has run, most recently used first (name is
+  // then ignored).
+  DeploymentRef ref = 2;
 }
 message ListDefinitionsResponse {
   // Files omitted; use GetDefinition.
@@ -516,6 +633,8 @@ message CreateWebhookSecretResponse {
 }
 
 message ListTriggerEventsRequest {
+  // Empty name: every deployment (of the namespace, or of every namespace
+  // the caller may see when the namespace is empty too).
   DeploymentRef ref = 1;
   TriggerEventState state = 2;
   int32 limit = 3;

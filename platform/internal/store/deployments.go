@@ -43,6 +43,35 @@ func (s *Store) GetDefinition(ctx context.Context, digest string) (Definition, e
 }
 
 // ListDefinitions lists definitions (without files), newest first.
+// recordVersion notes that a deployment runs a definition (now).
+func recordVersion(ctx context.Context, q interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, ns, name, digest string) error {
+	_, err := q.ExecContext(ctx, "INSERT INTO deployment_versions (namespace, deployment, digest, used_ms) VALUES ($1, $2, $3, $4) "+
+		"ON CONFLICT (namespace, deployment, digest) DO UPDATE SET used_ms = excluded.used_ms", ns, name, digest, NowMs())
+	return err
+}
+
+// DeploymentVersions returns the definitions a deployment has run, most
+// recently used first.
+func (s *Store) DeploymentVersions(ctx context.Context, ns, name string) ([]Definition, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT d.digest, d.name, d.created_ms FROM deployment_versions v JOIN definitions d ON d.digest = v.digest "+
+		"WHERE v.namespace = $1 AND v.deployment = $2 ORDER BY v.used_ms DESC", ns, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Definition
+	for rows.Next() {
+		var d Definition
+		if err := rows.Scan(&d.Digest, &d.Name, &d.CreatedMs); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListDefinitions(ctx context.Context, name string) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT digest, name, created_ms FROM definitions WHERE ($1 = '' OR name = $1) ORDER BY created_ms DESC", name)
@@ -112,6 +141,9 @@ func (s *Store) CreateDeployment(ctx context.Context, d Deployment) (Deployment,
 		return d, ErrConflict
 	}
 	if err != nil {
+		return d, err
+	}
+	if err := recordVersion(ctx, s.db, d.Namespace, d.Name, d.DefinitionDigest); err != nil {
 		return d, err
 	}
 	return s.GetDeployment(ctx, d.Namespace, d.Name)
@@ -188,6 +220,9 @@ func (s *Store) updateDeployment(ctx context.Context, leaderEpoch int64, ns, nam
 			}
 			n, _ := res.RowsAffected()
 			updated = n == 1
+			if updated {
+				return recordVersion(ctx, tx, ns, name, d.DefinitionDigest)
+			}
 			return nil
 		})
 		if err != nil {
@@ -224,11 +259,28 @@ func (s *Store) DeleteDeployment(ctx context.Context, ns, name string) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM assignments WHERE namespace = $1 AND deployment = $2", ns, name); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM deployment_versions WHERE namespace = $1 AND deployment = $2", ns, name); err != nil {
+			return err
+		}
 		// A re-created deployment of the same name must not accept old secrets.
 		if _, err := tx.ExecContext(ctx, "DELETE FROM webhook_secrets WHERE namespace = $1 AND deployment = $2", ns, name); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE namespace = $2 AND deployment = $3 AND state IN ('queued', 'leased', 'running')", NowMs(), ns, name)
+		now := NowMs()
+		if _, err := tx.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE namespace = $2 AND deployment = $3 AND state IN ('queued', 'leased', 'running')", now, ns, name); err != nil {
+			return err
+		}
+		// Every unfinished run goes with it (task or A2A), fenced like a
+		// cancelled task's run, so none is left "running" forever.
+		if _, err := tx.ExecContext(ctx, "UPDATE spans SET status = 'error', end_ms = $1 WHERE status = 'unfinished' AND run_id IN "+
+			"(SELECT id FROM runs WHERE namespace = $2 AND deployment = $3 AND ended_ms IS NULL)", now, ns, name); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE approvals SET state = 'expired', decided_ms = $1 WHERE namespace = $2 AND deployment = $3 AND state = 'pending'", now, ns, name); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE runs SET status = 'cancelled', error = 'deployment deleted', ended_ms = $1, epoch = epoch + 1 "+
+			"WHERE namespace = $2 AND deployment = $3 AND ended_ms IS NULL", now, ns, name)
 		return err
 	})
 }

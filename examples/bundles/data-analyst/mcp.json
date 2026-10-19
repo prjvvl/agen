@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "sql": {
+      "command": "agen",
+      "args": [
+        "mcp",
+        "sql",
+        "--dsn-env",
+        "DATABASE_URL"
+      ],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}"
+      }
+    }
+  }
+}

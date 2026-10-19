@@ -15,6 +15,7 @@ import (
 // Scenario 4: a singleton sleeps between uses; a cron trigger and an HTTP
 // (A2A) call each wake it; its memory (one session and conversation in the
 // Store) survives although every wake is a new host process.
+// features: triggers, tasks.conversations
 func TestScenario4SingletonWokenByCronAndHTTPKeepsMemory(t *testing.T) {
 	_, home := startUp(t)
 	bundle := filepath.Join(t.TempDir(), "diary")

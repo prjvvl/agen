@@ -16,7 +16,8 @@ it can.
 
 `agen triggers <name>` lists every firing: `fired` (with its task),
 `missed` (a cron window while the Hub was down) and `rejected` (a webhook call
-with bad credentials).
+with bad credentials). For one task at a later time, without a trigger, see
+[One-off tasks at a later time](#one-off-tasks-at-a-later-time).
 
 ## Cron
 
@@ -26,6 +27,9 @@ with bad credentials).
   recorded as `missed`; with `"catchUp": true` the latest missed window fires
   once when the Hub is back.
 - A trigger added later never back-fills windows from before it existed.
+- The API returns each cron trigger with `nextDueAt` and `lastDueAt` (on
+  `GetDeployment` and `ListDeployments`), computed the way the scheduler
+  fires them.
 
 ## Webhooks
 
@@ -89,3 +93,37 @@ per issue or ticket. See [Memory](memory.md).
 
 `labels` on a trigger are set on every task it submits, so its work can be
 told apart in tasks, runs, traces and tool calls.
+
+## One-off tasks at a later time
+
+A task can wait for a start time instead of a trigger:
+
+```sh
+agen run reporter "Summarize this week's incidents" --at 2026-10-19T09:00:00Z --no-wait
+agen run reporter "Check that the migration finished" --in 30m --no-wait
+```
+
+`SubmitTask` takes `notBefore`, at most 90 days ahead. Until then the task is
+`queued` but not due: it is not leased, does not wake or scale up the
+deployment, and does not hold up other tasks of its conversation. It still
+counts towards `maxQueuedTasks`. `ListTasks` with `scheduled` lists the tasks
+waiting for their start time, soonest first (`agen tasks --scheduled`);
+cancel one with `CancelTask` (`agen cancel <task>`).
+
+## The Schedules page
+
+The console's **Schedules** page shows everything that starts work on its
+own:
+
+- **Recurring**: cron triggers, their schedule in words, the next and last
+  run, whether they catch up, recent misses, and **Run now** (submits the
+  trigger's task at once).
+- **One-off tasks waiting for their start time**, soonest first, with their
+  model tier and **Cancel**.
+- **Webhooks**: path, authentication, the last delivery and refusals, and
+  **New secret** (creates or rotates the bearer secret; the old one stops
+  working).
+- **Missed and refused** trigger events.
+
+Schedules that missed a window and webhooks that refused calls in the last
+day also appear as warnings on the Overview.

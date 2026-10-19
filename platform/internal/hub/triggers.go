@@ -20,6 +20,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/robfig/cron/v3"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
 	"github.com/prjvvl/agen/platform/internal/store"
@@ -153,6 +154,39 @@ func (s *Scheduler) FireTriggers(ctx context.Context, _ int64) error {
 		}
 	}
 	return nil
+}
+
+// stampCronTimes sets next_due_at and last_due_at on a deployment's cron
+// triggers.
+func (h *Hub) stampCronTimes(ctx context.Context, d store.Deployment, pd *agenv1.Deployment) {
+	now := time.UnixMilli(store.NowMs()).UTC()
+	for _, t := range pd.Triggers {
+		if t.Type != "cron" {
+			continue
+		}
+		sched, err := cron.ParseStandard(t.Schedule)
+		if err != nil {
+			continue
+		}
+		// The same arithmetic as fireCron: the next window after the last one
+		// due (or after the trigger appeared), and if that is past, after now.
+		since := t.ActiveSinceMs
+		if since == 0 {
+			since = d.CreatedMs
+		}
+		last, err := h.Store.LastTriggerDue(ctx, d.Namespace, d.Name, t.Name)
+		if err != nil {
+			continue
+		}
+		if last > 0 {
+			t.LastDueAt = ms(last)
+		}
+		next := sched.Next(time.UnixMilli(max(last, since)).UTC())
+		if next.Before(now) {
+			next = sched.Next(now)
+		}
+		t.NextDueAt = timestamppb.New(next)
+	}
 }
 
 func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.Trigger, now time.Time) error {

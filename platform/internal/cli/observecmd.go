@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
+	"github.com/prjvvl/agen/platform/internal/hub"
 )
 
 // cmdRuns lists runs: every run, or with --roots one per trace with the
@@ -128,14 +129,14 @@ func (e *env) cmdTranscript(ctx context.Context, args []string) error {
 // cmdNotify manages a namespace's notification targets.
 func (e *env) cmdNotify(ctx context.Context, args []string) error {
 	const usage = "agen notify set <name> <url> [--event E]... | agen notify ls | agen notify rm <name>"
-	if len(args) == 0 {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		return usageErr(usage)
 	}
 	var cf clientFlags
 	fs := e.flags("notify "+args[0], &cf)
 	var events listFlag
 	if args[0] == "set" {
-		fs.Var(&events, "event", "event to send (repeatable; default all): approval.pending, task.failed, budget.exhausted")
+		fs.Var(&events, "event", "event to send (repeatable; default all): "+strings.Join(hub.NotificationEvents, ", "))
 	}
 	pos, err := parse(fs, args[1:])
 	if err != nil {

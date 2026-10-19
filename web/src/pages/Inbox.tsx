@@ -6,6 +6,7 @@ import { enumName } from "../format";
 import { useQuery } from "../live";
 import { deploymentHref, go, traceHref } from "../router";
 import { Alert, Badge, Empty, Json, SkeletonRows, Status, taskStatus, Tabs, Time } from "../ui";
+import { AttentionList } from "./Attention";
 import { TaskPanel } from "./Tasks";
 
 export function Inbox({ tab }: { tab?: string }) {
@@ -19,7 +20,7 @@ export function Inbox({ tab }: { tab?: string }) {
       <div className="page-head">
         <div className="titles">
           <h1>Inbox</h1>
-          <p className="facts">Approvals agents wait for, and work that failed.</p>
+          <p className="facts">What needs a person: warnings, approvals agents wait for, and work that failed.</p>
         </div>
       </div>
       <Tabs
@@ -34,6 +35,7 @@ export function Inbox({ tab }: { tab?: string }) {
         <DecidedApprovals />
       ) : (
         <>
+          <AttentionList />
           {can("approver") ? (
             <PendingApprovals />
           ) : (
@@ -116,7 +118,12 @@ function ApprovalItem({ a, mine, onDecide }: { a: Approval; mine: boolean; onDec
           </button>
         </div>
       </div>
-      {mine && <Alert tone="info">You started the work that asked for this, so nobody can approve it with your token: decide it with another token that has the approver scope.</Alert>}
+      {mine && (
+        <Alert tone="info">
+          You can't approve work you started yourself. Someone else with the approver scope decides it; working alone, create a token
+          with the approver scope in <a href="#/settings/tokens">Settings</a> and decide with it (<code>agen approve {a.id} --token …</code>).
+        </Alert>
+      )}
       <Json value={a.arguments ?? {}} label={`arguments of ${a.tool}`} />
       <button className="btn ghost sm" onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? "Hide" : "Show"} what the agent was doing

@@ -95,6 +95,7 @@ func ref(ns, name string) *agenv1.DeploymentRef {
 	return &agenv1.DeploymentRef{Namespace: ns, Name: name}
 }
 
+// features: access.tokens
 func TestAuthScopesAndNamespaces(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -148,6 +149,7 @@ func TestAuthScopesAndNamespaces(t *testing.T) {
 	}
 }
 
+// features: deploy.lifecycle, agent.basics
 func TestDeploymentLifecycle(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -211,6 +213,7 @@ func TestDeploymentLifecycle(t *testing.T) {
 	}
 }
 
+// features: delegation, tasks.run, tasks.cancel
 func TestTasksWakeAndResolve(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -271,6 +274,7 @@ func TestTasksWakeAndResolve(t *testing.T) {
 	}
 }
 
+// features: approvals
 func TestApprovalsCannotBeSelfDecided(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -296,6 +300,7 @@ func TestApprovalsCannotBeSelfDecided(t *testing.T) {
 	}
 }
 
+// features: observe.runs, observe.logs
 func TestRunsTracesAndLogsFromEngineTables(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -358,4 +363,102 @@ func encodeFiles(files map[string][]byte) map[string]string {
 		out[k] = b64(v)
 	}
 	return out
+}
+
+// A namespace-limited admin stays in its namespaces: tokens it creates,
+// lists and revokes, provider holds it resumes; adding or revoking nests
+// is for tokens that are not limited.
+// features: access.tokens
+func TestNamespaceAdminStaysInItsNamespaces(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	mint := func(c agenv1connect.HubServiceClient, scopes, namespaces []string) (string, error) {
+		r, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: "t-" + store.NewID(), Scopes: scopes, Namespaces: namespaces}))
+		if err != nil {
+			return "", err
+		}
+		return r.Msg.Secret, nil
+	}
+	secret, err := mint(e.client(admin), []string{ScopeAdmin}, []string{"team-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := e.client(secret)
+	if _, err := mint(a, []string{ScopeViewer}, nil); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("global token from a namespace admin: %v", err)
+	}
+	if _, err := mint(a, []string{ScopeViewer}, []string{"team-b"}); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("other namespace: %v", err)
+	}
+	if _, err := mint(a, []string{ScopeViewer}, []string{"team-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mint(e.client(admin), []string{ScopeViewer}, []string{"team-b"}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := a.ListApiTokens(ctx, connect.NewRequest(&agenv1.ListApiTokensRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range list.Msg.Tokens {
+		if len(tok.Namespaces) != 1 || tok.Namespaces[0] != "team-a" {
+			t.Fatalf("namespace admin sees %v", tok)
+		}
+	}
+	all, _ := e.client(admin).ListApiTokens(ctx, connect.NewRequest(&agenv1.ListApiTokensRequest{}))
+	for _, tok := range all.Msg.Tokens {
+		if len(tok.Namespaces) == 1 && tok.Namespaces[0] == "team-b" {
+			if _, err := a.RevokeApiToken(ctx, connect.NewRequest(&agenv1.RevokeApiTokenRequest{Id: tok.Id})); code(err) != connect.CodePermissionDenied {
+				t.Fatalf("revoked another namespace's token: %v", err)
+			}
+		}
+	}
+	if _, err := a.CreateJoinToken(ctx, connect.NewRequest(&agenv1.CreateJoinTokenRequest{})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("join token: %v", err)
+	}
+	if _, err := a.ResumeProvider(ctx, connect.NewRequest(&agenv1.ResumeProviderRequest{Account: "team-b/openrouter:KEY"})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("resume in another namespace: %v", err)
+	}
+	op, _ := mint(e.client(admin), []string{ScopeOperator}, []string{"team-a"})
+	if _, err := e.client(op).ResumeProvider(ctx, connect.NewRequest(&agenv1.ResumeProviderRequest{Account: "team-a/openrouter:KEY"})); code(err) != connect.CodeNotFound {
+		t.Fatalf("operator resume in its namespace: %v", err)
+	}
+}
+
+// Two deployments built from the same bundle each list only the versions
+// they ran, most recent first: rolling back never offers another's bundle.
+// features: deploy.versions
+func TestDeploymentVersionsAreTheDeploymentsOwn(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	for _, name := range []string{"a", "b"} {
+		if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: name, BundleFiles: helloFiles(t)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := helloFiles(t)
+	f["x-agen/agent.md"] = append(f["x-agen/agent.md"], []byte("\nA second version.\n")...)
+	upd, err := c.UpdateDeployment(ctx, connect.NewRequest(&agenv1.UpdateDeploymentRequest{Ref: ref("", "a"), BundleFiles: f}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions := func(name string) []string {
+		r, err := c.ListDefinitions(ctx, connect.NewRequest(&agenv1.ListDefinitionsRequest{Ref: ref("", name)}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, d := range r.Msg.Definitions {
+			out = append(out, d.Digest)
+		}
+		return out
+	}
+	a, b := versions("a"), versions("b")
+	if len(a) != 2 || a[0] != upd.Msg.Deployment.DefinitionDigest {
+		t.Fatalf("a's versions: %v", a)
+	}
+	if len(b) != 1 || b[0] != a[1] {
+		t.Fatalf("b's versions: %v (a: %v)", b, a)
+	}
 }

@@ -1,18 +1,50 @@
 {
   "kind": "singleton",
   "budget": {
-    "maxTokensPerRun": 40000,
+    "maxTokensPerRun": 60000,
     "maxUsdPerDay": 0.5
   },
   "permissions": {
     "default": "deny",
     "rules": [
       {
-        "tool": "agen.list_*",
+        "tool": "agen.get_activity",
         "action": "allow"
       },
       {
-        "tool": "agen.get_*",
+        "tool": "agen.get_logs",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_task",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_trace",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_deployment",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_metrics",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_tasks",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_deployments",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_runs",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_instances",
         "action": "allow"
       },
       {
@@ -26,7 +58,13 @@
       "type": "cron",
       "name": "check",
       "schedule": "*/30 * * * *",
-      "input": "Check the fleet for new failures."
+      "input": "Check the fleet."
+    },
+    {
+      "type": "cron",
+      "name": "daily",
+      "schedule": "0 8 * * *",
+      "input": "Write the daily report."
     }
   ]
 }

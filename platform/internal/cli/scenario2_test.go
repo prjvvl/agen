@@ -14,6 +14,7 @@ import (
 // Scenario 2: agen up → 3 agents delegating over A2A (boss → researcher →
 // writer), all started from zero by one task → one linked trace → agen down
 // leaves nothing running.
+// features: delegation, observe.runs, fleet.local
 func TestScenario2LocalFleetDelegationTraceAndDown(t *testing.T) {
 	bin := hostBin(t)
 	home := t.TempDir()

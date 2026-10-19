@@ -100,6 +100,7 @@ func dropVolatile(v any) any {
 
 // The same operation via CLI, REST and MCP gives the same result, with
 // the same authorization.
+// features[api,mcp,cli]: deploy.lifecycle, access.tokens
 func TestCLIRESTAndMCPParity(t *testing.T) {
 	lc, _ := startUp(t)
 	hub, admin := lc.Hub, lc.Token

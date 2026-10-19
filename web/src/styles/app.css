@@ -9,6 +9,10 @@ body,
 #root {
   height: 100%;
 }
+html,
+body {
+  overflow: hidden;
+}
 
 body {
   margin: 0;
@@ -220,7 +224,10 @@ pre,
 .topbar .grow {
   flex: 1;
 }
-.menu-btn {
+.shell[data-nav="hidden"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.shell[data-nav="hidden"] .sidebar {
   display: none;
 }
 
@@ -359,6 +366,38 @@ kbd {
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 24px;
   align-items: start;
+}
+/* Side by side sections of the same height: headings share a row, bodies
+   share a fixed-height row and scroll. */
+.split.even {
+  grid-template-rows: auto 340px;
+  row-gap: 12px;
+  align-items: stretch;
+}
+.split.even > .section {
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+}
+.even-body {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.even-body > .list,
+.even-body > .now-scroll,
+.even-body > .empty {
+  border: 0;
+  border-radius: 0;
+}
+.even-body > .now-scroll {
+  height: auto;
+  overflow: visible;
+}
+.even-body > .muted {
+  padding: 16px;
 }
 
 /* ---- controls ---- */
@@ -1043,8 +1082,8 @@ td.actions-cell {
     transform: none;
     box-shadow: var(--shadow);
   }
-  .menu-btn {
-    display: inline-flex;
+  .shell[data-nav="hidden"] .sidebar {
+    display: flex;
   }
   .topbar {
     padding: 0 12px;
@@ -1060,6 +1099,16 @@ td.actions-cell {
   .split {
     grid-template-columns: minmax(0, 1fr);
   }
+  .split.even {
+    grid-template-rows: none;
+  }
+  .split.even > .section {
+    display: flex;
+    grid-row: auto;
+  }
+  .split.even .even-body {
+    height: 340px;
+  }
   .content {
     padding: 16px 16px 40px;
   }
@@ -1067,4 +1116,24 @@ td.actions-cell {
   .panel.wide {
     width: 100vw;
   }
+}
+
+/* A button that looks like a link (opens something in place). */
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+button.link:hover {
+  text-decoration: underline;
+}
+.small {
+  font-size: var(--text-xs);
+}
+td[data-tone="warn"] {
+  color: var(--warn);
 }

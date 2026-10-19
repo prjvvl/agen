@@ -83,6 +83,12 @@ class Agent {
       approvalTimeoutSeconds: rest.approvalTimeoutSeconds,
       namespace: rest.namespace,
       deployment: rest.deployment,
+      fallbackModels: rest.fallbackModels,
+      router: rest.router,
+      reasoningEffort: rest.reasoningEffort,
+      openrouter: rest.openrouter,
+      contextTokens: rest.contextTokens,
+      maxTokensPerRun: rest.maxTokensPerRun,
       tools: tools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -139,7 +145,7 @@ class Agent {
   /**
    * Run to completion.
    * @param {string} input
-   * @param {{onDelta?, onReset?, sessionId?, taskId?, newConversation?, traceparent?, signal?: AbortSignal}} [opts]
+   * @param {{onDelta?, onReset?, sessionId?, taskId?, newConversation?, traceparent?, modelTier?, signal?: AbortSignal}} [opts]
    */
   async run(input, opts = {}) {
     if (this._closed) throw new AgenError('closed', 'agent is closed');
@@ -148,6 +154,7 @@ class Agent {
     if (opts.sessionId) options.sessionId = opts.sessionId;
     if (opts.taskId) options.taskId = opts.taskId;
     if (opts.newConversation) options.newConversation = true;
+    if (opts.modelTier) options.modelTier = opts.modelTier;
     if (opts.traceparent) options.traceparent = opts.traceparent;
     const onEvent = (evJson) => {
       const ev = JSON.parse(evJson);

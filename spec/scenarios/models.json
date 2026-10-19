@@ -1,0 +1,76 @@
+{
+  "name": "models",
+  "description": "Bundles on a routing model with tiers, fallback models, reasoning effort, OpenRouter settings and compaction are checked and deployed; settings a router or provider does not take are refused.",
+  "features": ["models.router", "models.fallback", "models.reasoning", "models.openrouter", "engine.compaction", "deploy.validate", "agent.basics"],
+  "bundles": {
+    "routed": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": {
+          "provider": "openrouter", "model": "typesafe/jev-router", "script": null,
+          "router": { "tier": "low", "maxTier": "high", "budgetTier": "low" },
+          "fallbackModels": ["deepseek/deepseek-v4-flash"],
+          "reasoningEffort": "low",
+          "openrouter": { "provider": { "sort": "price" } },
+          "contextTokens": 32000
+        },
+        "x-agen/secrets.json": { "OPENROUTER_API_KEY": { "source": "env" } },
+        "x-agen/fake-script.json": null
+      }
+    },
+    "tier-jev-lacks": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": { "provider": "openrouter", "model": "typesafe/jev-router", "script": null, "router": { "tier": "max" } },
+        "x-agen/fake-script.json": null
+      }
+    },
+    "router-on-plain-model": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash", "script": null, "router": { "tier": "low" } },
+        "x-agen/fake-script.json": null
+      }
+    },
+    "fallback-repeats": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash", "script": null, "fallbackModels": ["deepseek/deepseek-v4-flash"] },
+        "x-agen/fake-script.json": null
+      }
+    },
+    "bad-effort": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash", "script": null, "reasoningEffort": "extreme" },
+        "x-agen/fake-script.json": null
+      }
+    },
+    "plugin-twice": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": {
+          "provider": "openrouter", "model": "typesafe/jev-router", "script": null, "router": { "tier": "low" },
+          "openrouter": { "plugins": [{ "id": "jev-router", "cost_tier": "high" }] }
+        },
+        "x-agen/fake-script.json": null
+      }
+    }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "routed", "bundleText": "$bundle:routed", "validateOnly": true }
+    },
+    { "call": "CreateDeployment", "args": { "namespace": "$ns", "name": "bad", "bundleText": "$bundle:tier-jev-lacks", "validateOnly": true }, "error": "not offered by jev-router" },
+    { "call": "CreateDeployment", "args": { "namespace": "$ns", "name": "bad", "bundleText": "$bundle:router-on-plain-model", "validateOnly": true }, "error": "not a routing model" },
+    { "call": "CreateDeployment", "args": { "namespace": "$ns", "name": "bad", "bundleText": "$bundle:fallback-repeats", "validateOnly": true }, "error": "repeats the primary model" },
+    { "call": "CreateDeployment", "args": { "namespace": "$ns", "name": "bad", "bundleText": "$bundle:bad-effort", "validateOnly": true }, "error": "reasoningEffort" },
+    { "call": "CreateDeployment", "args": { "namespace": "$ns", "name": "bad", "bundleText": "$bundle:plugin-twice", "validateOnly": true }, "error": "configure it there" },
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "routed", "bundleText": "$bundle:routed" },
+      "expect": { "deployment.name": "routed" }
+    }
+  ]
+}

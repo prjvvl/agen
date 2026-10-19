@@ -253,7 +253,11 @@ func TaskProto(t store.Task) *agenv1.Task {
 		Error: t.Error, InstanceId: t.InstanceID, RunId: t.RunID, Source: t.Source, Attempts: int32(t.Attempts),
 		CreatedAt: ms(t.CreatedMs), UpdatedAt: ms(t.UpdatedMs), LeaseExpiresAt: ms(t.LeaseExpiresMs), LeaseId: t.LeaseID,
 		ParentTaskId: t.ParentTaskID, ParentRunId: t.ParentRunID, RootRunId: t.RootRunID, Depth: int32(t.Depth), Traceparent: t.Traceparent,
-		ConversationKey: t.ConversationKey, Labels: t.Labels,
+		ConversationKey: t.ConversationKey, Labels: t.Labels, ModelTier: t.ModelTier,
+		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey,
+	}
+	if t.NotBeforeMs > 0 {
+		out.NotBefore = ms(t.NotBeforeMs)
 	}
 	if tp := t.Traceparent; len(tp) > 35 {
 		out.TraceId = tp[3:35]

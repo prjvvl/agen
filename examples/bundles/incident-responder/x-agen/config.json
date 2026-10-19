@@ -1,0 +1,74 @@
+{
+  "kind": "pool",
+  "scale": {
+    "min": 0,
+    "max": 2,
+    "idleTimeout": "15m"
+  },
+  "budget": {
+    "maxTokensPerRun": 120000,
+    "maxUsdPerDay": 2
+  },
+  "permissions": {
+    "default": "deny",
+    "rules": [
+      {
+        "tool": "workspace.*",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_activity",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_logs",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_task",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_trace",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_deployment",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.get_metrics",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_tasks",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_deployments",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_runs",
+        "action": "allow"
+      },
+      {
+        "tool": "agen.list_instances",
+        "action": "allow"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "type": "webhook",
+      "name": "alert",
+      "input": "An alert fired:",
+      "auth": {
+        "type": "bearer"
+      },
+      "labels": {
+        "team": "oncall"
+      }
+    }
+  ]
+}

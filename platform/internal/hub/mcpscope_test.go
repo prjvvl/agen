@@ -25,7 +25,7 @@ var expectedScope = map[string]string{
 	"ListDeployments": ScopeViewer, "GetDeployment": ScopeViewer, "ListInstances": ScopeViewer, "ListNests": ScopeViewer,
 	"GetTask": ScopeViewer, "ListTasks": ScopeViewer, "Resolve": ScopeViewer, "ListDefinitions": ScopeViewer,
 	"GetDefinition": ScopeViewer, "ListTriggerEvents": ScopeViewer, "ListRuns": ScopeViewer, "GetTrace": ScopeViewer, "GetLogs": ScopeViewer,
-	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer,
+	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer, "ListProviderHolds": ScopeViewer, "GetActivity": ScopeViewer, "ResumeProvider": ScopeOperator,
 	"CreateDeployment": ScopeOperator, "UpdateDeployment": ScopeOperator, "ScaleDeployment": ScopeOperator, "DeleteDeployment": ScopeOperator,
 	"PauseDeployment": ScopeOperator, "SubmitTask": ScopeOperator, "CancelTask": ScopeOperator, "RequestWake": ScopeOperator,
 	"CreateWebhookSecret": ScopeOperator,
@@ -38,6 +38,7 @@ var expectedScope = map[string]string{
 // Every MCP tool enforces exactly the scope its API call needs (MCP is a
 // thin layer over the authenticated API), namespace-limited tokens stay in
 // their namespaces, and nothing listed or returned carries secret values.
+// features[mcp]: access.tokens, deploy.lifecycle, observe.runs, secrets
 func TestMCPScopeMatrix(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

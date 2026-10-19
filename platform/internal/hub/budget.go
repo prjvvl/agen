@@ -35,6 +35,10 @@ func (h *Hub) spentToday(ctx context.Context, d store.Deployment) (float64, bool
 	return cost, max > 0 && cost >= max, nil
 }
 
+// BudgetPressure is the share of the daily budget after which leased tasks
+// carry budget_pressure (routing models drop to their budget tier).
+const BudgetPressure = 0.8
+
 func budgetError(d store.Deployment, spent float64) error {
 	next := time.UnixMilli(dayStartMs()).UTC().Add(24 * time.Hour)
 	return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("%s/%s used its daily budget ($%.4f of $%.4f); new work resumes at %s",
@@ -46,5 +50,9 @@ func (h *Hub) withBudget(ctx context.Context, d store.Deployment, pd *agenv1.Dep
 	if spent, exhausted, err := h.spentToday(ctx, d); err == nil {
 		pd.SpentUsdToday, pd.BudgetExhausted = spent, exhausted
 	}
+	if hold, ok := h.providerHold(ctx, d); ok {
+		pd.ProviderHold = providerHoldProto(hold)
+	}
+	h.stampCronTimes(ctx, d, pd)
 	return pd
 }
