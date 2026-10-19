@@ -43,7 +43,7 @@ export interface AgentOptions {
   maxOutputTokens?: number;
   /** Models tried in order when the model keeps failing or gives no answer. */
   fallbackModels?: string[];
-  /** A routing model's settings (model "typesafe/jev-router" or "openrouter/auto"). */
+  /** A routing model's settings (model "typesafe/jev-router", "openrouter/auto" or "openrouter/auto-beta"). */
   router?: { tier?: string; maxTier?: string; budgetTier?: string; allowedModels?: string[]; excludedModels?: string[] };
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
   /** OpenRouter request settings sent as given. */
@@ -65,6 +65,8 @@ export interface RunOptions {
   taskId?: string;
   newConversation?: boolean;
   traceparent?: string;
+  /** For a routing model: this run's cost tier, capped at the agent's maxTier. */
+  modelTier?: "low" | "medium" | "high" | "xhigh" | "max";
   signal?: AbortSignal;
 }
 

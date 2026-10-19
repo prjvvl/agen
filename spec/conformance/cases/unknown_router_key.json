@@ -1,0 +1,24 @@
+{
+  "name": "unknown_router_key",
+  "description": "A misspelled key is refused instead of silently ignored (here router.maxTeir).",
+  "features": [
+    "models.router"
+  ],
+  "agent": {
+    "name": "c",
+    "model": "typesafe/jev-router",
+    "router": {
+      "tier": "low",
+      "maxTeir": "medium"
+    },
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "x"
+        }
+      ]
+    }
+  },
+  "createError": "invalid_spec"
+}

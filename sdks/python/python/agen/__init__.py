@@ -389,9 +389,29 @@ class Agent:
         except _NativeError as e:
             raise AgenError._from_native(e) from None
 
-    async def arun(self, input: str, **kwargs: Any) -> RunResult:
+    async def arun(
+        self,
+        input: str,
+        *,
+        on_delta: Optional[Callable[[str], None]] = None,
+        on_reset: Optional[Callable[[], None]] = None,
+        session_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        new_conversation: bool = False,
+        traceparent: Optional[str] = None,
+        model_tier: Optional[str] = None,
+    ) -> RunResult:
         """Async ``run``. Cancelling the awaiting task cancels the run.
         ``async def`` tools then run on this event loop."""
+        kwargs = dict(
+            on_delta=on_delta,
+            on_reset=on_reset,
+            session_id=session_id,
+            task_id=task_id,
+            new_conversation=new_conversation,
+            traceparent=traceparent,
+            model_tier=model_tier,
+        )
         scope = CancelScope()
         loop = asyncio.get_running_loop()
         self._loops[loop] = self._loops.get(loop, 0) + 1

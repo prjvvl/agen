@@ -3,6 +3,7 @@ package agen_test
 // Shared SDK conformance suite (spec/conformance/cases) for the Go SDK.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -163,8 +164,15 @@ func runConfCase(t *testing.T, root string, c confCase) {
 			t.Fatalf("agent: unknown key %q (update the runner)", k)
 		}
 	}
+	// A misspelled key cannot reach the core from Go (Spec is a struct); the
+	// strict decode stands in for the compiler refusing it.
 	var spec agen.Spec
-	if err := json.Unmarshal(c.Agent, &spec); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(c.Agent))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&spec); err != nil {
+		if c.CreateError == "invalid_spec" {
+			return
+		}
 		t.Fatal(err)
 	}
 	if spec.Bundle != "" {

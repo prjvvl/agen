@@ -31,6 +31,10 @@ print(result.output, result.usage)
 - `approve=lambda tool, args: ...` handles `ask` permissions (default: deny).
 - `store="sqlite:agen.db"` persists sessions (default: in-memory).
 - `run()` releases the GIL, so other threads keep running.
+- Models and budgets: `fallback_models=[...]`, a routing model with
+  `router={"tier": "low", "maxTier": "high"}` (and `run(..., model_tier="high")`
+  per run), `reasoning_effort`, `openrouter={...}`, `context_tokens`,
+  `max_tokens_per_run`. See [Models and providers](https://github.com/prjvvl/agen/blob/main/docs/guides/models.md).
 
 ## Develop
 

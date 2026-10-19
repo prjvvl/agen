@@ -27,6 +27,11 @@
   `reasoning_effort`, `openrouter`, `context_tokens`; a run's
   `model_tier`), covered by the shared conformance cases.
 - The Python, Node and Go SDKs take `maxTokensPerRun` (the core already did).
+- SDK agents refuse misspelled settings and run tiers, and inline settings
+  next to a `bundle` (the bundle sets them), instead of ignoring them. Node's
+  types include `modelTier`; Go keeps tools in the order added, refuses a
+  duplicate name and returns a `closed` error after `Close`; Python's `arun`
+  takes the same options as `run`.
 - New guide: [Models and providers](docs/guides/models.md).
 
 ### Tasks and schedules

@@ -145,7 +145,7 @@ class Agent {
   /**
    * Run to completion.
    * @param {string} input
-   * @param {{onDelta?, onReset?, sessionId?, taskId?, newConversation?, traceparent?, signal?: AbortSignal}} [opts]
+   * @param {{onDelta?, onReset?, sessionId?, taskId?, newConversation?, traceparent?, modelTier?, signal?: AbortSignal}} [opts]
    */
   async run(input, opts = {}) {
     if (this._closed) throw new AgenError('closed', 'agent is closed');

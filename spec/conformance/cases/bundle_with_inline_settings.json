@@ -1,0 +1,12 @@
+{
+  "name": "bundle_with_inline_settings",
+  "description": "A bundle brings its own model and settings; inline ones next to it are refused, not silently ignored.",
+  "features": [
+    "agent.bundle"
+  ],
+  "agent": {
+    "bundle": "examples/bundles/hello",
+    "model": "other/model"
+  },
+  "createError": "invalid_spec"
+}

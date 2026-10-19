@@ -34,6 +34,10 @@ agent.close();
 - `approve: async (tool, args) => boolean` handles `ask` permissions.
 - `store: 'sqlite:agen.db'` persists sessions (default: in-memory).
 - Runs execute off the JS thread; an idle agent never keeps the process alive.
+- Models and budgets: `fallbackModels`, a routing model with
+  `router: { tier: 'low', maxTier: 'high' }` (and `run(input, { modelTier: 'high' })`
+  per run), `reasoningEffort`, `openrouter`, `contextTokens`, `maxTokensPerRun`.
+  See [Models and providers](https://github.com/prjvvl/agen/blob/main/docs/guides/models.md).
 
 ## Develop
 

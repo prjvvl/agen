@@ -26,7 +26,6 @@ import "C"
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"runtime/cgo"
 	"sync"
@@ -126,7 +125,15 @@ type ApprovalFunc func(ctx context.Context, tool string, args json.RawMessage) b
 type Option func(*Agent)
 
 // WithTool adds a Go tool.
-func WithTool(t Tool) Option { return func(a *Agent) { a.tools[t.Name] = t } }
+func WithTool(t Tool) Option {
+	return func(a *Agent) {
+		if _, dup := a.tools[t.Name]; dup {
+			a.dupTool = t.Name
+		}
+		a.tools[t.Name] = t
+		a.order = append(a.order, t.Name)
+	}
+}
 
 // WithApprovals routes "ask" permissions to fn (otherwise they are denied).
 func WithApprovals(fn ApprovalFunc) Option { return func(a *Agent) { a.approve = fn } }
@@ -172,6 +179,8 @@ type Agent struct {
 	ptr     *C.AgenAgent
 	handle  cgo.Handle
 	tools   map[string]Tool
+	order   []string // tool names as added: the request lists them in this order
+	dupTool string
 	approve ApprovalFunc
 
 	mu      sync.RWMutex // guards closed; held (read) while using ptr
@@ -190,6 +199,9 @@ func New(spec Spec, opts ...Option) (*Agent, error) {
 	for _, o := range opts {
 		o(a)
 	}
+	if a.dupTool != "" {
+		return nil, &Error{Code: "invalid_spec", Message: "tool " + a.dupTool + " is added twice"}
+	}
 	body, err := json.Marshal(spec)
 	if err != nil {
 		return nil, err
@@ -197,7 +209,8 @@ func New(spec Spec, opts ...Option) (*Agent, error) {
 	var m map[string]any
 	_ = json.Unmarshal(body, &m)
 	tools := []map[string]any{}
-	for _, t := range a.tools {
+	for _, name := range a.order {
+		t := a.tools[name]
 		params := t.Parameters
 		if len(params) == 0 {
 			params = json.RawMessage(`{"type":"object"}`)
@@ -382,7 +395,7 @@ var cancelSeq atomic.Uint64
 // result then has Status "cancelled").
 func (a *Agent) Run(ctx context.Context, input string, opts ...RunOption) (*Result, error) {
 	if !a.enter() {
-		return nil, errors.New("agen: agent is closed")
+		return nil, &Error{Code: "closed", Message: "agent is closed"}
 	}
 	defer a.wg.Done()
 	cfg := &runConfig{opts: map[string]any{}}
@@ -437,7 +450,7 @@ type Span struct {
 // Trace returns the spans of a run's trace (Result.TraceID).
 func (a *Agent) Trace(traceID string) ([]Span, error) {
 	if !a.enter() {
-		return nil, errors.New("agen: agent is closed")
+		return nil, &Error{Code: "closed", Message: "agent is closed"}
 	}
 	defer a.wg.Done()
 	res, errJSON := ffiTrace(a.ptr, traceID)

@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SdkError {
-    #[error("invalid spec: {0}")]
+    #[error("{0}")]
     Spec(String),
     #[error(transparent)]
     Agent(#[from] AgentError),
@@ -125,7 +125,7 @@ pub enum ProviderSpec {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct AgentSpec {
     /// Load this bundle directory (instructions/model/provider come from it).
     pub bundle: Option<String>,
@@ -164,7 +164,7 @@ pub struct AgentSpec {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct RunSpec {
     pub session_id: Option<String>,
     pub singleton: bool,
@@ -414,6 +414,29 @@ impl SdkAgent {
             .then(|| Arc::new(HostApprover { bridge: bridge.clone() }) as Arc<dyn Approver>);
 
         let agent = if let Some(path) = &spec.bundle {
+            let inline = [
+                ("name", spec.name.is_some()),
+                ("instructions", spec.instructions.is_some()),
+                ("model", spec.model.is_some()),
+                ("provider", spec.provider.is_some()),
+                ("maxTurns", spec.max_turns.is_some()),
+                ("maxOutputTokens", spec.max_output_tokens.is_some()),
+                ("temperature", spec.temperature.is_some()),
+                ("permissions", spec.permissions.is_some()),
+                ("maxTokensPerRun", spec.max_tokens_per_run.is_some()),
+                ("fallbackModels", !spec.fallback_models.is_empty()),
+                ("router", spec.router.is_some()),
+                ("reasoningEffort", spec.reasoning_effort.is_some()),
+                ("openrouter", spec.openrouter.is_some()),
+                ("contextTokens", spec.context_tokens.is_some()),
+            ];
+            let set: Vec<&str> = inline.iter().filter(|(_, on)| *on).map(|(k, _)| *k).collect();
+            if !set.is_empty() {
+                return Err(SdkError::Spec(format!(
+                    "{} cannot be combined with \"bundle\": the bundle sets them (x-agen/harness.json, config.json, agent.md)",
+                    set.join(", ")
+                )));
+            }
             let bundle = Bundle::load(path).map_err(|e| SdkError::Spec(e.to_string()))?;
             let opts = BundleOptions {
                 namespace: spec.namespace.clone(),
@@ -577,6 +600,14 @@ impl SdkAgent {
         }
         if self.is_closed() {
             return Err(SdkError::Closed);
+        }
+        if let Some(t) = &spec.model_tier {
+            if !agen_engine::provider::router::TIERS.contains(&t.as_str()) {
+                return Err(SdkError::Spec(format!(
+                    "modelTier {t:?}: use one of {}",
+                    agen_engine::provider::router::TIERS.join(", ")
+                )));
+            }
         }
         let cancel = CancellationToken::new();
         // Every run is registered (under its key or an internal one) so

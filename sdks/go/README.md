@@ -47,3 +47,6 @@ res, err := agent.Run(ctx, "What is 1234 + 4321?", agen.OnDelta(func(s string) {
 - `agen.WithApprovals(fn)` handles `ask` permissions (default: denied).
 - `Spec.Store` sets a persistent store (`sqlite:agen.db`, `postgres://…`);
   the default is in-memory.
+- Models and budgets: `Spec.FallbackModels`, a routing model with
+  `Spec.Router` (and `agen.ModelTier("high")` per run), `ReasoningEffort`,
+  `OpenRouter`, `ContextTokens`, `MaxTokensPerRun`. See [Models and providers](https://github.com/prjvvl/agen/blob/main/docs/guides/models.md).

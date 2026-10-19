@@ -51,7 +51,7 @@ pub fn rank(tier: &str) -> Option<usize> {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RouterSettings {
     pub tier: Option<String>,
     pub max_tier: Option<String>,
