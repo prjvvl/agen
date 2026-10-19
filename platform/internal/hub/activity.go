@@ -133,7 +133,8 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 			Input: clip(r.Input, 200), StartedAt: ms(r.StartedMs), Turns: r.Step, MaxTurns: int32(h.maxTurns(ctx, r.DefinitionDigest)),
 			Usage: &agenv1.Usage{InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUsd: r.CostUSD}, TraceId: r.TraceID,
 			ParentRunId: r.ParentRunID, RootRunId: r.RootRunID, ConversationKey: r.ConversationKey, Source: r.Source}
-		if r.CallerDeployment != "" {
+		// A caller in a namespace this principal cannot see stays unnamed.
+		if r.CallerDeployment != "" && PrincipalFrom(ctx).AllowsNamespace(r.CallerNamespace) {
 			a.Caller = &agenv1.DeploymentRef{Namespace: r.CallerNamespace, Name: r.CallerDeployment}
 		}
 		st := steps[r.ID]
