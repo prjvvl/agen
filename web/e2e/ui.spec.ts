@@ -341,6 +341,51 @@ test("add agents on a routing model from the form and from a template", async ({
   await expect(page.getByLabel("content of x-agen/harness.json")).not.toContainText('"router"');
 });
 
+// features: tasks.tier, tasks.schedule, tasks.cancel, triggers, deploy.versions, budgets, observe.logs
+test("schedule a task with a tier and cancel it; schedules, budget, logs and roll back", async ({ page }) => {
+  const config = {
+    kind: "pool",
+    scale: { min: 0, max: 1 },
+    budget: { maxUsdPerDay: 3 },
+    triggers: [{ type: "cron", name: "nightly", schedule: "0 3 * * *", input: "report" }],
+  };
+  const first = await api<{ deployment: { definitionDigest: string } }>("CreateDeployment", {
+    name: "planner-ui",
+    bundleFiles: bundle("planner-ui", config, { cycle: true, responses: [{ text: "planned" }] }),
+  });
+  await api("UpdateDeployment", { ref: { name: "planner-ui" }, bundleFiles: bundle("planner-ui", config, { cycle: true, responses: [{ text: "planned again" }] }) });
+  await signIn(page);
+  await page.goto("/#/deployments/default/planner-ui");
+  await expect(page.getByText("Spend today")).toBeVisible();
+
+  await page.getByRole("button", { name: "Run a task" }).click();
+  await page.getByLabel("Task input").fill("plan next week");
+  const at = new Date(Date.now() + 30 * 86400_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  await page.getByLabel("Start at").fill(`${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T09:00`);
+  await page.getByLabel("Model tier").selectOption("max");
+  await page.getByRole("button", { name: "Submit task" }).click();
+  const details = page.getByRole("dialog");
+  await expect(details).toContainText("max");
+  await expect(details).toContainText(String(at.getFullYear()));
+  await page.getByRole("button", { name: "Cancel task" }).click();
+  await expect(details).toContainText("cancelled");
+
+  await page.goto("/#/schedules");
+  await expect(page.getByRole("region", { name: "Recurring" })).toContainText("planner-ui");
+  await expect(page.getByRole("region", { name: "Recurring" })).toContainText("nightly");
+
+  await page.goto("/#/deployments/default/planner-ui/logs");
+  await expect(page.getByLabel("Log level")).toBeVisible();
+
+  await page.goto("/#/deployments/default/planner-ui/bundle");
+  await page.getByRole("button", { name: "Roll back to this" }).click();
+  await page.getByRole("button", { name: "Roll back", exact: true }).click();
+  await expect
+    .poll(async () => (await api<{ deployment: { definitionDigest: string } }>("GetDeployment", { ref: { name: "planner-ui" } })).deployment.definitionDigest)
+    .toBe(first.deployment.definitionDigest);
+});
+
 test("command palette jumps to a deployment", async ({ page }) => {
   await signIn(page);
   await page.keyboard.press("Control+k");

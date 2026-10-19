@@ -44,21 +44,25 @@ type scenarioStep struct {
 	Save   map[string]string `json:"save"`  // variable -> path in the response
 	Retry  int               `json:"retry"` // seconds to retry until the expectations hold
 	Skip   map[string]string `json:"skip"`  // driver -> why this step does not apply there
+	As     string            `json:"as"`    // variable holding the API token to call with (default: the admin's)
 }
 
 // driver calls one Hub API method its own way and returns the response in
 // the API's JSON shape.
 type driver interface {
 	name() string
-	call(t *testing.T, method string, args map[string]any) (map[string]any, error)
+	call(t *testing.T, method string, args map[string]any, token string) (map[string]any, error)
 }
 
 type apiDriver struct{ hub, token string }
 
 func (apiDriver) name() string { return "api" }
 
-func (d apiDriver) call(t *testing.T, method string, args map[string]any) (map[string]any, error) {
-	status, out := rest(t, d.hub, d.token, method, args)
+func (d apiDriver) call(t *testing.T, method string, args map[string]any, token string) (map[string]any, error) {
+	if token == "" {
+		token = d.token
+	}
+	status, out := rest(t, d.hub, token, method, args)
 	if status != 200 {
 		return nil, fmt.Errorf("%v: %v", out["code"], out["message"])
 	}
@@ -69,8 +73,11 @@ type mcpDriver struct{ hub, token string }
 
 func (mcpDriver) name() string { return "mcp" }
 
-func (d mcpDriver) call(t *testing.T, method string, args map[string]any) (map[string]any, error) {
-	r := mcpCall(t, d.hub, d.token, "tools/call", map[string]any{"name": apidesc.SnakeCase(method), "arguments": args})
+func (d mcpDriver) call(t *testing.T, method string, args map[string]any, token string) (map[string]any, error) {
+	if token == "" {
+		token = d.token
+	}
+	r := mcpCall(t, d.hub, token, "tools/call", map[string]any{"name": apidesc.SnakeCase(method), "arguments": args})
 	text := ""
 	if c, ok := r["content"].([]any); ok && len(c) > 0 {
 		text, _ = c[0].(map[string]any)["text"].(string)
@@ -100,10 +107,13 @@ type cliCommand struct {
 	text  bool // prints a message, not JSON
 }
 
-func (d cliDriver) call(t *testing.T, method string, a map[string]any) (map[string]any, error) {
+func (d cliDriver) call(t *testing.T, method string, a map[string]any, token string) (map[string]any, error) {
 	cmd, err := cliFor(t, method, a)
 	if err != nil {
 		return nil, err
+	}
+	if token != "" {
+		cmd.args = append(cmd.args, "--token", token)
 	}
 	var out, errb bytes.Buffer
 	if cmd.stdin != "" {
@@ -253,6 +263,27 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		used["ttlSeconds"] = true
 		ttl, _ := a["ttlSeconds"].(float64)
 		c.args = []string{"join-token", "--json", "--ttl", fmt.Sprintf("%ds", int(ttl))}
+	case "CreateApiToken":
+		c.args = []string{"token", "create", "--name", str("name"), "--json"}
+		used["scopes"], used["namespaces"] = true, true
+		for _, sc := range a["scopes"].([]any) {
+			c.args = append(c.args, "--scope", sc.(string))
+		}
+		for _, n := range a["namespaces"].([]any) {
+			c.args = append(c.args, "--namespace", n.(string))
+		}
+	case "ListApprovals":
+		c.args = append([]string{"approvals", "--json"}, ns()...)
+		if v := str("state"); v != "" && v != "APPROVAL_STATE_PENDING" {
+			return c, fmt.Errorf("the CLI lists pending approvals, or all with --all; not %s", v)
+		}
+	case "DecideApproval":
+		used["approve"] = true
+		verb := "deny"
+		if v, _ := a["approve"].(bool); v {
+			verb = "approve"
+		}
+		c.args = []string{verb, str("id"), "--json"}
 	case "ListProviderHolds":
 		c.args = []string{"providers", "--json"}
 	case "ListTemplates":
@@ -272,6 +303,7 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 // API, MCP and CLI drivers against one local fleet; each driver works in
 // its own namespace.
 func TestScenariosOnEverySurface(t *testing.T) {
+	t.Setenv("AGEN_BIN", agenBinary(t)) // bundles may run `agen mcp ...` tool servers
 	lc, _ := startUp(t)
 	root := repoRoot()
 	paths, _ := filepath.Glob(filepath.Join(root, "spec", "scenarios", "*.json"))
@@ -303,7 +335,7 @@ func TestScenariosOnEverySurface(t *testing.T) {
 				if why := sc.Skip[d.name()]; why != "" {
 					t.Skip(why)
 				}
-				vars := map[string]any{"ns": "sc-" + d.name() + "-" + sc.Name}
+				vars := map[string]any{"ns": "sc-" + d.name() + "-" + sc.Name, "tmp": filepath.ToSlash(t.TempDir())}
 				for i, st := range sc.Steps {
 					if why := st.Skip[d.name()]; why != "" {
 						continue
@@ -318,9 +350,13 @@ func TestScenariosOnEverySurface(t *testing.T) {
 func runStep(t *testing.T, d driver, i int, st scenarioStep, vars map[string]any, bundles map[string]map[string]any) {
 	t.Helper()
 	args := substitute(st.Args, vars, bundles).(map[string]any)
+	token := ""
+	if st.As != "" {
+		token, _ = vars[st.As].(string)
+	}
 	deadline := time.Now().Add(time.Duration(st.Retry) * time.Second)
 	for {
-		out, err := d.call(t, st.Call, args)
+		out, err := d.call(t, st.Call, args, token)
 		problem := ""
 		switch {
 		case st.Error != "" && err == nil:
@@ -364,7 +400,18 @@ func substitute(v any, vars map[string]any, bundles map[string]map[string]any) a
 	case string:
 		switch {
 		case strings.HasPrefix(x, "$bundle:"):
-			return bundles[strings.TrimPrefix(x, "$bundle:")]
+			// ${var} inside a file's text is filled in, e.g. a folder path.
+			files := map[string]any{}
+			for p, body := range bundles[strings.TrimPrefix(x, "$bundle:")] {
+				text := body.(string)
+				for k, v := range vars {
+					if s, ok := v.(string); ok {
+						text = strings.ReplaceAll(text, "${"+k+"}", s)
+					}
+				}
+				files[p] = text
+			}
+			return files
 		case strings.HasPrefix(x, "$in:"):
 			d, _ := time.ParseDuration(strings.TrimPrefix(x, "$in:"))
 			return time.Now().Add(d).UTC().Format(time.RFC3339)

@@ -71,7 +71,6 @@ features:
     title: Skills (on demand and preloaded)
     contract: [agent:skills, agent:preloadSkills]
     on: [rust, python, node, go, api, cli, console]
-    gap: {rust: "", python: "", node: "", go: "", api: "", cli: ""}
   - id: models.fallback
     title: Fallback models
     contract: [harness:fallbackModels, sdk:fallbackModels]
@@ -84,7 +83,7 @@ features:
     title: Reasoning effort
     contract: [harness:reasoningEffort, sdk:reasoningEffort]
     on: [rust, python, node, go, api, mcp, cli]
-    gap: {rust: "", python: "", node: "", go: ""}
+    gap: {rust: "engine tests only: the scripted test provider ignores reasoning effort", python: "engine tests only", node: "engine tests only", go: "engine tests only"}
   - id: models.openrouter
     title: OpenRouter request settings (provider routing, plugins)
     contract: [harness:openrouter, sdk:openrouter]
@@ -93,12 +92,12 @@ features:
     title: Provider account holds and resume
     contract: [rpc:ListProviderHolds, rpc:ResumeProvider, field:ResumeProvider.account, cli:providers]
     on: [api, mcp, cli, console]
-    gap: {console: ""}
+    gap: {console: "a held account cannot be made from the console test; Hub tests cover holds"}
   - id: engine.compaction
     title: Long-run compaction (contextTokens)
     contract: [harness:contextTokens, sdk:contextTokens]
     on: [rust, python, node, go, api, mcp, cli]
-    gap: {rust: "", python: "", node: "", go: ""}
+    gap: {rust: "engine tests only: no SDK case runs long enough to compact", python: "engine tests only", node: "engine tests only", go: "engine tests only"}
   - id: engine.limits
     title: Limits (turns, tokens, durations, queue)
     contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
@@ -114,7 +113,6 @@ features:
     title: Tools from MCP servers in the bundle
     contract: [config:tools]
     on: [api, cli]
-    gap: {api: ""}
   - id: tools.workspace
     title: Built-in workspace and SQL tool servers
     contract: [config:workspace, cli:mcp]
@@ -124,7 +122,6 @@ features:
     contract: [sdk:permissions, sdk:approvalTimeoutSeconds, config:permissions, rpc:ListApprovals, rpc:DecideApproval,
       field:ListApprovals.state, field:DecideApproval.approve, cli:approvals]
     on: [rust, python, node, go, api, mcp, cli, console, a2a]
-    gap: {cli: ""}
 
   # Work
   - id: tasks.run
@@ -136,7 +133,6 @@ features:
     title: Cancel a task or run
     contract: [rpc:CancelTask, cli:cancel]
     on: [rust, python, node, go, api, mcp, cli, console]
-    gap: {console: ""}
   - id: tasks.streaming
     title: Stream output while a run is in progress
     contract: []
@@ -150,18 +146,15 @@ features:
     title: Per-task cost tier
     contract: [field:SubmitTask.model_tier, sdk:modelTier]
     on: [rust, python, node, go, api, mcp, cli, console]
-    gap: {console: ""}
   - id: tasks.schedule
     title: Tasks with a start time
     contract: [field:SubmitTask.not_before, field:ListTasks.scheduled]
     on: [api, mcp, cli, console]
-    gap: {console: ""}
   - id: triggers
     title: Cron and webhook triggers
     contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
       field:ListTriggerEvents.state, rpc:CreateWebhookSecret, field:CreateWebhookSecret.trigger, cli:triggers, cli:webhook-secret]
     on: [api, mcp, cli, console]
-    gap: {console: ""}
   - id: delegation
     title: Agents calling agents (call_agent)
     contract: [config:delegates, rpc:Resolve, field:Resolve.caller, rpc:RequestWake, cli:call, cli:resolve]
@@ -190,7 +183,6 @@ features:
     title: Bundle versions and roll back
     contract: [rpc:ListDefinitions, rpc:GetDefinition, field:GetDefinition.digest]
     on: [api, mcp, console]
-    gap: {console: ""}
   - id: deploy.templates
     title: Start from a template
     contract: [rpc:ListTemplates, cli:init]
@@ -199,7 +191,6 @@ features:
     title: Daily budgets
     contract: [config:budget, field:CreateDeployment.budget, field:UpdateDeployment.budget]
     on: [api, mcp, cli, console]
-    gap: {console: ""}
   - id: secrets
     title: Platform secrets
     contract: [rpc:SetSecret, rpc:ListSecrets, rpc:DeleteSecret, field:SetSecret.value, field:SetSecret.deployments, cli:secret]
@@ -217,7 +208,6 @@ features:
     title: Deployment logs
     contract: [rpc:GetLogs, field:GetLogs.instance_id, field:GetLogs.since, cli:logs]
     on: [api, mcp, cli, console]
-    gap: {console: ""}
   - id: observe.metrics
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]

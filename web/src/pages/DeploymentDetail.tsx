@@ -353,6 +353,8 @@ export function RunTaskPanel({ d, onClose }: { d: Deployment; onClose: () => voi
             <option value="low">low</option>
             <option value="medium">medium</option>
             <option value="high">high</option>
+            <option value="xhigh">xhigh (Auto Router)</option>
+            <option value="max">max (Auto Router)</option>
           </select>
         </label>
         {error && <Alert>{error}</Alert>}
