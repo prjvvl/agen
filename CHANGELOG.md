@@ -25,6 +25,7 @@
   forms, and the Python, Node and Go SDKs (`router`, `fallback_models`,
   `reasoning_effort`, `openrouter`, `context_tokens`; a run's
   `model_tier`), covered by the shared conformance cases.
+- The Python, Node and Go SDKs take `maxTokensPerRun` (the core already did).
 - New guide: [Models and providers](docs/guides/models.md).
 
 ### Tasks and schedules
