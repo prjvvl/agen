@@ -147,7 +147,9 @@ See OpenRouter's documentation for the values. Agen does not check them.
 A provider answer of 401, 402 or 403 (an invalid or expired key, no credit, a
 key limit reached) is an **account error**. It is not retried and no fallback
 model is tried, because another model on the same account will not help. The
-task fails with `provider account error: ...`.
+task fails with `provider account error: ...`. A 403 because moderation
+flagged the input is about that request only: it fails over like other
+request errors and does not hold the account.
 
 The Hub then **holds** the provider account: the namespace, the provider and
 the name of its key secret (plus `baseUrl` if set), such as

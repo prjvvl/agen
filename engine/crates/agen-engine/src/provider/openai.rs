@@ -241,6 +241,15 @@ impl StreamState {
 /// problems (bad key, no credit, key limit) are not retried or failed over.
 fn classify(code: u16, msg: String) -> ProviderError {
     match code {
+        // OpenRouter answers 403 when moderation flags the input: that is about
+        // this request, not the account, so it must not hold the account.
+        403 if {
+            let m = msg.to_ascii_lowercase();
+            m.contains("moderation") || m.contains("flagged")
+        } =>
+        {
+            ProviderError::Request(msg)
+        }
         401..=403 => ProviderError::Account(msg),
         429 | 500..=599 => ProviderError::Retryable(msg),
         _ => ProviderError::Request(msg),
@@ -326,6 +335,17 @@ impl ModelProvider for OpenAiCompatible {
 mod tests {
     use super::*;
     use crate::provider::ToolSpec;
+
+    #[test]
+    fn account_errors_are_401_to_403_except_moderation() {
+        assert!(matches!(classify(401, "bad key".into()), ProviderError::Account(_)));
+        assert!(matches!(classify(402, "no credit".into()), ProviderError::Account(_)));
+        assert!(matches!(classify(403, "forbidden".into()), ProviderError::Account(_)));
+        let flagged = "HTTP 403: Your chosen model requires moderation and your input was flagged";
+        assert!(matches!(classify(403, flagged.into()), ProviderError::Request(_)));
+        assert!(matches!(classify(429, "slow down".into()), ProviderError::Retryable(_)));
+        assert!(matches!(classify(400, "bad request".into()), ProviderError::Request(_)));
+    }
 
     #[test]
     fn body_maps_messages_tools_and_names() {

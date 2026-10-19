@@ -472,8 +472,8 @@ The provider is chosen in `harness.json` only.
   (engine).
 - **Error kinds**: 429 and 5xx are retryable (with backoff, honouring
   `Retry-After`); 401, 402 and 403 are account errors (`provider account
-  error`), never retried or failed over; other errors fail over to the next
-  fallback model.
+  error`), never retried or failed over, except a 403 for flagged input
+  (moderation); other errors fail over to the next fallback model.
 - **Provider holds** (Hub, `hub/providers.go`): a provider account is
   `<provider>:<key secret name>[@<baseUrl>]`. When a task fails with an
   account error, the Hub records a hold (`provider_holds`) on that account:
