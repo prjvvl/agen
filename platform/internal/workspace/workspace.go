@@ -68,7 +68,9 @@ func (s *Server) resolve(p string) (string, error) {
 		p = "."
 	}
 	if filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
-		rel, err := filepath.Rel(s.Root, p)
+		// The root is stored resolved (/private/var on macOS, long names on
+		// Windows); resolve the given path the same way before comparing.
+		rel, err := filepath.Rel(s.Root, resolvedPrefix(p))
 		if err != nil {
 			return "", fmt.Errorf("%s is outside the workspace", p)
 		}
@@ -97,6 +99,24 @@ func (s *Server) resolve(p string) (string, error) {
 		return "", fmt.Errorf("%s is outside the workspace", p)
 	}
 	return full, nil
+}
+
+// resolvedPrefix resolves symlinks (and, on Windows, short names) in the
+// deepest part of p that exists, keeping the rest as given.
+func resolvedPrefix(p string) string {
+	p = filepath.Clean(p)
+	rest := ""
+	for cur := p; ; {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(real, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }
 
 func inside(root, p string) bool {
