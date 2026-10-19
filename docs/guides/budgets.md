@@ -27,11 +27,25 @@ Budgets stop an agent from spending more than you meant it to. They are set in
 - `maxUsdPerDay` is checked when work starts, so the day's spend can overshoot
   by the runs already in flight (at most `maxUsdPerRun` × concurrency).
 
+## Budget pressure
+
+Once a deployment has spent 80% of its `maxUsdPerDay`, the tasks it leases
+carry `budget_pressure`. An agent on a [routing model](models.md#routing-models-and-tiers)
+then runs at its `router.budgetTier` (default `low`), or lower if the task
+asked for less, so the rest of the day's budget goes further. Other models are
+not affected.
+
+The console's Overview warns when a daily budget is 80% spent and when it is
+used up, and a task's details show its tier and whether it ran under budget
+pressure.
+
 ## Seeing spend
 
 Each run records its tokens and cost: `agen logs <name>` prints them per run,
 `ListRuns` returns them, and the web UI shows them per deployment. `agen ps`
-marks a deployment whose daily budget is used up.
+marks a deployment whose daily budget is used up. The console's **Costs** page
+also breaks calls down by the model that served them, with fallbacks,
+latency, tokens and cost (`GetMetrics` `models`).
 
 ## Limits
 

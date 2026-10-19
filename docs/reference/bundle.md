@@ -38,21 +38,69 @@ YAML frontmatter, then the system prompt.
 | `description` | string | Required. Shown to people and to other agents. |
 | `maxTurns` | 1-1000 | Model calls per run (default 16). |
 | `skills` | list of strings | Skills that must exist in `skills/`. |
+| `preloadSkills` | list of strings | Skills (from `skills`) whose instructions are always in the system prompt, instead of loaded with `load_skill` when needed. |
+
+```markdown
+---
+name: coder
+description: Makes code changes in a project folder and checks them with the project's own tests
+skills: [coding-workflow]
+preloadSkills: [coding-workflow]
+maxTurns: 80
+---
+
+You are a careful software engineer working in one project folder through the
+workspace tools ...
+```
+
+Preload a skill the agent uses on every run; the others stay a short list
+of names and descriptions until the model loads one.
 
 ## x-agen/harness.json
 
 | Field | Type | |
 |---|---|---|
 | `provider` | `openrouter`, `openai`, `fake`, `replay` | Required. `fake` replies from a script and `replay` from a recorded cassette; neither calls a model. |
-| `model` | string | Required, e.g. `deepseek/deepseek-v4-flash`. |
+| `model` | string | Required, e.g. `deepseek/deepseek-v4-flash`, or a routing model (`typesafe/jev-router`, `openrouter/auto`, `openrouter/auto-beta`). |
+| `fallbackModels` | list of strings, at most 5 | Models tried in order when the model keeps failing (after retries) or gives no answer. Never used for account errors. |
+| `reasoningEffort` | `minimal`, `low`, `medium`, `high` | For models that reason (OpenRouter `reasoning.effort`, OpenAI `reasoning_effort`). |
+| `router` | object | Routing models only: `tier`, `maxTier`, `budgetTier` (`low`, `medium`, `high`, `xhigh`, `max`, as far as the router offers), `allowedModels`, `excludedModels`. |
+| `openrouter` | object | Provider `openrouter` only: `provider` (OpenRouter provider routing) and `plugins` (each with an `id`), sent with every request as given. |
 | `temperature` | 0-2 | |
 | `maxOutputTokens` | integer | Output limit per model call; lowered further near the token budget. |
+| `contextTokens` | integer, at least 4000 | About how many tokens of conversation one model call may send (default 64000). See below. |
 | `parallelToolCalls` | boolean | Run the tool calls of one turn at the same time (default `true`). |
 | `traceToolArguments` | boolean | Record tool call arguments (redacted, up to 4 KiB) in traces (default `false`). |
 | `baseUrl` | string | An OpenAI-compatible endpoint. |
 | `apiKeySecret` | string | The secret holding the API key, if not the provider's default (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`). |
 | `script` | path | `fake`: the reply script. |
 | `cassette` | path | `replay`: the recording. |
+
+```json
+{
+  "provider": "openrouter",
+  "model": "typesafe/jev-router",
+  "router": { "tier": "medium", "maxTier": "high", "budgetTier": "low" },
+  "fallbackModels": ["deepseek/deepseek-v4-flash"],
+  "reasoningEffort": "low",
+  "openrouter": { "provider": { "sort": "throughput" } },
+  "maxOutputTokens": 8000,
+  "contextTokens": 96000
+}
+```
+
+`router` and `openrouter` are refused on other providers, `router` on a model
+that is not a routing model, and tiers the router does not offer. See
+[Models and providers](../guides/models.md).
+
+**`contextTokens`**: before each model call, messages of earlier runs in the
+conversation are dropped, oldest first, to fit it. If the current run's own
+messages exceed it, its oldest tool results are shortened (their start is
+kept, with a note saying how much was left out) in blocks of eight, until the
+run fits in about two thirds of the budget. Short results and the latest four
+long ones stay whole, and the Store and the transcript keep every result in
+full. Shortening in blocks means the start of the request changes rarely,
+which helps the provider's prompt cache.
 
 ## x-agen/secrets.json
 

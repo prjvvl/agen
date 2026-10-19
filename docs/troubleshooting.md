@@ -82,6 +82,28 @@ with `agen secret set NAME --for <deployment>`.
 [Budgets](guides/budgets.md). A deployment that used its `maxUsdPerDay` takes
 no new work until the next UTC day; `agen ps` shows it.
 
+**`no_answer: the model returned no text and no tool calls`.** The model,
+asked twice, and every model in `fallbackModels` came back empty. With
+`finish_reason "length"`, reasoning likely used the whole output limit: raise
+`maxOutputTokens` in `x-agen/harness.json` or lower `reasoningEffort`. Adding
+a fallback model also helps; see [Models](guides/models.md#fallback-models).
+
+**`provider account error: ...`, or a deployment shows `provider held`.** The
+provider refused the API key (401, 402 or 403: invalid or expired key, no
+credit, a key limit). Agen does not retry or fall back on these, and the Hub
+holds the account: every deployment using the same provider and key secret
+takes no new tasks, and one that is asleep is not woken for A2A calls (they
+fail with `... is stopped: provider account ... is held ...`). Queued tasks
+wait. Fix the key or add credit, then end the hold at
+once instead of waiting for the next probe:
+
+```sh
+agen providers
+agen providers resume default/openrouter:OPENROUTER_API_KEY
+```
+
+See [Models and providers](guides/models.md#account-errors-and-provider-holds).
+
 **`max_turns (N) exceeded`.** The agent kept calling tools. Raise `maxTurns` in
 `x-agen/agent.md`, or make the instructions say when to stop.
 
@@ -97,9 +119,35 @@ to different Gateways at once can meet this; send them one at a time, or
 resend the earlier message (same `messageId`) to let it finish.
 
 **A task stays `queued`.** The deployment may be paused (`agen start`), out
-of daily budget, at `scale.max` with every instance busy, or waiting for an
-earlier task of the same conversation key. `agen ps` and `agen tasks` show
-which.
+of daily budget, held after a provider account error (`agen providers`), at
+`scale.max` with every instance busy, or waiting for an earlier task of the
+same conversation key. A task submitted with `--at` or `--in` waits for its
+start time (the console shows it as `scheduled`). `agen ps` and `agen tasks`
+show which.
+
+**Queued tasks wait behind an approval.** When every run of a deployment
+waits for an approval, nothing else of it moves: its instances are busy with
+those runs. The console's Overview warns about it ("tasks queued behind a
+pending approval"). Decide the approval (`agen approvals`), allow the tool in
+`permissions`, or raise `scale.max` or `scale.maxConcurrency`.
+
+**Waiting for room on a full Nest.** A deployment that wants more instances
+than its Nests have capacity for waits; the console's Overview lists it. Idle
+deployments on a full Nest give their capacity back after 1 minute (instead of
+their `idleTimeout`) while another deployment waits. Add a Nest, raise
+`--capacity`, or lower `scale.min` of deployments that hold instances they do
+not use.
+
+**`had no free instance within 10m0s (asleep, starting, busy or waiting for
+Nest capacity)`.** An A2A call (or `call_agent`) waited 10 minutes for an
+instance of the target and gave up. The target may be at `scale.max` with
+long runs, stuck waiting for Nest capacity (above), paused, out of budget, or
+failing to start (`agen ps --all`). Give it more instances, or use
+`start_agent` for long work so callers do not hold a call open.
+
+**`task ... still running after 10m0s; it keeps running`.** `agen run` stopped
+waiting, not the task. Wait for it again with `agen wait <task-id>`, or pass
+`--timeout 0` to `agen run` to wait without a limit.
 
 **A task was retried.** If an instance dies mid-task, the task is released and
 the next attempt resumes the same run on another instance (logged as

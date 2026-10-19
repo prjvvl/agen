@@ -322,6 +322,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListTasks` · MCP tool: `list
 | `deployment` | string |  |
 | `state` | TaskState |  |
 | `limit` | int32 |  |
+| `scheduled` | bool | Only tasks waiting for their start time (not_before), soonest first. |
 
 ## ListTemplates
 
@@ -337,7 +338,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListTriggerEvents` · MCP too
 
 | Field | Type | Description |
 |---|---|---|
-| `ref` | DeploymentRef |  |
+| `ref` | DeploymentRef | Empty name: every deployment (of the namespace, or of every namespace the caller may see when the namespace is empty too). |
 | `state` | TriggerEventState |  |
 | `limit` | int32 |  |
 

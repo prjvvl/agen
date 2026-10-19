@@ -46,6 +46,7 @@ export const siteConfig = {
         "guides/templates",
         "guides/tools",
         "guides/agents",
+        "guides/models",
         "guides/permissions",
         "guides/budgets",
         "guides/notifications",

@@ -14,6 +14,7 @@ conversation a run joins depends on how it was started.
 | Any task or call to a `singleton` | The deployment's one long-lived conversation (keys and `contextId` are ignored). |
 | A2A `message/send` to a `pool` or `task` deployment | One per `contextId` and caller. A message without `contextId` gets a new one, returned in the answer; send it with the next message to continue. |
 | A delegated call (`call_agent`) | A new one for each call. |
+| A task started with `start_agent` | A new one for the task; its result comes back as a task in the caller's conversation (see [Connecting agents](agents.md#starting-work-without-waiting)). |
 
 Set the key per task:
 
@@ -28,7 +29,9 @@ or body field (see [Triggers](triggers.md#conversations)).
 - Tasks of one conversation run one at a time, in the order they were
   submitted, so the history stays consistent. Different keys run in parallel.
 - Keys are scoped by where they come from (API, each webhook trigger, each
-  A2A caller), so one source can never read another's conversation.
+  A2A caller), so one source can never read another's conversation. A task
+  shows its key with that scope (`api:ticket-4711`); sending that value back
+  to `SubmitTask` continues the same conversation.
 - A run that is still unfinished blocks its conversation. If its task is
   cancelled or fails, the run is closed so the next task can start.
 
@@ -51,4 +54,7 @@ conversation; see the SDK README for the exact options.
 Sessions, conversations, messages, runs and traces live in the Store
 (SQLite locally, Postgres in a distributed fleet). Secrets are redacted before
 anything is stored. There is no automatic summarisation of long histories yet:
-keep long-lived conversations focused, or start a new key.
+keep long-lived conversations focused, or start a new key. Within one long
+run, the oldest tool results are shortened in what is sent to the model once
+the run outgrows `contextTokens`; the Store keeps them whole (see the
+[bundle reference](../reference/bundle.md#x-agenharnessjson)).

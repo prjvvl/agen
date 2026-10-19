@@ -184,10 +184,18 @@ usage: agen store host-role --store postgres://<admin>@host/db [--role agen_host
 Usage of init:
   -example string
     	same as --template
+  -fallback string
+    	comma-separated models to try when the model keeps failing ("none" clears them)
   -list
     	list the templates
+  -max-tier string
+    	highest cost tier a task may ask for (routing models)
+  -model string
+    	OpenRouter model instead of the template's (a routing model such as typesafe/jev-router picks the model per request)
   -template string
-    	template to start from: hello, researcher, writer, editor, support-triage, pr-reviewer, fleet-steward, cost-watchdog, approval-triage, assistant (default "hello")
+    	template to start from: hello, researcher, writer, editor, pr-reviewer, fleet-steward, approval-triage, assistant, coder, ci-fixer, support, incident-responder, data-analyst (default "hello")
+  -tier string
+    	default cost tier for a routing model: low, medium, high (xhigh, max for openrouter/auto)
 ```
 
 ## agen deploy
