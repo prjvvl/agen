@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -352,7 +353,12 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 		// A held provider account takes one probe task once its retry time
 		// has come, and nothing else.
 		if hold, held := n.hub.providerHold(ctx, d); held {
-			claim := "claim:" + m.NestId + ":" + store.NewID()
+			// A claim is held only while its lease is made; one left by a
+			// Hub that stopped midway is released after a minute.
+			if ms, ok := claimTime(hold.ProbeTask); ok && store.NowMs()-ms > 60_000 {
+				_ = n.hub.Store.ReleaseProbe(ctx, hold.Account, hold.ProbeTask)
+			}
+			claim := fmt.Sprintf("claim:%d:%s", store.NowMs(), m.NestId)
 			if ok, err := n.hub.Store.ClaimProbe(ctx, hold.Account, claim); err != nil || !ok {
 				return connect.NewResponse(&agenv1.LeaseTasksResponse{}), nil
 			}
@@ -741,4 +747,15 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	}
 	_ = n.hub.Store.TouchActivity(ctx, ns, name)
 	return connect.NewResponse(&agenv1.SubmitChildTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// claimTime reads the time out of a probe claim ("claim:<unix ms>:<nest>").
+func claimTime(probe string) (int64, bool) {
+	rest, ok := strings.CutPrefix(probe, "claim:")
+	if !ok {
+		return 0, false
+	}
+	ms, _, _ := strings.Cut(rest, ":")
+	n, err := strconv.ParseInt(ms, 10, 64)
+	return n, err == nil
 }

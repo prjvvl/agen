@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -114,6 +115,18 @@ func TestProviderAccountErrorsHoldTheAccount(t *testing.T) {
 	c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref("", "alpha"), Paused: false}))
 	if probe = lease("beta"); len(probe) != 1 {
 		t.Fatal("no new probe after the first went back to the queue")
+	}
+	// A claim left by a Hub that stopped between claiming and leasing is
+	// released after a minute.
+	if _, err := n.CompleteTask(ctx, connect.NewRequest(&agenv1.CompleteTaskRequest{NestId: id, TaskId: probe[0].Id, LeaseId: probe[0].LeaseId,
+		Error: "still failing"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.DB().ExecContext(ctx, "UPDATE provider_holds SET probe_task = $1, retry_ms = $2", fmt.Sprintf("claim:%d:gone", store.NowMs()-120_000), store.NowMs()-1); err != nil {
+		t.Fatal(err)
+	}
+	if probe = lease("beta"); len(probe) != 1 {
+		t.Fatal("a stale claim blocks the probe")
 	}
 	// The probe succeeds: a run that started after the hold.
 	now := store.NowMs()
