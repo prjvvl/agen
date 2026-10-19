@@ -849,7 +849,17 @@ func (h *Hub) visibleDigests(ctx context.Context) (map[string]bool, error) {
 }
 
 func (h *Hub) ListDefinitions(ctx context.Context, req *connect.Request[agenv1.ListDefinitionsRequest]) (*connect.Response[agenv1.ListDefinitionsResponse], error) {
-	list, err := h.Store.ListDefinitions(ctx, req.Msg.Name)
+	var list []store.Definition
+	var err error
+	if r := req.Msg.GetRef(); r.GetName() != "" {
+		ns := nsOr(r.GetNamespace())
+		if err := requireNamespace(ctx, ns); err != nil {
+			return nil, err
+		}
+		list, err = h.Store.DeploymentVersions(ctx, ns, r.GetName())
+	} else {
+		list, err = h.Store.ListDefinitions(ctx, req.Msg.Name)
+	}
 	if err != nil {
 		return nil, connectErr(err)
 	}

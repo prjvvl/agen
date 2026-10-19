@@ -424,3 +424,41 @@ func TestNamespaceAdminStaysInItsNamespaces(t *testing.T) {
 		t.Fatalf("operator resume in its namespace: %v", err)
 	}
 }
+
+// Two deployments built from the same bundle each list only the versions
+// they ran, most recent first: rolling back never offers another's bundle.
+// features: deploy.versions
+func TestDeploymentVersionsAreTheDeploymentsOwn(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	for _, name := range []string{"a", "b"} {
+		if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: name, BundleFiles: helloFiles(t)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := helloFiles(t)
+	f["x-agen/agent.md"] = append(f["x-agen/agent.md"], []byte("\nA second version.\n")...)
+	upd, err := c.UpdateDeployment(ctx, connect.NewRequest(&agenv1.UpdateDeploymentRequest{Ref: ref("", "a"), BundleFiles: f}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions := func(name string) []string {
+		r, err := c.ListDefinitions(ctx, connect.NewRequest(&agenv1.ListDefinitionsRequest{Ref: ref("", name)}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, d := range r.Msg.Definitions {
+			out = append(out, d.Digest)
+		}
+		return out
+	}
+	a, b := versions("a"), versions("b")
+	if len(a) != 2 || a[0] != upd.Msg.Deployment.DefinitionDigest {
+		t.Fatalf("a's versions: %v", a)
+	}
+	if len(b) != 1 || b[0] != a[1] {
+		t.Fatalf("b's versions: %v (a: %v)", b, a)
+	}
+}

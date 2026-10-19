@@ -574,6 +574,9 @@ message GetTraceResponse {
 
 message ListDefinitionsRequest {
   string name = 1;
+  // The versions this deployment has run, most recently used first (name is
+  // then ignored).
+  DeploymentRef ref = 2;
 }
 message ListDefinitionsResponse {
   // Files omitted; use GetDefinition.

@@ -91,7 +91,6 @@ export function NowTable({ runs, flagged }: { runs: ActiveRun[]; flagged: Set<st
             <th>Task</th>
             <th className="num">Turns</th>
             <th className="num">Tokens</th>
-            <th className="num">Cost</th>
             <th className="num">Running for</th>
           </tr>
         </thead>
@@ -125,8 +124,9 @@ export function NowTable({ runs, flagged }: { runs: ActiveRun[]; flagged: Set<st
                   {turns}
                   {max ? <span className="muted">/{max}</span> : null}
                 </td>
-                <td className="num">{compact(tokens(r.usage))}</td>
-                <td className="num">{r.usage?.costUsd ? money(r.usage.costUsd) : "–"}</td>
+                <td className="num" title={r.usage?.costUsd ? money(r.usage.costUsd) : "cost not reported"}>
+                  {compact(tokens(r.usage))}
+                </td>
                 <td className="num">{since(r.startedAt, now)}</td>
               </tr>
             );

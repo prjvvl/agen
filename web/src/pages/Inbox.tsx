@@ -118,7 +118,12 @@ function ApprovalItem({ a, mine, onDecide }: { a: Approval; mine: boolean; onDec
           </button>
         </div>
       </div>
-      {mine && <Alert tone="info">You can't approve work you started yourself. Someone else with the approver scope has to decide it.</Alert>}
+      {mine && (
+        <Alert tone="info">
+          You can't approve work you started yourself. Someone else with the approver scope decides it; working alone, create a token
+          with the approver scope in <a href="#/settings/tokens">Settings</a> and decide with it (<code>agen approve {a.id} --token …</code>).
+        </Alert>
+      )}
       <Json value={a.arguments ?? {}} label={`arguments of ${a.tool}`} />
       <button className="btn ghost sm" onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? "Hide" : "Show"} what the agent was doing

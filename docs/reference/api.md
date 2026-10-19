@@ -237,6 +237,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListDefinitions` · MCP tool:
 | Field | Type | Description |
 |---|---|---|
 | `name` | string |  |
+| `ref` | DeploymentRef | The versions this deployment has run, most recently used first (name is then ignored). |
 
 ## ListDeployments
 

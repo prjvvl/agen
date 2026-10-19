@@ -40,7 +40,14 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
   const [openTask, setOpenTask] = useState<string>();
 
   const d = dep.data?.deployment;
-  if (dep.error && !d) return <Alert>{dep.error}</Alert>;
+  if (dep.error && !d)
+    return /not.?found/i.test(dep.error) ? (
+      <Empty title={`No deployment ${namespace}/${name}`}>
+        <a href="#/deployments">All deployments</a>
+      </Empty>
+    ) : (
+      <Alert>{dep.error}</Alert>
+    );
   if (!d) return <SkeletonRows rows={3} />;
   const operator = can("operator");
   const setTab = (t: Tab) => go(["deployments", namespace, name, t === "overview" ? undefined : t]);
@@ -88,9 +95,13 @@ export function DeploymentDetail({ namespace, name, tab = "overview" }: { namesp
               <Pencil size={15} aria-hidden />
               Edit bundle
             </a>
-            <button className="btn" onClick={() => act(() => call("PauseDeployment", { ref, paused: !d.paused }))}>
-              {d.paused ? "Start" : "Stop"}
-            </button>
+            {d.paused ? (
+              <button className="btn" onClick={() => act(() => call("PauseDeployment", { ref, paused: false }))}>
+                Resume
+              </button>
+            ) : (
+              <ConfirmButton label="Pause" confirm="Pause" onConfirm={() => act(() => call("PauseDeployment", { ref, paused: true }))} />
+            )}
             <ConfirmButton
               label="Delete…"
               confirm="Delete deployment"
@@ -447,11 +458,9 @@ function BundleTab({ d }: { d: Deployment }) {
   const { can } = useSession();
   const [view, setView] = useState<string>();
   const [msg, setMsg] = useState("");
-  const cur = useQuery(() => call<{ definition: Definition }>("GetDefinition", { digest: d.definitionDigest }), [d.definitionDigest]);
-  const bundleName = cur.data?.definition.name;
   const versions = useQuery(
-    () => (bundleName ? call<{ definitions?: Definition[] }>("ListDefinitions", { name: bundleName }) : Promise.resolve({ definitions: [] })),
-    [bundleName, d.definitionDigest],
+    () => call<{ definitions?: Definition[] }>("ListDefinitions", { ref: { namespace: d.namespace, name: d.name } }),
+    [d.namespace, d.name, d.definitionDigest],
   );
   const list = [...(versions.data?.definitions ?? [])].sort((a, b) => Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? ""));
   const shown = view ?? d.definitionDigest;

@@ -167,7 +167,7 @@ export function TraceView({ traceId, span }: { traceId: string; span?: string })
                 <b>{runs.size}</b> {runs.size === 1 ? "run" : "runs"}
               </span>
               <span>
-                <b>{count("model")}</b> model calls
+                <b>{count("model")}</b> model {count("model") === 1 ? "call" : "calls"}
               </span>
               <span>
                 <b>{count("tool") + count("agent")}</b> tool calls
@@ -306,7 +306,7 @@ function Timeline({ roots, runs, t0, t1, selected }: { roots: Node[]; runs: Map<
     <div className="trace-body">
       <div className="waterfall">
         <div className="toolbar wf-tools">
-          <input type="search" placeholder="Find a span: tool, model or agent" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find span" />
+          <input type="search" placeholder="Find a span" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find span" />
           <label className="check">
             <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} /> Only failures
           </label>

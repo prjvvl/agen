@@ -107,11 +107,12 @@ test("scale, stop and start from the list; the fleet shows the instances", async
   await expect(page.locator('tr[data-instance="scaler"]')).toHaveCount(2);
 
   await page.getByRole("link", { name: "Deployments" }).click();
-  await row.getByRole("button", { name: "Stop" }).click();
+  await row.getByRole("button", { name: "Pause" }).click();
+  await row.getByRole("button", { name: "Pause" }).click(); // confirm
   await expect(row.locator('[data-field="status"]')).toContainText("stopped");
   await expect(row.locator('[data-field="desired"]')).toHaveText("0");
   await expect(page.getByRole("button", { name: "scale scaler up" })).toBeDisabled();
-  await row.getByRole("button", { name: "Start" }).click();
+  await row.getByRole("button", { name: "Resume" }).click();
   await expect(row.locator('[data-field="status"]')).not.toContainText("stopped");
 });
 

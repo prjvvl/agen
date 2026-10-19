@@ -181,7 +181,7 @@ features:
     on: [api, mcp, cli, console]
   - id: deploy.versions
     title: Bundle versions and roll back
-    contract: [rpc:ListDefinitions, rpc:GetDefinition, field:GetDefinition.digest]
+    contract: [rpc:ListDefinitions, rpc:GetDefinition, field:GetDefinition.digest, field:ListDefinitions.ref]
     on: [api, mcp, console]
   - id: deploy.templates
     title: Start from a template

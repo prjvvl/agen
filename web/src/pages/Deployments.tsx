@@ -5,7 +5,7 @@ import { useSession } from "../App";
 import { compact, duration, enumName, money, pct } from "../format";
 import { useQuery } from "../live";
 import { deploymentHref } from "../router";
-import { Alert, deploymentStatus, Empty, MiniBars, SkeletonRows, Status, Time } from "../ui";
+import { Alert, ConfirmButton, deploymentStatus, Empty, MiniBars, SkeletonRows, Status, Time } from "../ui";
 
 export const depKey = (r: { namespace?: string; name: string }) => `${r.namespace ?? "default"}/${r.name}`;
 
@@ -169,9 +169,19 @@ export function Deployments() {
                       <td>{last ? <Time t={new Date(last * 1000).toISOString()} /> : <span className="muted">never</span>}</td>
                       <td className="actions-cell">
                         {operator && (
-                          <button className="btn sm" disabled={pending} onClick={() => act(() => call("PauseDeployment", { ref, paused: !d.paused }))}>
-                            {d.paused ? "Start" : "Stop"}
-                          </button>
+                          d.paused ? (
+                            <button className="btn sm" disabled={pending} onClick={() => act(() => call("PauseDeployment", { ref, paused: false }))}>
+                              Resume
+                            </button>
+                          ) : (
+                            <ConfirmButton
+                              className="btn sm"
+                              label="Pause"
+                              confirm="Pause"
+                              disabled={pending}
+                              onConfirm={() => act(() => call("PauseDeployment", { ref, paused: true }))}
+                            />
+                          )
                         )}
                       </td>
                     </tr>
