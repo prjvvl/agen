@@ -475,9 +475,10 @@ The provider is chosen in `harness.json` only.
   error`), never retried or failed over, except a 403 for flagged input
   (moderation); other errors fail over to the next fallback model.
 - **Provider holds** (Hub, `hub/providers.go`): a provider account is
-  `<provider>:<key secret name>[@<baseUrl>]`. When a task fails with an
-  account error, the Hub records a hold (`provider_holds`) on that account:
-  its deployments, in every namespace, lease no tasks, do not scale up for
+  `<namespace>/<provider>:<key secret name>[@<baseUrl>]` (a namespace's
+  platform secrets are its own). When a task fails with an account error, the
+  Hub records a hold (`provider_holds`) on that account: its deployments lease
+  no tasks, do not scale up for
   queued work and are not woken until `retry_at`. Then one probe task is
   leased; a probe that fails with an account error backs off further (5 min,
   doubling, at most 1 h). Any run of the account's deployments that succeeds

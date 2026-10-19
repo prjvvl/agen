@@ -419,6 +419,16 @@ impl Agent {
         cfg.namespace = namespace.clone();
         cfg.deployment = opts.deployment.unwrap_or_else(|| bundle.name().into());
         cfg.definition_digest = bundle.digest.clone();
+        // An MCP call may take as long as limits.toolTimeout allows (0: no
+        // limit), not the transport's own default.
+        let mcp_opts = crate::mcp::McpOptions {
+            call_timeout: if cfg.tool_timeout.is_zero() {
+                Duration::from_secs(7 * 24 * 3600)
+            } else {
+                cfg.tool_timeout.max(opts.mcp.call_timeout)
+            },
+            connect_timeout: opts.mcp.connect_timeout,
+        };
         let mut b = Agent::builder(cfg, store.clone())
             .provider(provider)
             .secrets(secrets.clone());
@@ -460,7 +470,7 @@ impl Agent {
                 &bundle.config.tools,
                 &secrets,
                 &redactor,
-                &opts.mcp,
+                &mcp_opts,
             )
             .await
             .map_err(|e| AgentError::Config(e.to_string()))?;

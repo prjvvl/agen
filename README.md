@@ -62,8 +62,8 @@ model and a real tool.
 - Keep secrets out of logs, traces, storage and model input.
 - Be traced end to end, across agents: the console shows every model call
   and tool call, with what was sent and what came back.
-- Stay bounded: run time, turns, output, repeated calls, delegation and
-  spend all have limits by default.
+- Stay bounded: run time, turns, output, repeated calls and delegation have
+  limits by default; budgets cap tokens and spend per run and per day.
 - Use any model through OpenRouter or an OpenAI-compatible API, with
   fallback models, routing models and cost tiers, and a hold on a provider
   account whose key or credit stops working.
@@ -86,7 +86,8 @@ model and a real tool.
   [memory](docs/guides/memory.md), [MCP clients](docs/guides/mcp.md),
   [running a fleet](docs/deploy.md), [troubleshooting](docs/troubleshooting.md)
 - Reference: [bundle](docs/reference/bundle.md), [CLI](docs/reference/cli.md),
-  [API](docs/reference/api.md), [SDKs](docs/reference/sdks.md)
+  [API](docs/reference/api.md), [SDKs](docs/reference/sdks.md),
+  [support matrix](docs/reference/support.md)
 - Explanation: [architecture](docs/architecture.md), [security](docs/security.md)
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), and
   [developing Agen](docs/development.md) (building from source, tests, layout)

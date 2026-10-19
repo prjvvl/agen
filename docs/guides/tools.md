@@ -42,7 +42,8 @@ SDK READMEs.
   `HOME`, `TEMP`, `LANG`, ...), their own `env`, and `PYTHONUTF8=1` /
   `PYTHONIOENCODING=utf-8` so non-English text survives on Windows. They never
   see the host's credentials.
-- Every call has a timeout (2 minutes) and is cancelled with its run.
+- Every call has the run's `limits.toolTimeout` (10 minutes by default) and is
+  cancelled with its run.
 - If a server dies, the instance reports itself unhealthy and is replaced.
 
 `agen ps --all` (and `GetDeployment` / `ListInstances`) shows how many tools

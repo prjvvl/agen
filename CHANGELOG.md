@@ -14,7 +14,8 @@
   (`gen_ai.response.model`), the router's tier and decision, and fallbacks.
 - An empty answer is asked again once, then falls back; a run that gets no
   answer from any model fails with `no_answer`.
-- Account errors (401, 402, 403) are never retried or failed over. The Hub
+- Account errors (401, 402, 403; not a 403 for input flagged by moderation)
+  are never retried or failed over. The Hub
   holds the provider account: its deployments take no new tasks, do not
   scale up or wake, and one probe goes through after a backoff (5 min,
   doubling to 1 h); a run that succeeds ends the hold. `ListProviderHolds`,

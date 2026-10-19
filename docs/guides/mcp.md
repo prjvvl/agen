@@ -68,8 +68,9 @@ settings run in the cloud and cannot reach a Hub on `localhost`.)
   the run id (what it sent and received, tool calls included) and
   `get_trace` with its trace id (every step across agents, with timings and
   cost). `get_metrics` gives failure rates and p95 duration per deployment.
-- Runs end when they hit a limit (`maxRunDuration` 1 h, `toolTimeout` 10
-  min, `maxIdenticalToolCalls` 5 by default); the run's error says which.
+- Runs end when they hit a limit (`maxRunDuration` 1 h,
+  `maxIdenticalToolCalls` 5 by default); the run's error says which. A tool
+  call that outlasts `toolTimeout` (10 min) gives the model an error instead.
   See [Budgets and limits](budgets.md#limits).
 - An agent that calls the Hub keeps its own token as a platform secret with
   `"key": "AGEN_TOKEN.<agent>"` in its `x-agen/secrets.json`. A token made
