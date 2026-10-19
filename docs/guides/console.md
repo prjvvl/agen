@@ -32,8 +32,8 @@ The first page answers "what is happening, and does anything need me?":
   - Where work enters (API and CLI, schedules, webhooks, A2A callers outside
     the fleet) is drawn on the left.
   - Calls are solid lines, work started with `start_agent` is dashed, and
-    results going back are dotted; an agent calling itself is a loop. Line
-    width follows the number of calls and colour the share that failed.
+    results going back are dotted; an agent calling itself is a loop. A
+    line's colour shows the share of calls that failed; click it for counts.
   - Dots travel along a line while a call is in flight (a red diamond when it
     failed), and an agent pulses while it waits for its model.
   - Select an agent or a line for details: what an agent runs now and its

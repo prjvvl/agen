@@ -428,7 +428,7 @@ export function FleetMap({ deps: allDeps, edges: allEdges, metrics, live, flight
                 onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && (ev.preventDefault(), onEdge(e))}
               >
                 <path className="hit" d={d} />
-                <path d={d} markerEnd="url(#arrow)" style={{ strokeWidth: Math.min(6, 1.25 + Math.log2(1 + e.calls) * 0.6) }} />
+                <path d={d} markerEnd="url(#arrow)" />
                 <text x={mx} y={my - 7} textAnchor="middle">
                   {text}
                   {live > 0 ? ` · ${live} live` : ""}
