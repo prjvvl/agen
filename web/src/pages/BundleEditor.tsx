@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fitTier, ROUTER_TIERS } from "../routers";
 import { b64, bytesB64, call, Deployment, errorText, textOf } from "../api";
 
 
@@ -14,6 +15,10 @@ function templateFiles(f: {
   instructions: string;
   provider: string;
   model: string;
+  router: string;
+  tier: string;
+  maxTier: string;
+  fallback: string;
   reply: string;
   kind: string;
   max: number;
@@ -34,6 +39,17 @@ function templateFiles(f: {
     files["x-agen/harness.json"] = JSON.stringify({ provider: "fake", model: "fake-1", script: "x-agen/fake-script.json" }, null, 2) + "\n";
     files["x-agen/fake-script.json"] =
       JSON.stringify({ cycle: true, responses: [{ text: f.reply, ...(f.delayMs ? { delayMs: f.delayMs } : {}) }] }, null, 2) + "\n";
+  } else if (f.provider === "router") {
+    // A routing model picks the serving model per request, within a tier.
+    const harness = {
+      provider: "openrouter",
+      model: f.router,
+      router: { tier: f.tier, maxTier: f.maxTier },
+      ...(f.fallback ? { fallbackModels: [f.fallback] } : {}),
+      maxOutputTokens: 4000,
+    };
+    files["x-agen/harness.json"] = JSON.stringify(harness, null, 2) + "\n";
+    files["x-agen/secrets.json"] = JSON.stringify({ OPENROUTER_API_KEY: { source: "env" } }, null, 2) + "\n";
   } else {
     files["x-agen/harness.json"] = JSON.stringify({ provider: "openrouter", model: f.model }, null, 2) + "\n";
     files["x-agen/secrets.json"] = JSON.stringify({ OPENROUTER_API_KEY: { source: "env" } }, null, 2) + "\n";
@@ -55,6 +71,10 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
     instructions: "You are a helpful assistant.",
     provider: "openrouter",
     model: "deepseek/deepseek-v4-flash",
+    router: "typesafe/jev-router",
+    tier: "low",
+    maxTier: "medium",
+    fallback: "deepseek/deepseek-v4-flash",
     reply: "Hello from a new agent.",
     kind: "pool",
     max: 3,
@@ -236,11 +256,49 @@ export function BundleEditor({ namespace, name }: { namespace?: string; name?: s
         <label className="field">
           Model
           <select value={form.provider} onChange={set("provider")} aria-label="Model provider">
-            <option value="openrouter">OpenRouter</option>
+            <option value="openrouter">OpenRouter: one model</option>
+            <option value="router">OpenRouter: a routing model picks the model per request</option>
             <option value="fake">Scripted test replies (never calls a model)</option>
           </select>
         </label>
-        {form.provider === "fake" ? (
+        {form.provider === "router" ? (
+          <>
+            <label className="field">
+              Routing model <span className="help">Reads OPENROUTER_API_KEY from the environment.</span>
+              <select
+                value={form.router}
+                onChange={(e) => {
+                  const r = e.target.value;
+                  setForm({ ...form, router: r, tier: fitTier(r, form.tier), maxTier: fitTier(r, form.maxTier) });
+                }}
+                aria-label="Routing model"
+              >
+                <option value="typesafe/jev-router">Jev Router (typesafe/jev-router)</option>
+                <option value="openrouter/auto">OpenRouter Auto Router (openrouter/auto)</option>
+              </select>
+            </label>
+            <label className="field">
+              Cost tier <span className="help">Default for each task; a task may ask for another, up to the highest tier.</span>
+              <select value={form.tier} onChange={set("tier")} aria-label="Cost tier">
+                {ROUTER_TIERS[form.router].map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Highest tier a task may ask for
+              <select value={form.maxTier} onChange={set("maxTier")} aria-label="Highest tier">
+                {ROUTER_TIERS[form.router].map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Fallback model <span className="help">Used when the router keeps failing. Empty: none.</span>
+              <input value={form.fallback} onChange={set("fallback")} aria-label="Fallback model" />
+            </label>
+          </>
+        ) : form.provider === "fake" ? (
           <>
             <label className="field">
               Scripted reply

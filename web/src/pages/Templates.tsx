@@ -5,6 +5,7 @@ import { useSession } from "../App";
 import { useQuery } from "../live";
 import { deploymentHref, go } from "../router";
 import { Alert, Badge, Empty, SkeletonRows } from "../ui";
+import { fitTier, ROUTER_TIERS, withModel } from "../routers";
 import { PanelForm } from "./DeploymentDetail";
 
 const CATEGORY_ORDER = ["starter", "research", "content", "support", "engineering", "operations", "multi-agent"];
@@ -122,7 +123,7 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
   const admin = can("admin");
   const harness = useMemo(() => {
     try {
-      return JSON.parse(t.files?.["x-agen/harness.json"] ?? "{}") as { provider?: string; model?: string };
+      return JSON.parse(t.files?.["x-agen/harness.json"] ?? "{}") as { provider?: string; model?: string; router?: { tier?: string }; fallbackModels?: string[] };
     } catch {
       return {};
     }
@@ -131,6 +132,7 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
   const [name, setName] = useState(t.name);
   const [namespace, setNamespace] = useState("default");
   const [model, setModel] = useState(harness.model ?? "");
+  const [tier, setTier] = useState(harness.router?.tier ?? "medium");
   const [prompt, setPrompt] = useState(body);
   const [values, setValues] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<string[]>();
@@ -162,7 +164,7 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
   function files(): Record<string, string> {
     const out = { ...(t.files ?? {}) };
     out["x-agen/agent.md"] = `${front}\n${prompt.trim()}\n`;
-    if (model && harness.model) out["x-agen/harness.json"] = JSON.stringify({ ...harness, model }, null, 2) + "\n";
+    if (model && harness.model) out["x-agen/harness.json"] = JSON.stringify(withModel(harness, model, ROUTER_TIERS[model] ? fitTier(model, tier) : undefined), null, 2) + "\n";
     if (hubToken && sources.AGEN_TOKEN === "platform") {
       const decl = JSON.parse(out["x-agen/secrets.json"]);
       decl.AGEN_TOKEN = { ...decl.AGEN_TOKEN, key: stored("AGEN_TOKEN") };
@@ -216,6 +218,16 @@ export function DeployWizard({ t, onClose }: { t: Template; onClose: () => void 
             <label className="field wide">
               Model <span className="help">{harness.provider === "openrouter" ? "Any OpenRouter model id." : `Provider ${harness.provider}.`}</span>
               <input value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model" />
+            </label>
+          )}
+          {ROUTER_TIERS[model] && (
+            <label className="field">
+              Cost tier <span className="help">The routing model picks a model within this tier; a task may ask for another.</span>
+              <select value={fitTier(model, tier)} onChange={(e) => setTier(e.target.value)} aria-label="Cost tier">
+                {ROUTER_TIERS[model].map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
             </label>
           )}
           <label className="field wide">
