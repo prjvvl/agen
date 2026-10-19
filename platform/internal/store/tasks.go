@@ -180,7 +180,8 @@ func (s *Store) ListTasks(ctx context.Context, ns, deployment, state string, lim
 // "leased" for a nest, each with a fresh fencing lease id. A task with a
 // conversation key waits while an older task with the same key is queued or
 // in flight, so a conversation's tasks run one at a time, in order. Tasks not
-// due yet (not_before_ms) are skipped and hold up nothing.
+// due yet (not_before_ms) are skipped and hold up nothing. The result of a
+// task started with start_agent waits until the run that started it ends.
 func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, max int, leaseMs int64) ([]Task, error) {
 	if max <= 0 {
 		return nil, nil
@@ -195,6 +196,7 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks t WHERE namespace = $1 AND deployment = $2 AND state = 'queued' AND not_before_ms <= $4 AND (conversation_key = '' OR NOT EXISTS ("+
 			"SELECT 1 FROM tasks o WHERE o.namespace = t.namespace AND o.deployment = t.deployment AND o.conversation_key = t.conversation_key AND o.id <> t.id AND "+
 			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND o.not_before_ms <= $4 AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
+			"AND NOT (source LIKE 'reply:%' AND EXISTS (SELECT 1 FROM tasks c JOIN runs r ON r.id = c.parent_run_id WHERE c.id = t.parent_task_id AND (r.ended_ms IS NULL OR r.ended_ms = 0))) "+
 			"ORDER BY created_ms, id LIMIT $3"+lock, ns, deployment, max, now)
 		if err != nil {
 			return err

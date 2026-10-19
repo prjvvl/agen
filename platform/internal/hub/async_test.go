@@ -73,6 +73,23 @@ func TestChildTaskFromARunRepliesOnce(t *testing.T) {
 		tasks[0].Input != "[Result of the task you started on writer (task "+child.Id+", succeeded)]\n\nWritten." {
 		t.Fatalf("reply tasks: %+v", tasks)
 	}
+	// The result waits until the run that started the child has ended.
+	leaseLead := func() int {
+		l, err := n.LeaseTasks(ctx, connect.NewRequest(&agenv1.LeaseTasksRequest{NestId: id, Ref: ref("", "lead"), Max: 5}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(l.Msg.Tasks)
+	}
+	if got := leaseLead(); got != 0 {
+		t.Fatalf("result leased while the starting run is still running: %d", got)
+	}
+	if _, err := e.store.DB().ExecContext(ctx, "UPDATE runs SET status = 'succeeded', ended_ms = $1 WHERE id = 'live'", now+1); err != nil {
+		t.Fatal(err)
+	}
+	if got := leaseLead(); got != 1 {
+		t.Fatalf("result not leased after the run ended: %d", got)
+	}
 
 	// A task's run can start children before the Nest's next status report
 	// lists its instance: the task's lease names the Nest and instance. Only
