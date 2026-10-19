@@ -367,6 +367,38 @@ kbd {
   gap: 24px;
   align-items: start;
 }
+/* Side by side sections of the same height: headings share a row, bodies
+   share a fixed-height row and scroll. */
+.split.even {
+  grid-template-rows: auto 340px;
+  row-gap: 12px;
+  align-items: stretch;
+}
+.split.even > .section {
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+}
+.even-body {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.even-body > .list,
+.even-body > .now-scroll,
+.even-body > .empty {
+  border: 0;
+  border-radius: 0;
+}
+.even-body > .now-scroll {
+  height: auto;
+  overflow: visible;
+}
+.even-body > .muted {
+  padding: 16px;
+}
 
 /* ---- controls ---- */
 
@@ -1066,6 +1098,16 @@ td.actions-cell {
   }
   .split {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .split.even {
+    grid-template-rows: none;
+  }
+  .split.even > .section {
+    display: flex;
+    grid-row: auto;
+  }
+  .split.even .even-body {
+    height: 340px;
   }
   .content {
     padding: 16px 16px 40px;

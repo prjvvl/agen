@@ -111,18 +111,25 @@ export function Overview() {
         )}
       </section>
 
-      <div className="split">
+      <div className="split even">
         <section className="section" aria-labelledby="now">
           <div className="section-head">
             <h2 id="now">Now</h2>
             <span className="hint">Every run in progress and what it is doing; delegated runs sit under the run waiting for them.</span>
           </div>
-          {activity.error && <Alert>{activity.error}</Alert>}
-          {activity.loading ? <SkeletonRows rows={3} cols={5} /> : <NowTable runs={running} flagged={flagged} />}
+          <div className="even-body">
+            {activity.error && <Alert>{activity.error}</Alert>}
+            {activity.loading ? <SkeletonRows rows={3} cols={5} /> : <NowTable runs={running} flagged={flagged} />}
+          </div>
         </section>
         <section className="section" aria-labelledby="activity">
-          <h2 id="activity">Activity</h2>
-          <ActivityFeed onOpenTask={setOpenTask} />
+          <div className="section-head">
+            <h2 id="activity">Activity</h2>
+            <span className="hint">Tasks as they are queued, run and finish.</span>
+          </div>
+          <div className="even-body">
+            <ActivityFeed onOpenTask={setOpenTask} />
+          </div>
         </section>
       </div>
 
