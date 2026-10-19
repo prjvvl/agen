@@ -297,6 +297,42 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   await expect(page.locator("td", { hasText: "ops-chat" })).toBeVisible();
 });
 
+test("add agents on a routing model from the form and from a template", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Deployments" }).click();
+  await page.getByRole("link", { name: "New agent" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("routed");
+  await page.getByLabel("Description").fill("Routed per request");
+  await page.getByLabel("Model provider").selectOption("router");
+  await expect(page.getByLabel("Routing model")).toHaveValue("typesafe/jev-router");
+  // Auto offers max; Jev Router tops out at high, so switching back fits the tier.
+  await page.getByLabel("Routing model").selectOption("openrouter/auto");
+  await page.getByLabel("Highest tier").selectOption("max");
+  await page.getByLabel("Routing model").selectOption("typesafe/jev-router");
+  await expect(page.getByLabel("Highest tier")).toHaveValue("high");
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(page.getByRole("heading", { name: "routed" })).toBeVisible();
+  await page.goto("/#/edit/default/routed");
+  await page.getByRole("button", { name: "x-agen/harness.json" }).click();
+  const harness = page.getByLabel("content of x-agen/harness.json");
+  await expect(harness).toContainText('"model": "typesafe/jev-router"');
+  await expect(harness).toContainText('"maxTier": "high"');
+  await expect(harness).toContainText('"fallbackModels"');
+
+  // A template on a routing model, moved to a plain model, loses its router settings.
+  await page.getByRole("link", { name: "Templates" }).click();
+  await page.getByRole("link", { name: "Use the Coding agent template" }).click();
+  await expect(page.getByLabel("Cost tier")).toHaveValue("medium");
+  await page.getByLabel("Name", { exact: true }).fill("coder-plain");
+  await page.getByLabel("Model", { exact: true }).fill("deepseek/deepseek-v4-flash");
+  await expect(page.getByLabel("Cost tier")).toHaveCount(0);
+  await page.getByRole("button", { name: "Deploy" }).click();
+  await expect(page.getByRole("heading", { name: "coder-plain" })).toBeVisible();
+  await page.goto("/#/edit/default/coder-plain");
+  await page.getByRole("button", { name: "x-agen/harness.json" }).click();
+  await expect(page.getByLabel("content of x-agen/harness.json")).not.toContainText('"router"');
+});
+
 test("command palette jumps to a deployment", async ({ page }) => {
   await signIn(page);
   await page.keyboard.press("Control+k");
