@@ -108,5 +108,23 @@ func TestConsoleQueries(t *testing.T) {
 		if _, err := s.PruneObservability(ctx, 1); err != nil {
 			t.Fatal(err)
 		}
+		// Pruning keeps each trigger's latest event (cron catch-up reads it).
+		for _, due := range []int64{10, 20} {
+			if _, err := s.DB().ExecContext(ctx, "INSERT INTO trigger_events (id, namespace, deployment, trigger_name, state, due_ms, recorded_ms) VALUES ($1, $2, 'cronbot', 'tick', 'fired', $3, $3)",
+				NewID(), ns, due); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.PruneObservability(ctx, 1000); err != nil {
+			t.Fatal(err)
+		}
+		if last, err := s.LastTriggerDue(ctx, ns, "cronbot", "tick"); err != nil || last != 20 {
+			t.Fatalf("last due after pruning: %d %v", last, err)
+		}
+		var n int
+		s.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM trigger_events WHERE namespace = $1 AND deployment = 'cronbot'", ns).Scan(&n)
+		if n != 1 {
+			t.Fatalf("%d trigger events kept, want the latest only", n)
+		}
 	})
 }

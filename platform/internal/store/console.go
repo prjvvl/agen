@@ -277,7 +277,9 @@ func (s *Store) PruneObservability(ctx context.Context, beforeMs int64) (int64, 
 	for _, q := range []string{
 		"DELETE FROM spans WHERE end_ms < $1 AND run_id IN (SELECT id FROM runs WHERE ended_ms IS NOT NULL AND ended_ms < $1)",
 		"DELETE FROM logs WHERE time_ms < $1",
-		"DELETE FROM trigger_events WHERE recorded_ms < $1",
+		// Each trigger keeps its latest event: cron catch-up reads it.
+		"DELETE FROM trigger_events WHERE recorded_ms < $1 AND due_ms < (SELECT MAX(o.due_ms) FROM trigger_events o " +
+			"WHERE o.namespace = trigger_events.namespace AND o.deployment = trigger_events.deployment AND o.trigger_name = trigger_events.trigger_name)",
 	} {
 		res, err := s.db.ExecContext(ctx, q, beforeMs)
 		if err != nil {
