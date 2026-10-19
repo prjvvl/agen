@@ -595,7 +595,11 @@ func (e *env) cmdUp(ctx context.Context, args []string) error {
 			cancel()
 		})
 	}
-	hs, err := startHub(ctx, st, cfg.Token, *listen, log, hubOptions{extra: []func(*http.ServeMux){shutdown}, retention: *retention})
+	// The Hub stops after the Nest has drained, so the Nest's last task
+	// completions still reach it.
+	hubCtx, stopHub := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopHub()
+	hs, err := startHub(hubCtx, st, cfg.Token, *listen, log, hubOptions{extra: []func(*http.ServeMux){shutdown}, retention: *retention})
 	if err != nil {
 		return err
 	}
@@ -624,6 +628,7 @@ func (e *env) cmdUp(ctx context.Context, args []string) error {
 	case runErr = <-nestErr:
 	}
 	cancel()
+	stopHub()
 	<-hs.done
 	return runErr
 }
