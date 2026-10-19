@@ -364,3 +364,63 @@ func encodeFiles(files map[string][]byte) map[string]string {
 	}
 	return out
 }
+
+// A namespace-limited admin stays in its namespaces: tokens it creates,
+// lists and revokes, provider holds it resumes; adding or revoking nests
+// is for tokens that are not limited.
+// features: access.tokens
+func TestNamespaceAdminStaysInItsNamespaces(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	mint := func(c agenv1connect.HubServiceClient, scopes, namespaces []string) (string, error) {
+		r, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: "t-" + store.NewID(), Scopes: scopes, Namespaces: namespaces}))
+		if err != nil {
+			return "", err
+		}
+		return r.Msg.Secret, nil
+	}
+	secret, err := mint(e.client(admin), []string{ScopeAdmin}, []string{"team-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := e.client(secret)
+	if _, err := mint(a, []string{ScopeViewer}, nil); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("global token from a namespace admin: %v", err)
+	}
+	if _, err := mint(a, []string{ScopeViewer}, []string{"team-b"}); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("other namespace: %v", err)
+	}
+	if _, err := mint(a, []string{ScopeViewer}, []string{"team-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mint(e.client(admin), []string{ScopeViewer}, []string{"team-b"}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := a.ListApiTokens(ctx, connect.NewRequest(&agenv1.ListApiTokensRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range list.Msg.Tokens {
+		if len(tok.Namespaces) != 1 || tok.Namespaces[0] != "team-a" {
+			t.Fatalf("namespace admin sees %v", tok)
+		}
+	}
+	all, _ := e.client(admin).ListApiTokens(ctx, connect.NewRequest(&agenv1.ListApiTokensRequest{}))
+	for _, tok := range all.Msg.Tokens {
+		if len(tok.Namespaces) == 1 && tok.Namespaces[0] == "team-b" {
+			if _, err := a.RevokeApiToken(ctx, connect.NewRequest(&agenv1.RevokeApiTokenRequest{Id: tok.Id})); code(err) != connect.CodePermissionDenied {
+				t.Fatalf("revoked another namespace's token: %v", err)
+			}
+		}
+	}
+	if _, err := a.CreateJoinToken(ctx, connect.NewRequest(&agenv1.CreateJoinTokenRequest{})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("join token: %v", err)
+	}
+	if _, err := a.ResumeProvider(ctx, connect.NewRequest(&agenv1.ResumeProviderRequest{Account: "team-b/openrouter:KEY"})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("resume in another namespace: %v", err)
+	}
+	op, _ := mint(e.client(admin), []string{ScopeOperator}, []string{"team-a"})
+	if _, err := e.client(op).ResumeProvider(ctx, connect.NewRequest(&agenv1.ResumeProviderRequest{Account: "team-a/openrouter:KEY"})); code(err) != connect.CodeNotFound {
+		t.Fatalf("operator resume in its namespace: %v", err)
+	}
+}

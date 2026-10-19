@@ -378,7 +378,7 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/Resolve` · MCP tool: `resolv
 
 End a provider hold now (e.g. after fixing the key or adding credit).
 
-Scope: `admin` · REST: `POST /agen.v1.HubService/ResumeProvider` · MCP tool: `resume_provider`
+Scope: `operator` · REST: `POST /agen.v1.HubService/ResumeProvider` · MCP tool: `resume_provider`
 
 | Field | Type | Description |
 |---|---|---|

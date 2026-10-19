@@ -173,6 +173,13 @@ func (h *Hub) ResumeProvider(ctx context.Context, req *connect.Request[agenv1.Re
 	if req.Msg.Account == "" {
 		return nil, invalid("account is required (agen providers lists held accounts)")
 	}
+	if ns, _, scoped := strings.Cut(req.Msg.Account, "/"); scoped {
+		if err := requireNamespace(ctx, ns); err != nil {
+			return nil, err
+		}
+	} else if err := requireGlobal(ctx, "resuming this account"); err != nil {
+		return nil, err
+	}
 	ok, err := h.Store.ClearProviderHold(ctx, req.Msg.Account)
 	if err != nil {
 		return nil, connectErr(err)

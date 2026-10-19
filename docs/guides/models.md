@@ -169,7 +169,7 @@ adding credit or fixing the key:
 
 ```sh
 agen providers                                      # held accounts, the reason and the next try
-agen providers resume default/openrouter:OPENROUTER_API_KEY # admin
+agen providers resume default/openrouter:OPENROUTER_API_KEY # operator in that namespace
 ```
 
 The API has `ListProviderHolds` and `ResumeProvider`; the console lists held

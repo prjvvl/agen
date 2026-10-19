@@ -961,6 +961,9 @@ func (h *Hub) GetLogs(ctx context.Context, req *connect.Request[agenv1.GetLogsRe
 // ---- access ----
 
 func (h *Hub) CreateJoinToken(ctx context.Context, req *connect.Request[agenv1.CreateJoinTokenRequest]) (*connect.Response[agenv1.CreateJoinTokenResponse], error) {
+	if err := requireGlobal(ctx, "adding a nest"); err != nil {
+		return nil, err
+	}
 	ttl := int64(req.Msg.TtlSeconds)
 	if ttl <= 0 {
 		ttl = 3600
@@ -985,6 +988,10 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 			return nil, invalid("unknown scope " + s)
 		}
 	}
+	// A namespace-limited admin mints tokens within its own namespaces only.
+	if !PrincipalFrom(ctx).AllowsAllOf(req.Msg.Namespaces) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("a token limited to namespaces can only create tokens limited to some of them"))
+	}
 	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf)
 	if err != nil {
 		return nil, connectErr(err)
@@ -1002,8 +1009,11 @@ func (h *Hub) ListApiTokens(ctx context.Context, _ *connect.Request[agenv1.ListA
 		return nil, connectErr(err)
 	}
 	out := &agenv1.ListApiTokensResponse{}
+	p := PrincipalFrom(ctx)
 	for _, t := range list {
-		out.Tokens = append(out.Tokens, tokenProto(t))
+		if p.AllowsAllOf(t.Namespaces) {
+			out.Tokens = append(out.Tokens, tokenProto(t))
+		}
 	}
 	return connect.NewResponse(out), nil
 }
@@ -1012,6 +1022,9 @@ func (h *Hub) RevokeNest(ctx context.Context, req *connect.Request[agenv1.Revoke
 	if req.Msg.Id == "" {
 		return nil, invalid("id is required")
 	}
+	if err := requireGlobal(ctx, "revoking a nest"); err != nil {
+		return nil, err
+	}
 	if err := h.Store.RevokeNest(ctx, req.Msg.Id); err != nil {
 		return nil, connectErr(err)
 	}
@@ -1019,6 +1032,9 @@ func (h *Hub) RevokeNest(ctx context.Context, req *connect.Request[agenv1.Revoke
 }
 
 func (h *Hub) RevokeApiToken(ctx context.Context, req *connect.Request[agenv1.RevokeApiTokenRequest]) (*connect.Response[agenv1.RevokeApiTokenResponse], error) {
+	if t, err := h.Store.GetAPIToken(ctx, req.Msg.Id); err == nil && !PrincipalFrom(ctx).AllowsAllOf(t.Namespaces) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("that token reaches namespaces this token does not"))
+	}
 	if err := h.Store.RevokeAPIToken(ctx, req.Msg.Id); err != nil {
 		return nil, connectErr(err)
 	}

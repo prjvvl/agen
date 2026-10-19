@@ -54,7 +54,7 @@ to set up, and what each control does and does not cover.
 
 | Control | Covers | Limits |
 |---|---|---|
-| API tokens with scopes (`viewer`, `operator`, `approver`, `admin`) and namespaces | HubService, REST and MCP alike (MCP tools need the same scopes as their API calls) | |
+| API tokens with scopes (`viewer`, `operator`, `approver`, `admin`) and namespaces | HubService, REST and MCP alike (MCP tools need the same scopes as their API calls). An admin limited to namespaces creates, lists and revokes only tokens within them, and cannot add or revoke Nests | |
 | Nest mTLS certificates (30 days, renewed automatically; `agen nests revoke ID`) | NestService | Revocation is immediate; renewal swaps certificates atomically |
 | A2A call tokens (Hub-signed: users 10 min, agents 1 h; bound to one deployment) | Gateway calls, including while Hubs are down | A token is a bearer credential until it expires |
 | Per-instance host token | An instance's control API answers only its Manager | |
