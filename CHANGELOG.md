@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0
+## v0.1.3
 
 ### Models and providers
 - `harness.json`: `fallbackModels` (tried in order when a model keeps failing
