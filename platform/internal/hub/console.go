@@ -298,7 +298,7 @@ func (h *Hub) ListTemplates(context.Context, *connect.Request[agenv1.ListTemplat
 // ---- notification targets ----
 
 // NotificationEvents are the event types a notification target can receive.
-var NotificationEvents = []string{"approval.pending", "task.failed", "budget.exhausted"}
+var NotificationEvents = []string{"approval.pending", "task.failed", "budget.exhausted", "provider.held", "provider.resumed"}
 
 var targetName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 

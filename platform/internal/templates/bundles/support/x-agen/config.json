@@ -13,7 +13,15 @@
     "default": "deny",
     "rules": [
       {
-        "tool": "workspace.*",
+        "tool": "workspace.read",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.list",
+        "action": "allow"
+      },
+      {
+        "tool": "workspace.grep",
         "action": "allow"
       }
     ]

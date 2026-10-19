@@ -53,7 +53,7 @@ func TestProviderAccountErrorsHoldTheAccount(t *testing.T) {
 		Error: "provider account error: HTTP 401 Unauthorized: key expired"})); err != nil {
 		t.Fatal(err)
 	}
-	acct := "openrouter:OPENROUTER_API_KEY"
+	acct := "default/openrouter:OPENROUTER_API_KEY"
 	var hold store.ProviderHold
 	deadline := time.Now().Add(5 * time.Second)
 	for {

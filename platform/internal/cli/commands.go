@@ -333,6 +333,8 @@ func (e *env) cmdPs(ctx context.Context, args []string) error {
 			status = "stopped"
 		case d.BudgetExhausted:
 			status = fmt.Sprintf("daily budget used ($%.2f)", d.SpentUsdToday)
+		case d.ProviderHold != nil:
+			status = "provider held (agen providers)"
 		}
 		fmt.Fprintf(w, "%s/%s\t%s\t%d\t%d\t%d..%d\t%s\t%s\n", d.Namespace, d.Name, stateName(d.Kind, "DEPLOYMENT_KIND_"), d.Ready, d.Desired,
 			d.GetScale().GetMin(), d.GetScale().GetMax(), shortDigest(d.DefinitionDigest), status)

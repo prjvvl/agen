@@ -30,9 +30,11 @@ const accountErrorMarker = "provider account error"
 var accounts sync.Map // digest -> string
 
 // accountOf names the provider account a deployment uses:
-// "<provider>:<key secret>[@<base url>]", or "" for scripted providers.
+// "<namespace>/<provider>:<key secret>[@<base url>]" (a namespace's
+// platform secrets are its own), or "" for scripted providers.
 func (h *Hub) accountOf(ctx context.Context, d store.Deployment) string {
-	if v, ok := accounts.Load(d.DefinitionDigest); ok {
+	cacheKey := d.Namespace + "|" + d.DefinitionDigest
+	if v, ok := accounts.Load(cacheKey); ok {
 		return v.(string)
 	}
 	def, err := h.Store.GetDefinition(ctx, d.DefinitionDigest)
@@ -52,12 +54,12 @@ func (h *Hub) accountOf(ctx context.Context, d store.Deployment) string {
 		if key == "" {
 			key = map[string]string{"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY"}[hs.Provider]
 		}
-		acct = hs.Provider + ":" + key
+		acct = d.Namespace + "/" + hs.Provider + ":" + key
 		if hs.BaseURL != "" {
 			acct += "@" + strings.TrimRight(hs.BaseURL, "/")
 		}
 	}
-	accounts.Store(d.DefinitionDigest, acct)
+	accounts.Store(cacheKey, acct)
 	return acct
 }
 
@@ -157,7 +159,11 @@ func (h *Hub) ListProviderHolds(ctx context.Context, _ *connect.Request[agenv1.L
 		return nil, connectErr(err)
 	}
 	out := &agenv1.ListProviderHoldsResponse{}
+	p := PrincipalFrom(ctx)
 	for _, x := range holds {
+		if ns, _, ok := strings.Cut(x.Account, "/"); ok && !p.AllowsNamespace(ns) {
+			continue
+		}
 		out.Holds = append(out.Holds, providerHoldProto(x))
 	}
 	return connect.NewResponse(out), nil
@@ -175,5 +181,8 @@ func (h *Hub) ResumeProvider(ctx context.Context, req *connect.Request[agenv1.Re
 		return nil, connectErr(fmt.Errorf("%w: no hold on %s", store.ErrNotFound, req.Msg.Account))
 	}
 	h.logger().Info("provider account resumed by operator", "account", req.Msg.Account, "by", PrincipalFrom(ctx).ID)
+	if ns, _, ok := strings.Cut(req.Msg.Account, "/"); ok {
+		h.notifyTargets(ctx, ns, "", "provider.resumed", "hold", &agenv1.ProviderHold{Account: req.Msg.Account, Reason: "resumed by " + PrincipalFrom(ctx).ID})
+	}
 	return connect.NewResponse(&agenv1.ResumeProviderResponse{}), nil
 }
