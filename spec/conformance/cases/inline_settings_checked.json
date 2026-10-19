@@ -1,0 +1,23 @@
+{
+  "name": "inline_settings_checked",
+  "description": "An agent defined in code gets the checks a bundle's harness.json gets (here a fallback model that repeats the model).",
+  "features": [
+    "models.fallback"
+  ],
+  "agent": {
+    "name": "c",
+    "model": "m",
+    "fallbackModels": [
+      "m"
+    ],
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "x"
+        }
+      ]
+    }
+  },
+  "createError": "invalid_spec"
+}

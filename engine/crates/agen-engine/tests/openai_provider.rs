@@ -317,3 +317,25 @@ async fn live_router_records_the_served_model() {
         assert_eq!(s.attributes["agen.router.tier"], "low");
     }
 }
+
+#[tokio::test]
+async fn a_stream_cut_off_before_it_finished_is_retryable() {
+    let m = Mock::default();
+    // No finish_reason and no [DONE]: the connection closed midway.
+    let cut = format!("data: {}\n\n", json!({"choices":[{"delta":{"content":"half an "}}]}));
+    m.replies.lock().unwrap().push((200, cut));
+    let done = format!(
+        "data: {}\n\n",
+        json!({"choices":[{"delta":{"content":"whole"},"finish_reason":"stop"}]})
+    );
+    m.replies.lock().unwrap().push((200, done));
+    let url = serve(m).await;
+    let p = OpenAiCompatible::new("openai", &url, "k").unwrap();
+    assert!(matches!(
+        p.complete(&req(), &no_deltas).await,
+        Err(ProviderError::Retryable(_))
+    ));
+    // A finish reason without [DONE] is a complete answer.
+    let r = p.complete(&req(), &no_deltas).await.unwrap();
+    assert_eq!(r.text, "whole");
+}

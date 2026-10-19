@@ -472,6 +472,48 @@ impl SdkAgent {
                 ProviderSpec::Openai { .. } => "openai",
                 ProviderSpec::Fake { .. } => "fake",
             };
+            // The checks a bundle's harness.json gets (schema and bundle.rs).
+            let mut problems = vec![];
+            // (The scripted test provider stands in for OpenRouter.)
+            if provider_name == "openai" {
+                if spec.router.is_some() {
+                    problems.push(format!("\"router\" needs provider openrouter, not {provider_name}"));
+                }
+                if spec.openrouter.is_some() {
+                    problems.push(format!("\"openrouter\" needs provider openrouter, not {provider_name}"));
+                }
+            }
+            if spec.fallback_models.len() > 5 {
+                problems.push("\"fallbackModels\" takes at most 5 models".into());
+            }
+            if spec.fallback_models.iter().any(|m| m.is_empty() || *m == model) {
+                problems.push("\"fallbackModels\" has an empty name or repeats the model".into());
+            }
+            if let Some(e) = &spec.reasoning_effort {
+                if !["minimal", "low", "medium", "high"].contains(&e.as_str()) {
+                    problems.push(format!("\"reasoningEffort\" {e:?}: use minimal, low, medium or high"));
+                }
+            }
+            if spec.context_tokens.is_some_and(|n| n < 4000) {
+                problems.push("\"contextTokens\" must be at least 4000".into());
+            }
+            if spec.temperature.is_some_and(|t| !(0.0..=2.0).contains(&t)) {
+                problems.push("\"temperature\" must be between 0 and 2".into());
+            }
+            if let (Some(_), Some(o)) = (&spec.router, &spec.openrouter) {
+                let plugin = agen_engine::provider::router::router_for(&model).map(|k| k.plugin_id);
+                if o.plugins
+                    .iter()
+                    .flatten()
+                    .any(|p| p.get("id").and_then(|v| v.as_str()) == plugin)
+                {
+                    problems
+                        .push("\"openrouter.plugins\" repeats the router's plugin; configure it in \"router\"".into());
+                }
+            }
+            if !problems.is_empty() {
+                return Err(SdkError::Spec(problems.join("; ")));
+            }
             if let Some(r) = &spec.router {
                 let kind = agen_engine::provider::router::router_for(&model).ok_or_else(|| {
                     SdkError::Spec(format!(

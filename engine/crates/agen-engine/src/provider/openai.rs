@@ -327,6 +327,13 @@ impl ModelProvider for OpenAiCompatible {
                 }
             }
         }
+        // The connection closed before [DONE] and before any finish reason:
+        // the answer may be cut off, so it is asked again.
+        if state.finish_reason.is_empty() {
+            return Err(ProviderError::Retryable(
+                "the stream ended before the model finished".into(),
+            ));
+        }
         Ok(state.finish(&names, router_plugin))
     }
 }
