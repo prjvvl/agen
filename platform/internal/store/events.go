@@ -56,12 +56,14 @@ func (s *Store) RecentChanges(ctx context.Context, sinceMs int64) ([]Change, err
 		return nil, err
 	}
 	// Steps: spans opened or closed in the window (an open span is stored
-	// with end_ms = start_ms and status "unfinished").
+	// with end_ms = start_ms and status "unfinished"). On a busy fleet the
+	// newest are kept; they are sent oldest first.
 	rows, err := s.db.QueryContext(ctx, "SELECT sp.span_id, r.namespace, r.deployment, sp.status, sp.trace_id, sp.run_id, sp.name, sp.start_ms, sp.end_ms, sp.attributes "+
-		"FROM spans sp JOIN runs r ON r.id = sp.run_id WHERE sp.end_ms > $1 AND sp.name IN ('gen_ai.chat', 'agen.tool') ORDER BY sp.end_ms LIMIT 2000", sinceMs)
+		"FROM spans sp JOIN runs r ON r.id = sp.run_id WHERE sp.end_ms > $1 AND sp.name IN ('gen_ai.chat', 'agen.tool') ORDER BY sp.end_ms DESC LIMIT 2000", sinceMs)
 	if err != nil {
 		return nil, err
 	}
+	var steps []Change
 	for rows.Next() {
 		c := Change{Kind: "step"}
 		var attrs string
@@ -74,9 +76,12 @@ func (s *Store) RecentChanges(ctx context.Context, sinceMs int64) ([]Change, err
 		c.Tool, _ = a["gen_ai.tool.name"].(string)
 		c.Target, _ = a["agen.delegate.target"].(string)
 		c.Version = c.State + "@" + strconv.FormatInt(c.EndMs, 10)
-		out = append(out, c)
+		steps = append(steps, c)
 	}
 	rows.Close()
+	for i := len(steps) - 1; i >= 0; i-- {
+		out = append(out, steps[i])
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
