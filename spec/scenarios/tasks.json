@@ -1,0 +1,59 @@
+{
+  "name": "tasks",
+  "description": "Deploy an agent, run a task with a cost tier, conversation and labels, schedule one for later, list scheduled tasks, cancel it, and read the logs.",
+  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "observe.logs"],
+  "bundles": {
+    "hello": { "from": "examples/bundles/hello" }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "greeter", "bundleText": "$bundle:hello" },
+      "expect": { "deployment.name": "greeter" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hi", "modelTier": "high", "conversationKey": "c1", "labels": { "team": "a" } },
+      "expect": { "task.modelTier": "high", "task.conversationKey": { "contains": "c1" }, "task.labels.team": "a" },
+      "save": { "t1": "task.id" }
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$t1", "waitSeconds": 60 },
+      "expect": { "task.state": "TASK_STATE_SUCCEEDED", "task.output": "Hello! Nice to meet you.", "task.modelTier": "high" },
+      "retry": 120
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "later", "notBefore": "$in:1h" },
+      "expect": { "task.notBefore": { "exists": true }, "task.state": "TASK_STATE_QUEUED" },
+      "save": { "t2": "task.id" }
+    },
+    {
+      "call": "ListTasks",
+      "args": { "namespace": "$ns", "deployment": "greeter", "scheduled": true },
+      "expect": { "tasks": { "has": { "id": "$t2" } } }
+    },
+    {
+      "call": "CancelTask",
+      "args": { "id": "$t2" },
+      "expect": { "task.state": "TASK_STATE_CANCELLED" }
+    },
+    {
+      "call": "ListTasks",
+      "args": { "namespace": "$ns", "deployment": "greeter", "state": "TASK_STATE_SUCCEEDED" },
+      "expect": { "tasks": { "has": { "id": "$t1" } } }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "x", "modelTier": "huge" },
+      "error": "model_tier"
+    },
+    {
+      "call": "GetLogs",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" } },
+      "expect": { "lines": { "exists": true } },
+      "retry": 30
+    }
+  ]
+}

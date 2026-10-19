@@ -31,6 +31,7 @@ func (e *env) cmdInit(_ context.Context, args []string) error {
 	name := fset.String("template", "hello", "template to start from: "+names)
 	example := fset.String("example", "", "same as --template")
 	list := fset.Bool("list", false, "list the templates")
+	asJSON := fset.Bool("json", false, "with --list: print the templates as JSON")
 	var mc modelChoice
 	fset.StringVar(&mc.model, "model", "", "OpenRouter model instead of the template's (a routing model such as typesafe/jev-router picks the model per request)")
 	fset.StringVar(&mc.tier, "tier", "", "default cost tier for a routing model: low, medium, high (xhigh, max for openrouter/auto)")
@@ -45,6 +46,23 @@ func (e *env) cmdInit(_ context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		if *asJSON {
+			type entry struct {
+				templates.Template
+				Tools   []string `json:"tools,omitempty"`
+				Skills  []string `json:"skills,omitempty"`
+				Secrets []string `json:"secrets,omitempty"`
+			}
+			out := struct {
+				Templates []entry `json:"templates"`
+			}{}
+			for _, t := range all {
+				out.Templates = append(out.Templates, entry{t, t.Tools, t.Skills, t.Secrets})
+			}
+			enc := json.NewEncoder(e.stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(out)
+		}
 		w := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tCATEGORY\tTOOLS\tSKILLS\tSECRETS\tDESCRIPTION")
 		for _, t := range all {
@@ -53,7 +71,7 @@ func (e *env) cmdInit(_ context.Context, args []string) error {
 		return w.Flush()
 	}
 	if len(pos) > 1 {
-		return usageErr("agen init [dir] [--template NAME] [--model M] [--tier T] [--max-tier T] [--fallback M,...] | agen init --list")
+		return usageErr("agen init [dir] [--template NAME] [--model M] [--tier T] [--max-tier T] [--fallback M,...] | agen init --list [--json]")
 	}
 	if *example != "" {
 		*name = *example

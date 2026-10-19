@@ -27,8 +27,9 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
+  agen cancel <task-id>           cancel a task (a running one stops)
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
-  agen tasks [name]               recent tasks
+  agen tasks [name]               recent tasks (--scheduled: waiting for their start time)
   agen providers [resume ACCT]    provider accounts held after an account error
   agen mcp workspace --root DIR  a built-in MCP tool server: files and a shell in one folder
   agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
@@ -186,6 +187,8 @@ Usage of init:
     	same as --template
   -fallback string
     	comma-separated models to try when the model keeps failing ("none" clears them)
+  -json
+    	with --list: print the templates as JSON
   -list
     	list the templates
   -max-tier string
@@ -374,6 +377,22 @@ Usage of wait:
     	API token
 ```
 
+## agen cancel
+
+```text
+Usage of cancel:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
 ## agen call
 
 ```text
@@ -406,6 +425,10 @@ Usage of tasks:
     	tasks (default 20)
   -n string
     	namespace (default "default")
+  -scheduled
+    	only tasks waiting for their start time
+  -state string
+    	only tasks in this state: queued, running, succeeded, failed, cancelled
   -token string
     	API token
 ```
@@ -589,7 +612,7 @@ Usage of approvals:
 ## agen notify
 
 ```text
-no Hub configured: run 'agen up', or pass --hub and --token (AGEN_HUB / AGEN_TOKEN)
+usage: agen notify set <name> <url> [--event E]... | agen notify ls | agen notify rm <name>
 ```
 
 ## agen join-token

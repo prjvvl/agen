@@ -58,6 +58,14 @@ does not.) `go test ./internal/features` in `platform/` fails when:
 - an SDK the feature is offered on does not take one of its options;
 - a tag names an unknown feature, or a `gap` is in fact tested.
 
+Fleet features are best covered by a scenario: `spec/scenarios/*.json` lists
+Hub API calls with their arguments and expected results, and
+`TestScenariosOnEverySurface` (in `platform/internal/cli`) plays each one
+through the API, the MCP tool generated from the same method, and the CLI
+command that does the same thing (`--json`). One scenario covers all three
+surfaces; when the CLI has no command or flag for a call, the scenario fails
+there until it gets one, or the step names the reason it is skipped.
+
 So a new feature adds an entry (or extends one), a test per surface, or an
 honest `gap`. The [support matrix](reference/support.md) is generated from
 the same data.

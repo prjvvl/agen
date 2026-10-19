@@ -34,6 +34,8 @@
 - At 80% of the daily budget, leased tasks carry `budget_pressure` and
   routing models use the bundle's `budgetTier`.
 - `agen wait <task>`; `agen run --timeout 0` waits without a limit.
+- `agen cancel <task>`; `agen tasks --scheduled` and `--state`;
+  `agen init --list --json`.
 - A conversation key read back from a task can be sent again as is.
 - Cron triggers carry `nextDueAt` and `lastDueAt`; `ListTasks` with
   `scheduled`; `ListTriggerEvents` across deployments and namespaces.
@@ -99,6 +101,9 @@
   method or field, bundle key, CLI command or SDK option belongs to no
   feature, or a feature is untested on a surface without a recorded gap. The
   [support matrix](docs/reference/support.md) is generated from it.
+- Scenarios (`spec/scenarios`) are written once as API calls and played
+  through the API, MCP and the CLI.
+- `agen notify set --event` lists every event, provider events included.
 
 ## v0.1.2
 

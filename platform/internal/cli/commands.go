@@ -477,6 +477,32 @@ func (e *env) cmdWait(ctx context.Context, args []string) error {
 	return e.waitTask(ctx, c, r.Msg.Task, *timeout, cf.json)
 }
 
+// cmdCancel cancels a task; a running task's run stops.
+func (e *env) cmdCancel(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("cancel", &cf)
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen cancel <task-id>")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0]}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Task.Id, stateName(r.Msg.Task.State, "TASK_STATE_"))
+	return nil
+}
+
 func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t *agenv1.Task, timeout time.Duration, asJSON bool) error {
 	deadline := time.Now().Add(timeout)
 	for !terminal(t.State) {
@@ -510,6 +536,8 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("tasks", &cf)
 	limit := fs.Int("limit", 20, "tasks")
+	scheduled := fs.Bool("scheduled", false, "only tasks waiting for their start time")
+	state := fs.String("state", "", "only tasks in this state: queued, running, succeeded, failed, cancelled")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -522,7 +550,15 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit)}))
+	req := &agenv1.ListTasksRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit), Scheduled: *scheduled}
+	if *state != "" {
+		v, ok := agenv1.TaskState_value["TASK_STATE_"+strings.ToUpper(*state)]
+		if !ok {
+			return fmt.Errorf("unknown state %q: use queued, running, succeeded, failed or cancelled", *state)
+		}
+		req.State = agenv1.TaskState(v)
+	}
+	r, err := c.ListTasks(ctx, connect.NewRequest(req))
 	if err != nil {
 		return err
 	}

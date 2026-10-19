@@ -62,12 +62,11 @@ features:
     contract: [sdk:name, sdk:instructions, sdk:model, sdk:provider, sdk:maxOutputTokens, sdk:temperature,
       harness:provider, harness:model, harness:maxOutputTokens, harness:temperature, harness:script, harness:cassette,
       harness:baseUrl, harness:apiKeySecret, harness:parallelToolCalls, agent:name, agent:description]
-    on: [rust, python, node, go, api, cli, console]
+    on: [rust, python, node, go, api, mcp, cli, console]
   - id: agent.bundle
     title: Agents from bundles
     contract: [sdk:bundle, rpc:GetBundleGuide]
     on: [rust, python, node, go, api, mcp, cli, console]
-    gap: {mcp: ""}
   - id: agent.skills
     title: Skills (on demand and preloaded)
     contract: [agent:skills, agent:preloadSkills]
@@ -76,33 +75,32 @@ features:
   - id: models.fallback
     title: Fallback models
     contract: [harness:fallbackModels, sdk:fallbackModels]
-    on: [rust, python, node, go, api, cli, console]
-    gap: {rust: "", python: "", node: "", go: "", api: ""}
+    on: [rust, python, node, go, api, mcp, cli, console]
+    gap: {rust: "", python: "", node: "", go: ""}
   - id: models.router
     title: Routing models (Jev Router, Auto Router) and cost tiers
     contract: [harness:router, sdk:router]
-    on: [rust, python, node, go, api, cli, console]
-    gap: {api: ""}
+    on: [rust, python, node, go, api, mcp, cli, console]
   - id: models.reasoning
     title: Reasoning effort
     contract: [harness:reasoningEffort, sdk:reasoningEffort]
-    on: [rust, python, node, go, api]
-    gap: {rust: "", python: "", node: "", go: "", api: ""}
+    on: [rust, python, node, go, api, mcp, cli]
+    gap: {rust: "", python: "", node: "", go: ""}
   - id: models.openrouter
     title: OpenRouter request settings (provider routing, plugins)
     contract: [harness:openrouter, sdk:openrouter]
-    on: [rust, python, node, go, api]
-    gap: {rust: "", python: "", node: "", go: "", api: ""}
+    on: [rust, python, node, go, api, mcp, cli]
+    gap: {rust: "", python: "", node: "", go: ""}
   - id: models.holds
     title: Provider account holds and resume
     contract: [rpc:ListProviderHolds, rpc:ResumeProvider, field:ResumeProvider.account, cli:providers]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", cli: "", console: ""}
+    gap: {console: ""}
   - id: engine.compaction
     title: Long-run compaction (contextTokens)
     contract: [harness:contextTokens, sdk:contextTokens]
-    on: [rust, python, node, go, api]
-    gap: {rust: "", python: "", node: "", go: "", api: ""}
+    on: [rust, python, node, go, api, mcp, cli]
+    gap: {rust: "", python: "", node: "", go: ""}
   - id: engine.limits
     title: Limits (turns, tokens, durations, queue)
     contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
@@ -139,9 +137,9 @@ features:
     on: [rust, python, node, go, api, mcp, cli, console]
   - id: tasks.cancel
     title: Cancel a task or run
-    contract: [rpc:CancelTask]
+    contract: [rpc:CancelTask, cli:cancel]
     on: [rust, python, node, go, api, mcp, cli, console]
-    gap: {mcp: "", cli: "no `agen tasks cancel` command yet", console: ""}
+    gap: {console: ""}
   - id: tasks.streaming
     title: Stream output while a run is in progress
     contract: []
@@ -151,17 +149,16 @@ features:
     title: Conversations and labels
     contract: [field:SubmitTask.conversation_key, field:SubmitTask.labels, sdk:sessionId, sdk:newConversation]
     on: [rust, python, node, go, api, mcp, cli]
-    gap: {mcp: ""}
   - id: tasks.tier
     title: Per-task cost tier
     contract: [field:SubmitTask.model_tier, sdk:modelTier]
     on: [rust, python, node, go, api, mcp, cli, console]
-    gap: {mcp: "", cli: "", console: ""}
+    gap: {console: ""}
   - id: tasks.schedule
     title: Tasks with a start time
     contract: [field:SubmitTask.not_before, field:ListTasks.scheduled]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", cli: "", console: ""}
+    gap: {console: ""}
   - id: triggers
     title: Cron and webhook triggers
     contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
@@ -192,7 +189,6 @@ features:
     title: Check a bundle before deploying
     contract: [field:CreateDeployment.validate_only, field:UpdateDeployment.validate_only]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", cli: ""}
   - id: deploy.versions
     title: Bundle versions and roll back
     contract: [rpc:ListDefinitions, rpc:GetDefinition, field:GetDefinition.digest]
@@ -202,7 +198,6 @@ features:
     title: Start from a template
     contract: [rpc:ListTemplates, cli:init]
     on: [api, mcp, cli, console]
-    gap: {api: "", mcp: ""}
   - id: budgets
     title: Daily budgets
     contract: [config:budget, field:CreateDeployment.budget, field:UpdateDeployment.budget]
@@ -212,7 +207,6 @@ features:
     title: Platform secrets
     contract: [rpc:SetSecret, rpc:ListSecrets, rpc:DeleteSecret, field:SetSecret.value, field:SetSecret.deployments, cli:secret]
     on: [api, mcp, cli, console]
-    gap: {cli: ""}
 
   # Observe
   - id: observe.runs
@@ -226,7 +220,7 @@ features:
     title: Deployment logs
     contract: [rpc:GetLogs, field:GetLogs.instance_id, field:GetLogs.since, cli:logs]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", console: ""}
+    gap: {console: ""}
   - id: observe.metrics
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]
@@ -237,7 +231,6 @@ features:
     contract: [rpc:SetNotificationTarget, rpc:ListNotificationTargets, rpc:DeleteNotificationTarget,
       field:SetNotificationTarget.target, cli:notify]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", cli: ""}
 
   # Access
   - id: access.tokens

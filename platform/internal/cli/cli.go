@@ -58,8 +58,9 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
+  agen cancel <task-id>           cancel a task (a running one stops)
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
-  agen tasks [name]               recent tasks
+  agen tasks [name]               recent tasks (--scheduled: waiting for their start time)
   agen providers [resume ACCT]    provider accounts held after an account error
   agen mcp workspace --root DIR  a built-in MCP tool server: files and a shell in one folder
   agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
@@ -95,7 +96,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	cmds := map[string]func(context.Context, []string) error{
 		"up": e.cmdUp, "down": e.cmdDown, "ui": e.cmdUI, "migrate": e.cmdMigrate, "store": e.cmdStore, "secret": e.cmdSecret, "hub": e.cmdHub, "nest": e.cmdNest,
 		"init": e.cmdInit, "deploy": e.cmdDeploy, "scale": e.cmdScale, "ps": e.cmdPs, "logs": e.cmdLogs, "stop": e.cmdStop, "start": e.cmdStart, "rm": e.cmdRm,
-		"run": e.cmdRun, "wait": e.cmdWait, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
+		"run": e.cmdRun, "wait": e.cmdWait, "cancel": e.cmdCancel, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
 		"runs": e.cmdRuns, "providers": e.cmdProviders, "mcp": e.cmdMCP, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
 	}

@@ -52,7 +52,8 @@ type Tag struct {
 	File     string
 	Line     int
 	Features []string
-	Surfaces []string // where the tagged test exercises the features
+	Surfaces []string          // where the tagged test exercises the features
+	Skip     map[string]string // surfaces a scenario does not run on
 }
 
 // Load reads spec/features.yaml.
@@ -118,7 +119,11 @@ func (s *Spec) Scan(root string) ([]Tag, error) {
 		}
 		for _, t := range found {
 			if t.Surfaces == nil {
-				t.Surfaces = s.surfacesFor(rel)
+				for _, x := range s.surfacesFor(rel) {
+					if t.Skip[x] == "" {
+						t.Surfaces = append(t.Surfaces, x)
+					}
+				}
 			}
 			tags = append(tags, t)
 		}
@@ -134,7 +139,8 @@ func scanFile(path, rel string) ([]Tag, error) {
 			return nil, err
 		}
 		var c struct {
-			Features []string `json:"features"`
+			Features []string          `json:"features"`
+			Skip     map[string]string `json:"skip"`
 		}
 		if err := json.Unmarshal(b, &c); err != nil {
 			return nil, fmt.Errorf("%s: %w", rel, err)
@@ -142,7 +148,7 @@ func scanFile(path, rel string) ([]Tag, error) {
 		if len(c.Features) == 0 {
 			return nil, nil
 		}
-		return []Tag{{File: rel, Line: 1, Features: c.Features}}, nil
+		return []Tag{{File: rel, Line: 1, Features: c.Features, Skip: c.Skip}}, nil
 	}
 	f, err := os.Open(path)
 	if err != nil {

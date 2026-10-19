@@ -32,39 +32,39 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 
 | Feature | API | MCP | CLI | Console | Agent to agent |
 |---|:-:|:-:|:-:|:-:|:-:|
-| Instructions, model and provider | ✓ |  | ✓ | ✓ |  |
-| Agents from bundles | ✓ | ◐ | ✓ | ✓ |  |
+| Instructions, model and provider | ✓ | ✓ | ✓ | ✓ |  |
+| Agents from bundles | ✓ | ✓ | ✓ | ✓ |  |
 | Skills (on demand and preloaded) | ◐ |  | ◐ | ✓ |  |
-| Fallback models | ◐ |  | ✓ | ✓ |  |
-| Routing models (Jev Router, Auto Router) and cost tiers | ◐ |  | ✓ | ✓ |  |
-| Reasoning effort | ◐ |  |  |  |  |
-| OpenRouter request settings (provider routing, plugins) | ◐ |  |  |  |  |
-| Provider account holds and resume | ✓ | ◐ | ◐ | ◐ |  |
-| Long-run compaction (contextTokens) | ◐ |  |  |  |  |
+| Fallback models | ✓ | ✓ | ✓ | ✓ |  |
+| Routing models (Jev Router, Auto Router) and cost tiers | ✓ | ✓ | ✓ | ✓ |  |
+| Reasoning effort | ✓ | ✓ | ✓ |  |  |
+| OpenRouter request settings (provider routing, plugins) | ✓ | ✓ | ✓ |  |  |
+| Provider account holds and resume | ✓ | ✓ | ✓ | ◐ |  |
+| Long-run compaction (contextTokens) | ✓ | ✓ | ✓ |  |  |
 | Limits (turns, tokens, durations, queue) | ✓ |  | ◐ |  |  |
 | Host tools (functions in your program) | –[^4] |  |  |  |  |
 | Tools from MCP servers in the bundle | ◐ |  | ✓ |  |  |
 | Built-in workspace and SQL tool servers |  |  | ✓ |  |  |
 | Permissions and approvals | ✓ | ✓ | ◐ | ✓ | ✓ |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
-| Cancel a task or run | ✓ | ◐ | ◐[^5] | ◐ |  |
-| Stream output while a run is in progress | –[^6] |  |  |  |  |
-| Conversations and labels | ✓ | ◐ | ✓ |  |  |
-| Per-task cost tier | ✓ | ◐ | ◐ | ◐ |  |
-| Tasks with a start time | ✓ | ◐ | ◐ | ◐ |  |
+| Cancel a task or run | ✓ | ✓ | ✓ | ◐ |  |
+| Stream output while a run is in progress | –[^5] |  |  |  |  |
+| Conversations and labels | ✓ | ✓ | ✓ |  |  |
+| Per-task cost tier | ✓ | ✓ | ✓ | ◐ |  |
+| Tasks with a start time | ✓ | ✓ | ✓ | ◐ |  |
 | Cron and webhook triggers | ✓ | ◐ | ✓ | ◐ |  |
 | Agents calling agents (call_agent) | ✓ |  | ✓ |  | ✓ |
 | Start an agent without waiting (start_agent) | ✓ |  |  |  | ✓ |
 | Deploy, update, scale, pause and delete | ✓ | ✓ | ✓ | ✓ |  |
-| Check a bundle before deploying | ✓ | ◐ | ◐ | ✓ |  |
+| Check a bundle before deploying | ✓ | ✓ | ✓ | ✓ |  |
 | Bundle versions and roll back | ✓ | ◐ |  | ◐ |  |
-| Start from a template | ◐ | ◐ | ✓ | ✓ |  |
+| Start from a template | ✓ | ✓ | ✓ | ✓ |  |
 | Daily budgets | ✓ | ◐ | ✓ | ◐ |  |
-| Platform secrets | ✓ | ✓ | ◐ | ✓ |  |
+| Platform secrets | ✓ | ✓ | ✓ | ✓ |  |
 | Runs, traces and transcripts | ✓ | ✓ | ✓ | ✓ |  |
-| Deployment logs | ✓ | ◐ | ✓ | ◐ |  |
+| Deployment logs | ✓ | ✓ | ✓ | ◐ |  |
 | Metrics, costs and live activity | ✓ | ◐ |  | ✓ |  |
-| Notification targets | ✓ | ◐ | ◐ | ✓ |  |
+| Notification targets | ✓ | ✓ | ✓ | ✓ |  |
 | API tokens, scopes and namespaces | ✓ | ✓ | ✓ | ✓ |  |
 | Local fleet (agen up) |  |  | ✓ |  |  |
 | Nests (machines that run agents) | ✓ | ◐ | ✓ | ✓ |  |
@@ -82,5 +82,4 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 [^2]: Limits (turns, tokens, durations, queue) on Node: the SDK does not take maxTokensPerRun yet
 [^3]: Limits (turns, tokens, durations, queue) on Go: the SDK does not take maxTokensPerRun yet
 [^4]: Host tools (functions in your program) on API: deployed agents get tools from MCP servers in the bundle (tools.mcp)
-[^5]: Cancel a task or run on CLI: no `agen tasks cancel` command yet
-[^6]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events
+[^5]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events
