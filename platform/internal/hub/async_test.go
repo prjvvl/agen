@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -128,8 +129,21 @@ func TestChildTaskFromARunRepliesOnce(t *testing.T) {
 		Input: "write", ParentRunId: "fresh", IdempotencyKey: "k-other"})); code(err) != connect.CodePermissionDenied {
 		t.Fatalf("another nest: %v", err)
 	}
-	if _, err := start("fresh", "i9"); err != nil {
+	fresh, err := start("fresh", "i9")
+	if err != nil {
 		t.Fatalf("leased task's run before its instance is reported: %v", err)
+	}
+	// Deleting the deployment a child runs on tells its caller.
+	if _, err := c.DeleteDeployment(ctx, connect.NewRequest(&agenv1.DeleteDeploymentRequest{Ref: ref("", "writer")})); err != nil {
+		t.Fatal(err)
+	}
+	tasks, _ = e.store.ListTasks(ctx, "default", "lead", "", 0)
+	told := false
+	for _, x := range tasks {
+		told = told || (x.Source == "reply:writer" && strings.Contains(x.Input, fresh.Id+", cancelled"))
+	}
+	if !told {
+		t.Fatalf("no cancelled result for %s after the delete: %+v", fresh.Id, tasks)
 	}
 }
 

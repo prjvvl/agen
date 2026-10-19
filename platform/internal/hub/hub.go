@@ -355,8 +355,15 @@ func (h *Hub) DeleteDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err := requireNamespace(ctx, ns); err != nil {
 		return nil, err
 	}
+	// Tasks started with start_agent tell their caller they were cancelled.
+	replies, _ := h.Store.UnfinishedReplyTasks(ctx, ns, req.Msg.GetRef().GetName())
 	if err := h.Store.DeleteDeployment(ctx, ns, req.Msg.GetRef().GetName()); err != nil {
 		return nil, connectErr(err)
+	}
+	for _, id := range replies {
+		if t, err := h.Store.GetTask(ctx, id); err == nil {
+			h.replyResult(ctx, t)
+		}
 	}
 	return connect.NewResponse(&agenv1.DeleteDeploymentResponse{}), nil
 }

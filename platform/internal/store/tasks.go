@@ -164,6 +164,25 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 // ListTasks filters by namespace, deployment and state ("" = any), newest first.
+// UnfinishedReplyTasks returns the unfinished tasks of a deployment that
+// report back to the agent that started them (start_agent).
+func (s *Store) UnfinishedReplyTasks(ctx context.Context, ns, deployment string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND reply_deployment <> '' AND state IN ('queued', 'leased', 'running')", ns, deployment)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (s *Store) ListTasks(ctx context.Context, ns, deployment, state string, limit int) ([]Task, error) {
 	if limit <= 0 {
 		limit = 100

@@ -234,6 +234,13 @@ func (s *Store) DeleteDeployment(ctx context.Context, ns, name string) error {
 		}
 		// Every unfinished run goes with it (task or A2A), fenced like a
 		// cancelled task's run, so none is left "running" forever.
+		if _, err := tx.ExecContext(ctx, "UPDATE spans SET status = 'error', end_ms = $1 WHERE status = 'unfinished' AND run_id IN "+
+			"(SELECT id FROM runs WHERE namespace = $2 AND deployment = $3 AND ended_ms IS NULL)", now, ns, name); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE approvals SET state = 'expired', decided_ms = $1 WHERE namespace = $2 AND deployment = $3 AND state = 'pending'", now, ns, name); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, "UPDATE runs SET status = 'cancelled', error = 'deployment deleted', ended_ms = $1, epoch = epoch + 1 "+
 			"WHERE namespace = $2 AND deployment = $3 AND ended_ms IS NULL", now, ns, name)
 		return err
