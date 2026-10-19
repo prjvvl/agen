@@ -862,8 +862,12 @@ impl Agent {
             span.set("gen_ai.request.model", self.cfg.model.clone());
             span.set("agen.request.messages", req.messages.len() as u64);
             tracer.record_open(&span).await;
+            // An empty answer only counts as the end of the work after tool
+            // results; a run that got nothing at all asks again.
+            let after_tools = req.messages.iter().any(|m| m.role == provider::Role::Tool);
+            let mut wasted = Usage::default();
             let resp = tokio::select! {
-                r = self.complete_with_fallback(req, opts) => r,
+                r = self.complete_with_fallback(req, opts, &mut wasted) => r,
                 _ = opts.cancel.cancelled() => {
                     tracer.end(span, "cancelled").await;
                     return Ok(Outcome::Cancelled);
@@ -872,6 +876,7 @@ impl Agent {
             let (resp, sent) = match resp {
                 Ok(r) => r,
                 Err(e) => {
+                    live.rec.usage.add(wasted);
                     span.set("error.type", e.to_string());
                     tracer.end(span, "error").await;
                     return Err(e.into());
@@ -894,7 +899,7 @@ impl Agent {
                     }
                 }
             }
-            if resp.is_empty() {
+            if resp.is_empty() && !empty_ends_work(after_tools, &resp) {
                 // Every model tried came back with nothing to act on.
                 let why = format!(
                     "no_answer: the model returned no text and no tool calls (finish_reason {:?}{})",
@@ -1009,7 +1014,9 @@ impl Agent {
         &self,
         base: ModelRequest,
         opts: &RunOptions,
+        wasted: &mut Usage,
     ) -> Result<(provider::ModelResponse, Sent), ProviderError> {
+        let after_tools = base.messages.iter().any(|m| m.role == provider::Role::Tool);
         let models: Vec<String> = std::iter::once(self.cfg.model.clone())
             .chain(self.cfg.fallback_models.iter().cloned())
             .collect();
@@ -1030,7 +1037,7 @@ impl Agent {
             let (req, sent) = self.request_for(&base, model, opts);
             for attempt in 0..2 {
                 match self.complete_with_retry(&req, opts).await {
-                    Ok(mut r) if r.is_empty() => {
+                    Ok(mut r) if r.is_empty() && !empty_ends_work(after_tools, &r) => {
                         spent.add(r.usage);
                         if attempt == 0 {
                             self.log("warn", &format!("model {model} returned no answer; asking again"))
@@ -1045,13 +1052,22 @@ impl Agent {
                         r.usage = spent;
                         return Ok((r, sent));
                     }
-                    Err(e @ ProviderError::Account(_)) => return Err(e),
+                    // Another model on the same account will not help; a test
+                    // script that did not match must not be hidden by one.
+                    Err(e @ (ProviderError::Account(_) | ProviderError::Script(_))) => {
+                        *wasted = spent;
+                        return Err(e);
+                    }
                     Err(e) => last = Some(Err(e)),
                 }
                 break;
             }
         }
-        last.expect("at least one model")
+        let last = last.expect("at least one model");
+        if last.is_err() {
+            *wasted = spent;
+        }
+        last
     }
 
     async fn complete_with_retry(
@@ -1116,6 +1132,15 @@ impl Agent {
                             let tail = stream.lock().unwrap().finish();
                             if !tail.is_empty() {
                                 cb(&tail);
+                            }
+                        }
+                    } else {
+                        // A fallback model (or the failure) follows: what this
+                        // attempt streamed is not the answer.
+                        stream.lock().unwrap().reset();
+                        if emitted.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                            if let Some(reset) = &opts.on_reset {
+                                reset();
                             }
                         }
                     }
@@ -1500,6 +1525,12 @@ pub fn request_extras(
         }
     }
     extra
+}
+
+/// An empty answer after tool results is how some models end work done
+/// through tools; it is only a failure when output was cut off.
+fn empty_ends_work(after_tools: bool, r: &provider::ModelResponse) -> bool {
+    after_tools && r.finish_reason != "length"
 }
 
 fn backoff(attempt: u32) -> Duration {

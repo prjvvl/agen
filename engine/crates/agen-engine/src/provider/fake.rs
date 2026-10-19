@@ -40,7 +40,7 @@ pub struct FakeResponse {
     /// Milliseconds to wait before answering (to simulate latency).
     #[serde(default)]
     pub delay_ms: u64,
-    /// Return this error instead of a response.
+    /// Return this error instead of a response (after streaming `text`, if any).
     pub error: Option<String>,
     /// Kind of `error`: "retryable" (default), "request" or "account".
     pub error_kind: Option<String>,
@@ -161,6 +161,10 @@ impl ModelProvider for FakeProvider {
             }
         }
         if let Some(e) = &r.error {
+            // Text before an error is streamed first: a reply cut off midway.
+            for word in r.text.split_inclusive(' ') {
+                on_delta(word);
+            }
             return Err(match r.error_kind.as_deref() {
                 Some("request") => ProviderError::Request(e.clone()),
                 Some("account") => ProviderError::Account(e.clone()),

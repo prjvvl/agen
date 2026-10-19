@@ -1,11 +1,13 @@
 //! Fallback models, empty answers, account errors and routing models.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use agen_engine::agent::{Agent, AgentConfig, RunOptions};
-use agen_engine::provider::fake::{FakeProvider, FakeResponse};
+use agen_engine::provider::fake::{FakeProvider, FakeResponse, ScriptedToolCall};
 use agen_engine::provider::router::RouterSettings;
+use agen_engine::provider::Usage;
 use agen_engine::store::{RunStatus, SpanRecord, Store};
+use agen_engine::tools::{FnTool, ToolError};
 use serde_json::{json, Value};
 
 async fn store() -> (Arc<Store>, tempfile::TempDir) {
@@ -195,4 +197,90 @@ async fn routing_model_tiers_and_served_model() {
         assert_eq!(span.attributes["agen.router.tier"], Value::from(tier));
         assert_eq!(span.attributes["gen_ai.response.model"], Value::from(served));
     }
+}
+
+#[tokio::test]
+async fn text_streamed_by_a_model_that_then_fails_is_withdrawn() {
+    let (s, _d) = store().await;
+    let p = Arc::new(FakeProvider::new(vec![
+        FakeResponse {
+            text: "half an ".into(),
+            ..failing("primary/m", "request")
+        },
+        answer("backup/m", "full answer"),
+    ]));
+    let agent = Agent::builder(cfg("primary/m", &["backup/m"]), s)
+        .provider(p)
+        .build()
+        .unwrap();
+    let seen = Arc::new(Mutex::new(String::new()));
+    let (d, r) = (seen.clone(), seen.clone());
+    let opts = RunOptions {
+        on_delta: Some(Arc::new(move |t: &str| d.lock().unwrap().push_str(t))),
+        on_reset: Some(Arc::new(move || r.lock().unwrap().clear())),
+        ..Default::default()
+    };
+    let r = agent.run("hi", opts).await.unwrap();
+    assert_eq!(r.output, "full answer", "{}", r.error);
+    assert_eq!(*seen.lock().unwrap(), "full answer");
+}
+
+#[tokio::test]
+async fn an_empty_answer_after_tool_results_ends_the_run() {
+    let (s, _d) = store().await;
+    let p = Arc::new(FakeProvider::new(vec![
+        FakeResponse {
+            tool_calls: vec![ScriptedToolCall {
+                name: "note".into(),
+                arguments: serde_json::json!({}),
+            }],
+            ..Default::default()
+        },
+        empty("primary/m"),
+    ]));
+    let tool = Arc::new(FnTool::new(
+        "note",
+        "Write a note",
+        serde_json::json!({"type":"object"}),
+        false,
+        |_: Value, _| async move { Ok::<_, ToolError>("noted".to_string()) },
+    ));
+    let agent = Agent::builder(cfg("primary/m", &["backup/m"]), s)
+        .provider(p.clone())
+        .tool(tool)
+        .build()
+        .unwrap();
+    let r = agent.run("note it", RunOptions::default()).await.unwrap();
+    assert_eq!((r.status, r.output.as_str()), (RunStatus::Succeeded, ""), "{}", r.error);
+    assert_eq!(p.calls(), 2, "the work was done through tools; no need to ask again");
+}
+
+#[tokio::test]
+async fn tokens_of_empty_answers_count_when_the_fallback_fails() {
+    let (s, _d) = store().await;
+    let paid = |model: &str| FakeResponse {
+        usage: Some(Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cost_usd: 0.0,
+        }),
+        ..empty(model)
+    };
+    let p = Arc::new(FakeProvider::new(vec![
+        paid("primary/m"),
+        paid("primary/m"),
+        failing("backup/m", "request"),
+    ]));
+    let agent = Agent::builder(cfg("primary/m", &["backup/m"]), s)
+        .provider(p)
+        .build()
+        .unwrap();
+    let r = agent.run("hi", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Failed);
+    assert_eq!(
+        (r.usage.input_tokens, r.usage.output_tokens),
+        (200, 100),
+        "{:?}",
+        r.usage
+    );
 }
