@@ -55,6 +55,11 @@ func (s *Store) RecentChanges(ctx context.Context, sinceMs int64) ([]Change, err
 		"JOIN (SELECT run_id, MAX(end_ms) AS last FROM spans WHERE end_ms > $1 GROUP BY run_id) s ON s.run_id = r.id", sinceMs); err != nil {
 		return nil, err
 	}
+	// Runs the Hub ended (failed or cancelled tasks, orphaned runs) end no
+	// span of their own.
+	if err := scan("run", "SELECT id, namespace, deployment, status, trace_id, ended_ms FROM runs WHERE ended_ms > $1", sinceMs); err != nil {
+		return nil, err
+	}
 	// Steps: spans opened or closed in the window (an open span is stored
 	// with end_ms = start_ms and status "unfinished"). On a busy fleet the
 	// newest are kept; they are sent oldest first.

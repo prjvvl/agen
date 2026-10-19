@@ -379,10 +379,31 @@ func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
 // would keep its conversation open, and the next task with the same
 // conversation key could never start.
 func endTaskRun(ctx context.Context, tx *sql.Tx, t Task, status, msg string) error {
-	_, err := tx.ExecContext(ctx, "UPDATE runs SET status = $1, error = $2, ended_ms = $3, epoch = epoch + 1 "+
-		"WHERE namespace = $4 AND deployment = $5 AND task_id = $6 AND ended_ms IS NULL",
-		status, msg, NowMs(), t.Namespace, t.Deployment, t.ID)
-	return err
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM runs WHERE namespace = $1 AND deployment = $2 AND task_id = $3 AND ended_ms IS NULL",
+		t.Namespace, t.Deployment, t.ID)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET status = $1, error = $2, ended_ms = $3, epoch = epoch + 1 WHERE id = $4 AND ended_ms IS NULL",
+			status, msg, NowMs(), id); err != nil {
+			return err
+		}
+		if err := closeRunLeftovers(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 // QueueStats counts unfinished tasks of a deployment.
