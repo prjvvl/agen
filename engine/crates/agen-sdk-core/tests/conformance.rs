@@ -33,6 +33,8 @@ const AGENT_KEYS: &[&str] = &[
     "approvalTimeoutSeconds",
     "router",
     "fallbackModels",
+    "openrouter",
+    "maxTokensPerRun",
 ];
 const TOOL_KEYS: &[&str] = &["name", "readOnly", "timeoutSeconds", "behavior"];
 const RUN_KEYS: &[&str] = &[

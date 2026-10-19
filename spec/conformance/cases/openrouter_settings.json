@@ -1,0 +1,50 @@
+{
+  "name": "openrouter_settings",
+  "description": "OpenRouter request settings (provider routing, plugins) are sent with every model call as given.",
+  "features": [
+    "models.openrouter"
+  ],
+  "agent": {
+    "name": "c",
+    "model": "m",
+    "openrouter": {
+      "provider": {
+        "sort": "price"
+      },
+      "plugins": [
+        {
+          "id": "web"
+        }
+      ]
+    },
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "ok",
+          "expectExtra": {
+            "provider": {
+              "sort": "price"
+            },
+            "plugins": [
+              {
+                "id": "web"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "a"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "ok"
+    }
+  ]
+}

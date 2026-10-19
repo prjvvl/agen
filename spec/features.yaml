@@ -76,7 +76,6 @@ features:
     title: Fallback models
     contract: [harness:fallbackModels, sdk:fallbackModels]
     on: [rust, python, node, go, api, mcp, cli, console]
-    gap: {rust: "", python: "", node: "", go: ""}
   - id: models.router
     title: Routing models (Jev Router, Auto Router) and cost tiers
     contract: [harness:router, sdk:router]
@@ -90,7 +89,6 @@ features:
     title: OpenRouter request settings (provider routing, plugins)
     contract: [harness:openrouter, sdk:openrouter]
     on: [rust, python, node, go, api, mcp, cli]
-    gap: {rust: "", python: "", node: "", go: ""}
   - id: models.holds
     title: Provider account holds and resume
     contract: [rpc:ListProviderHolds, rpc:ResumeProvider, field:ResumeProvider.account, cli:providers]
@@ -105,7 +103,7 @@ features:
     title: Limits (turns, tokens, durations, queue)
     contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
     on: [rust, python, node, go, api, cli]
-    gap: {rust: "", python: "the SDK does not take maxTokensPerRun yet", node: "the SDK does not take maxTokensPerRun yet", go: "the SDK does not take maxTokensPerRun yet", cli: ""}
+    gap: {cli: ""}
 
   # Tools and permissions
   - id: tools.host

@@ -50,6 +50,8 @@ export interface AgentOptions {
   openrouter?: { provider?: Record<string, unknown>; plugins?: Record<string, unknown>[] };
   /** About how many tokens of conversation one model call may send. */
   contextTokens?: number;
+  /** A run that uses more tokens than this fails (model calls across all turns). */
+  maxTokensPerRun?: number;
   temperature?: number;
   approvalTimeoutSeconds?: number;
   namespace?: string;

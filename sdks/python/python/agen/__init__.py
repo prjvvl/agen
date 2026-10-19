@@ -235,6 +235,7 @@ class Agent:
         reasoning_effort: Optional[str] = None,
         openrouter: Optional[dict] = None,
         context_tokens: Optional[int] = None,
+        max_tokens_per_run: Optional[int] = None,
     ):
         self._tools = {t.name: t for t in tools}
         self._approve = approve
@@ -264,6 +265,7 @@ class Agent:
                 "reasoningEffort": reasoning_effort,
                 "openrouter": openrouter,
                 "contextTokens": context_tokens,
+                "maxTokensPerRun": max_tokens_per_run,
             }.items()
             if v is not None
         }

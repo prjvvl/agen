@@ -1,0 +1,50 @@
+{
+  "name": "max_turns",
+  "description": "A run that needs more model turns than maxTurns fails instead of looping; maxTokensPerRun is accepted.",
+  "features": [
+    "engine.limits"
+  ],
+  "agent": {
+    "name": "c",
+    "model": "m",
+    "maxTurns": 1,
+    "maxTokensPerRun": 100000,
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "echo",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ]
+        },
+        {
+          "text": "never reached"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "echo",
+      "behavior": {
+        "echoArgs": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "input": "a"
+    }
+  ],
+  "expect": [
+    {
+      "status": "failed"
+    }
+  ]
+}

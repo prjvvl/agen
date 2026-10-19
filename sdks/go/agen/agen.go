@@ -104,6 +104,8 @@ type Spec struct {
 	OpenRouter map[string]any `json:"openrouter,omitempty"`
 	// ContextTokens: about how many tokens of conversation one model call may send.
 	ContextTokens int `json:"contextTokens,omitempty"`
+	// MaxTokensPerRun: a run that uses more tokens fails.
+	MaxTokensPerRun int `json:"maxTokensPerRun,omitempty"`
 }
 
 // Router is a routing model's settings: the default cost tier (low, medium,

@@ -26,6 +26,8 @@ AGENT_KEYS = {
     "approvalTimeoutSeconds": "approval_timeout_seconds",
     "router": "router",
     "fallbackModels": "fallback_models",
+    "openrouter": "openrouter",
+    "maxTokensPerRun": "max_tokens_per_run",
 }
 TOOL_KEYS = {"name", "readOnly", "timeoutSeconds", "behavior"}
 RUN_KEYS = {"input", "options", "sameSession", "cancelAfterMs", "cancelBeforeStart", "closeAfterMs", "concurrent"}

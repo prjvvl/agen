@@ -12,7 +12,7 @@ const CASES = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).sort();
 
 const KEYS = {
   case: ['name', 'description', 'features', 'agent', 'tools', 'approvals', 'runs', 'expect', 'createError'],
-  agent: ['name', 'bundle', 'instructions', 'model', 'provider', 'permissions', 'maxTurns', 'approvalTimeoutSeconds', 'router', 'fallbackModels'],
+  agent: ['name', 'bundle', 'instructions', 'model', 'provider', 'permissions', 'maxTurns', 'approvalTimeoutSeconds', 'router', 'fallbackModels', 'openrouter', 'maxTokensPerRun'],
   tool: ['name', 'readOnly', 'timeoutSeconds', 'behavior'],
   run: ['input', 'options', 'sameSession', 'cancelAfterMs', 'cancelBeforeStart', 'closeAfterMs', 'concurrent'],
   options: ['taskId', 'modelTier'],

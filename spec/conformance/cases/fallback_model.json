@@ -1,0 +1,40 @@
+{
+  "name": "fallback_model",
+  "description": "A model that refuses the request hands over to the next fallback model, which answers.",
+  "features": [
+    "models.fallback"
+  ],
+  "agent": {
+    "name": "c",
+    "model": "m-primary",
+    "fallbackModels": [
+      "m-fallback"
+    ],
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "text": "",
+          "error": "bad request",
+          "errorKind": "request",
+          "expectModel": "m-primary"
+        },
+        {
+          "text": "from the fallback",
+          "expectModel": "m-fallback"
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "a"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "from the fallback"
+    }
+  ]
+}

@@ -88,6 +88,7 @@ class Agent {
       reasoningEffort: rest.reasoningEffort,
       openrouter: rest.openrouter,
       contextTokens: rest.contextTokens,
+      maxTokensPerRun: rest.maxTokensPerRun,
       tools: tools.map((t) => ({
         name: t.name,
         description: t.description,

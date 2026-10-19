@@ -156,7 +156,8 @@ func runConfCase(t *testing.T, root string, c confCase) {
 		t.Fatal(err)
 	}
 	allowed := map[string]bool{"name": true, "bundle": true, "instructions": true, "model": true, "provider": true,
-		"permissions": true, "maxTurns": true, "approvalTimeoutSeconds": true, "router": true, "fallbackModels": true}
+		"permissions": true, "maxTurns": true, "approvalTimeoutSeconds": true, "router": true, "fallbackModels": true,
+		"openrouter": true, "maxTokensPerRun": true}
 	for k := range agentKeys {
 		if !allowed[k] {
 			t.Fatalf("agent: unknown key %q (update the runner)", k)
