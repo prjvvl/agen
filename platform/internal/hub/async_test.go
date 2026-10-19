@@ -73,4 +73,33 @@ func TestChildTaskFromARunRepliesOnce(t *testing.T) {
 		tasks[0].Input != "[Result of the task you started on writer (task "+child.Id+", succeeded)]\n\nWritten." {
 		t.Fatalf("reply tasks: %+v", tasks)
 	}
+
+	// A task's run can start children before the Nest's next status report
+	// lists its instance: the task's lease names the Nest and instance. Only
+	// that Nest may ask for it.
+	sub, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "lead"), Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.LeaseTasks(ctx, connect.NewRequest(&agenv1.LeaseTasksRequest{NestId: id, Ref: ref("", "lead"), Max: 5})); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"UPDATE tasks SET instance_id = 'i9', run_id = 'fresh' WHERE id = '" + sub.Msg.Task.Id + "'",
+		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s2','lead','default','lead','{}',$1,$1)",
+		"INSERT INTO conversations (id, session_id, created_ms) VALUES ('c2','s2',$1)",
+		"INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, started_ms, owner, task_id) VALUES ('fresh','s2','c2','default','lead','running','go',$1,'i9','" + sub.Msg.Task.Id + "')",
+	} {
+		if _, err := e.store.DB().ExecContext(ctx, q, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other, n2 := e.enroll(t, "n2", 4, nil)
+	if _, err := n2.SubmitChildTask(ctx, connect.NewRequest(&agenv1.SubmitChildTaskRequest{NestId: other, InstanceId: "i9", Ref: ref("", "writer"),
+		Input: "write", ParentRunId: "fresh", IdempotencyKey: "k-other"})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("another nest: %v", err)
+	}
+	if _, err := start("fresh", "i9"); err != nil {
+		t.Fatalf("leased task's run before its instance is reported: %v", err)
+	}
 }

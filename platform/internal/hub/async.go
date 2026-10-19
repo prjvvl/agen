@@ -54,6 +54,13 @@ func (n *NestAPI) childParent(ctx context.Context, m *agenv1.SubmitChildTaskRequ
 	for _, in := range insts {
 		onNest = onNest || in.ID == m.InstanceId
 	}
+	if !onNest && run.TaskID != "" {
+		// A run can start before the Nest's first status report lists its
+		// instance; the task's lease says which Nest and instance run it.
+		if t, err := n.hub.Store.GetTask(ctx, run.TaskID); err == nil {
+			onNest = t.LeaseNestID == m.NestId && t.InstanceID == m.InstanceId
+		}
+	}
 	if !onNest {
 		return store.Task{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("instance %s is not on nest %s", m.InstanceId, m.NestId))
 	}
