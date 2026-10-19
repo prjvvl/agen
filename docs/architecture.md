@@ -420,8 +420,8 @@ Agent → Session → Conversation → Run → Span.
   resume after a crash it is closed as `interrupted` and the resumed run's
   span hangs under it, carrying the task attempt.
 - Each model call's `max_tokens` is the configured `maxOutputTokens` lowered
-  to the remaining `maxTokensPerRun` (without a configured maximum, only once
-  fewer than 8192 tokens remain).
+  to the remaining `maxTokensPerRun` (bundles default to 8192; an SDK agent
+  without a maximum sends one only once fewer than 8192 tokens remain).
 - In managed mode the Manager passes the definition digest it unpacked
   (`AGEN_DEFINITION_DIGEST`); hosts do not re-hash the directory, which tool
   servers may write to. Health reports the loaded tools and each MCP server's

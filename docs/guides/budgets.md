@@ -19,9 +19,10 @@ Budgets stop an agent from spending more than you meant it to. They are set in
 
 - Before each model call, the output limit (`max_tokens`) is lowered to what
   is left of `maxTokensPerRun`, so a single answer cannot jump far past it.
-  This applies to the `maxOutputTokens` you set in `x-agen/harness.json`; if
-  you set none, the remaining budget is only sent once it is below 8192
-  tokens, because some providers reject or pre-charge large limits.
+  This applies to `maxOutputTokens` (8192 by default for bundles). An SDK
+  agent defined in code without `maxOutputTokens` sends the remaining budget
+  only once it is below 8192 tokens, because some providers reject or
+  pre-charge large limits.
 - The input of the next call still counts, so a run can end slightly over
   `maxTokensPerRun`. Keep `maxOutputTokens` modest for tight budgets.
 - `maxUsdPerDay` is checked when work starts, so the day's spend can overshoot
