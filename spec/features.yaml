@@ -103,7 +103,6 @@ features:
     title: Limits (turns, tokens, durations, queue)
     contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
     on: [rust, python, node, go, api, cli]
-    gap: {cli: ""}
 
   # Tools and permissions
   - id: tools.host
@@ -162,7 +161,7 @@ features:
     contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
       field:ListTriggerEvents.state, rpc:CreateWebhookSecret, field:CreateWebhookSecret.trigger, cli:triggers, cli:webhook-secret]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", console: ""}
+    gap: {console: ""}
   - id: delegation
     title: Agents calling agents (call_agent)
     contract: [config:delegates, rpc:Resolve, field:Resolve.caller, rpc:RequestWake, cli:call, cli:resolve]
@@ -191,7 +190,7 @@ features:
     title: Bundle versions and roll back
     contract: [rpc:ListDefinitions, rpc:GetDefinition, field:GetDefinition.digest]
     on: [api, mcp, console]
-    gap: {mcp: "", console: ""}
+    gap: {console: ""}
   - id: deploy.templates
     title: Start from a template
     contract: [rpc:ListTemplates, cli:init]
@@ -200,7 +199,7 @@ features:
     title: Daily budgets
     contract: [config:budget, field:CreateDeployment.budget, field:UpdateDeployment.budget]
     on: [api, mcp, cli, console]
-    gap: {mcp: "", console: ""}
+    gap: {console: ""}
   - id: secrets
     title: Platform secrets
     contract: [rpc:SetSecret, rpc:ListSecrets, rpc:DeleteSecret, field:SetSecret.value, field:SetSecret.deployments, cli:secret]
@@ -223,7 +222,6 @@ features:
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]
     on: [api, mcp, console]
-    gap: {mcp: ""}
   - id: observe.notifications
     title: Notification targets
     contract: [rpc:SetNotificationTarget, rpc:ListNotificationTargets, rpc:DeleteNotificationTarget,
@@ -247,4 +245,3 @@ features:
     contract: [rpc:ListNests, rpc:CreateJoinToken, rpc:RevokeNest, field:CreateJoinToken.ttl_seconds, cli:nests,
       cli:join-token, cli:nest, cli:hub]
     on: [api, mcp, cli, console, docker, kubernetes]
-    gap: {mcp: ""}

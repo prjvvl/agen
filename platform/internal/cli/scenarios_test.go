@@ -239,6 +239,20 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 	case "DeleteNotificationTarget":
 		c.args = append([]string{"notify", "rm", str("name")}, ns()...)
 		c.text = true
+	case "ListDeployments":
+		c.args = append([]string{"ps", "--json"}, ns()...)
+	case "ListTriggerEvents":
+		n, name := ref()
+		c.args = []string{"triggers", name, "-n", n, "--json"}
+	case "CreateWebhookSecret":
+		n, name := ref()
+		c.args = []string{"webhook-secret", name, str("trigger"), "-n", n, "--json"}
+	case "ListNests":
+		c.args = []string{"nests", "--json"}
+	case "CreateJoinToken":
+		used["ttlSeconds"] = true
+		ttl, _ := a["ttlSeconds"].(float64)
+		c.args = []string{"join-token", "--json", "--ttl", fmt.Sprintf("%ds", int(ttl))}
 	case "ListProviderHolds":
 		c.args = []string{"providers", "--json"}
 	case "ListTemplates":

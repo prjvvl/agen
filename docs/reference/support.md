@@ -41,7 +41,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | OpenRouter request settings (provider routing, plugins) | ✓ | ✓ | ✓ |  |  |
 | Provider account holds and resume | ✓ | ✓ | ✓ | ◐ |  |
 | Long-run compaction (contextTokens) | ✓ | ✓ | ✓ |  |  |
-| Limits (turns, tokens, durations, queue) | ✓ |  | ◐ |  |  |
+| Limits (turns, tokens, durations, queue) | ✓ |  | ✓ |  |  |
 | Host tools (functions in your program) | –[^1] |  |  |  |  |
 | Tools from MCP servers in the bundle | ◐ |  | ✓ |  |  |
 | Built-in workspace and SQL tool servers |  |  | ✓ |  |  |
@@ -52,22 +52,22 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |
 | Per-task cost tier | ✓ | ✓ | ✓ | ◐ |  |
 | Tasks with a start time | ✓ | ✓ | ✓ | ◐ |  |
-| Cron and webhook triggers | ✓ | ◐ | ✓ | ◐ |  |
+| Cron and webhook triggers | ✓ | ✓ | ✓ | ◐ |  |
 | Agents calling agents (call_agent) | ✓ |  | ✓ |  | ✓ |
 | Start an agent without waiting (start_agent) | ✓ |  |  |  | ✓ |
 | Deploy, update, scale, pause and delete | ✓ | ✓ | ✓ | ✓ |  |
 | Check a bundle before deploying | ✓ | ✓ | ✓ | ✓ |  |
-| Bundle versions and roll back | ✓ | ◐ |  | ◐ |  |
+| Bundle versions and roll back | ✓ | ✓ |  | ◐ |  |
 | Start from a template | ✓ | ✓ | ✓ | ✓ |  |
-| Daily budgets | ✓ | ◐ | ✓ | ◐ |  |
+| Daily budgets | ✓ | ✓ | ✓ | ◐ |  |
 | Platform secrets | ✓ | ✓ | ✓ | ✓ |  |
 | Runs, traces and transcripts | ✓ | ✓ | ✓ | ✓ |  |
 | Deployment logs | ✓ | ✓ | ✓ | ◐ |  |
-| Metrics, costs and live activity | ✓ | ◐ |  | ✓ |  |
+| Metrics, costs and live activity | ✓ | ✓ |  | ✓ |  |
 | Notification targets | ✓ | ✓ | ✓ | ✓ |  |
 | API tokens, scopes and namespaces | ✓ | ✓ | ✓ | ✓ |  |
 | Local fleet (agen up) |  |  | ✓ |  |  |
-| Nests (machines that run agents) | ✓ | ◐ | ✓ | ✓ |  |
+| Nests (machines that run agents) | ✓ | ✓ | ✓ | ✓ |  |
 
 ## Install and run the fleet
 

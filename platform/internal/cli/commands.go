@@ -752,6 +752,9 @@ func (e *env) cmdJoinToken(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
 	fmt.Fprintln(e.stdout, r.Msg.Token)
 	if r.Msg.CaHash != "" {
 		fmt.Fprintf(e.stdout, "CA %s (agen nest run --ca-hash %s)\n", r.Msg.CaHash, r.Msg.CaHash)
