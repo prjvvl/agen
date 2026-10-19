@@ -26,8 +26,12 @@ func (e *env) cmdProviders(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := c.ResumeProvider(ctx, connect.NewRequest(&agenv1.ResumeProviderRequest{Account: rest[0]})); err != nil {
+		r, err := c.ResumeProvider(ctx, connect.NewRequest(&agenv1.ResumeProviderRequest{Account: rest[0]}))
+		if err != nil {
 			return err
+		}
+		if cf.json {
+			return e.printJSON(r.Msg)
 		}
 		fmt.Fprintf(e.stdout, "%s resumed\n", rest[0])
 		return nil

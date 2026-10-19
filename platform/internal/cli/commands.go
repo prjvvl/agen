@@ -355,6 +355,9 @@ func (e *env) cmdLogs(ctx context.Context, args []string) error {
 	if len(pos) != 1 {
 		return usageErr("agen logs <name> [-f] [--instance ID]")
 	}
+	if *follow && cf.json {
+		return usageErr("agen logs: --json prints one response; it does not combine with -f")
+	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
@@ -519,12 +522,16 @@ func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t 
 		t = r.Msg.Task
 	}
 	if asJSON {
-		return e.printJSON(t)
+		if err := e.printJSON(t); err != nil {
+			return err
+		}
 	}
 	if t.State != agenv1.TaskState_TASK_STATE_SUCCEEDED {
 		return fmt.Errorf("task %s %s: %s", t.Id, stateName(t.State, "TASK_STATE_"), t.Error)
 	}
-	fmt.Fprintln(e.stdout, t.Output)
+	if !asJSON {
+		fmt.Fprintln(e.stdout, t.Output)
+	}
 	return nil
 }
 
@@ -549,6 +556,9 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 	c, err := e.client(cf)
 	if err != nil {
 		return err
+	}
+	if *scheduled && *state != "" {
+		return usageErr("agen tasks: --scheduled lists queued tasks waiting for their start time; it does not combine with --state")
 	}
 	req := &agenv1.ListTasksRequest{Namespace: cf.namespace, Deployment: dep, Limit: int32(*limit), Scheduled: *scheduled}
 	if *state != "" {
