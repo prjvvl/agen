@@ -2,6 +2,7 @@
 name: pr-reviewer
 description: Reviews GitHub pull requests and leaves a summary comment
 maxTurns: 16
+skills: [review-checklist]
 ---
 
 You review pull requests. The task input is a GitHub pull_request webhook

@@ -8,7 +8,9 @@ import { Alert, Badge, Empty, SkeletonRows } from "../ui";
 import { fitTier, ROUTER_TIERS, withModel } from "../routers";
 import { PanelForm } from "./DeploymentDetail";
 
-const CATEGORY_ORDER = ["starter", "research", "content", "support", "engineering", "operations", "multi-agent"];
+const CATEGORY_ORDER = ["starter", "research", "content", "support", "engineering", "data", "operations", "multi-agent"];
+// Categories not listed sort last.
+const rank = (c: string) => (CATEGORY_ORDER.includes(c) ? CATEGORY_ORDER.indexOf(c) : CATEGORY_ORDER.length);
 
 export function Templates({ selected }: { selected?: string }) {
   const { can } = useSession();
@@ -16,7 +18,7 @@ export function Templates({ selected }: { selected?: string }) {
   const groups = useMemo(() => {
     const g = new Map<string, Template[]>();
     for (const t of list.data?.templates ?? []) (g.get(t.category) ?? g.set(t.category, []).get(t.category)!).push(t);
-    return [...g.entries()].sort((a, b) => CATEGORY_ORDER.indexOf(a[0]) - CATEGORY_ORDER.indexOf(b[0]));
+    return [...g.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
   }, [list.data]);
   const tpl = list.data?.templates?.find((t) => t.name === selected);
   return (
