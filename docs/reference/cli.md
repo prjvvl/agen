@@ -640,7 +640,7 @@ Usage of approvals:
 ## agen notify
 
 ```text
-usage: agen notify set <name> <url> [--event E]... | agen notify ls | agen notify rm <name>
+usage: agen notify set <name> <url> [--event E]... [--deployment D] [--label k=v] [--severity S] | agen notify ls | agen notify rm <name>
 ```
 
 ## agen join-token

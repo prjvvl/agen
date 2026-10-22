@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -44,6 +45,8 @@ type Hub struct {
 
 	evOnce sync.Once
 	ev     *changeFeed
+	// delivering: a round of notification deliveries is going.
+	delivering atomic.Bool
 
 	// Log receives operational messages (default: slog.Default()).
 	Log *slog.Logger

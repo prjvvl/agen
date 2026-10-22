@@ -43,6 +43,10 @@ plus `reportTokens`).
 Set `reportTokens` to `0` to have runs fail at a limit instead, with outcome
 `failed` and the same reason.
 
+The Hub records a `budget.threshold` [event](events.md) when a deployment
+has spent 50, 80 and 100% of `maxUsdPerDay`, each once per UTC day, so a
+[notification target](notifications.md) can hear about it.
+
 ## Budget pressure
 
 Once a deployment has spent 80% of its `maxUsdPerDay`, the tasks it leases

@@ -338,6 +338,7 @@ function Notifications() {
                 <th>Namespace</th>
                 <th>URL</th>
                 <th>Events</th>
+                <th>Delivery</th>
                 <th />
               </tr>
             </thead>
@@ -349,7 +350,10 @@ function Notifications() {
                   <td className="mono truncate" style={{ maxWidth: 320 }} title={t.url}>
                     {t.url}
                   </td>
-                  <td>{(t.events ?? []).length ? t.events!.join(", ") : "all"}</td>
+                  <td>{(t.events ?? []).length ? t.events!.join(", ") : "approvals, failures, budgets, provider holds"}</td>
+                  <td data-field="delivery">
+                    <TargetDelivery t={t} />
+                  </td>
                   <td className="actions-cell">
                     <ConfirmButton
                       label="Remove"
@@ -385,23 +389,56 @@ function Notifications() {
   );
 }
 
+/** How deliveries to a target are going. */
+function TargetDelivery({ t }: { t: NotificationTarget }) {
+  const dropped = Number(t.dropped ?? 0);
+  return (
+    <span>
+      {t.failingSince ? (
+        <span style={{ color: "var(--err)" }} title={t.lastError}>
+          failing since <Time t={t.failingSince} />: {t.lastError}
+        </span>
+      ) : t.lastDeliveredAt ? (
+        <span className="muted">
+          last sent <Time t={t.lastDeliveredAt} />
+        </span>
+      ) : (
+        <span className="muted">nothing sent yet</span>
+      )}
+      {dropped > 0 && <span className="muted"> · {dropped} dropped after failing for an hour</span>}
+    </span>
+  );
+}
+
 const EVENTS = [
   ["approval.pending", "an approval waits for a decision"],
   ["task.failed", "a task failed"],
   ["budget.exhausted", "a deployment used its daily budget"],
+  ["provider.held", "a provider account was held"],
+  ["provider.resumed", "a held provider account works again"],
+  ["task.needs_input", "a task ended asking for an answer"],
+  ["task.finished", "any task ended"],
+  ["activity.warning", "a warning (quiet run, long queue, model errors, ...)"],
 ];
+/** What a target without events gets. */
+const DEFAULT_EVENTS = EVENTS.slice(0, 5).map((e) => e[0]);
 
 function NewTarget({ onClose, onCreated }: { onClose: () => void; onCreated: (secret: string) => void }) {
   const [namespace, setNamespace] = useState("default");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [events, setEvents] = useState<string[]>(EVENTS.map((e) => e[0]));
+  const [events, setEvents] = useState<string[]>(DEFAULT_EVENTS);
   const [error, setError] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     try {
       const r = await call<{ secret: string }>("SetNotificationTarget", {
-        target: { namespace, name, url, events: events.length === EVENTS.length ? [] : events },
+        target: {
+          namespace,
+          name,
+          url,
+          events: events.length === DEFAULT_EVENTS.length && DEFAULT_EVENTS.every((e) => events.includes(e)) ? [] : events,
+        },
       });
       onCreated(r.secret);
     } catch (err) {

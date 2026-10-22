@@ -149,10 +149,26 @@ message NotificationTarget {
   string name = 2;
   // http(s) URL that receives a signed JSON POST per event.
   string url = 3;
-  // Event types to send: approval.pending, task.failed, budget.exhausted.
-  // Empty means all.
+  // Event log types to send (or prefixes ending in "."), plus task.failed
+  // (a task that failed) and budget.exhausted (a daily budget used up).
+  // Empty: approval.pending, task.failed, budget.exhausted, provider.held
+  // and provider.resumed.
   repeated string events = 4;
   google.protobuf.Timestamp created_at = 5;
+  // Only events of this deployment.
+  string deployment = 6;
+  // Only events whose labels include all of these.
+  map<string, string> labels = 7;
+  // Only events at least this severe: info, warning or critical.
+  string severity = 8;
+  // Delivery state (read only): the last event seq handled, the last
+  // delivery, since when deliveries fail and why, and events given up on
+  // after failing for an hour.
+  int64 delivered_seq = 9;
+  google.protobuf.Timestamp last_delivered_at = 10;
+  google.protobuf.Timestamp failing_since = 11;
+  string last_error = 12;
+  int64 dropped = 13;
 }
 message SetNotificationTargetRequest {
   NotificationTarget target = 1;

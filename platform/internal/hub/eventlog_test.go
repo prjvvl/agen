@@ -175,3 +175,65 @@ func TestEventStreamResumesFromTheLastEventID(t *testing.T) {
 		t.Fatalf("resumed: %s %s after %s", typ, id2, id1)
 	}
 }
+
+// Activity warnings become activity.warning events (once a day each), a
+// quiet run also task.stuck, config.json alerts sets the thresholds, and
+// answers cut at the output limit are a warning.
+// features: events
+func TestWarningsBecomeEvents(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	files := helloFiles(t)
+	files["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":1},"alerts":{"quietRun":"1m"}}`)
+	d, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: files}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A run quiet for 2 minutes: past its 1 minute alert (the default is 5).
+	then := store.NowMs() - 2*60_000
+	for _, q := range []string{
+		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','x','default','hello','{}',$1,$1)",
+		"INSERT INTO conversations (id, session_id, created_ms) VALUES ('c1','s1',$1)",
+		"INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, definition_digest, status, input, trace_id, started_ms, task_id) VALUES ('r1','s1','c1','default','hello','" +
+			d.Msg.Deployment.DefinitionDigest + "','running','x','t1',$1,'" + task.Msg.Task.Id + "')",
+	} {
+		if _, err := e.store.DB().ExecContext(ctx, q, then); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Three answers asked again after hitting the output limit (another run).
+	if _, err := e.store.DB().ExecContext(ctx, "INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, trace_id, started_ms, ended_ms) VALUES ('r2','s1','c1','default','hello','succeeded','x','t2',$1,$1)", store.NowMs()); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if _, err := e.store.DB().ExecContext(ctx, `INSERT INTO spans (span_id, trace_id, run_id, name, start_ms, end_ms, status, attributes, seq) VALUES ($1,'t2','r2','gen_ai.chat',$2,$2,'ok','{"agen.output.retried_with":2048}',$3)`,
+			"sp"+strconv.Itoa(i), store.NowMs(), i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.hub.recordWarnings(ctx)
+	e.hub.recordWarnings(ctx)
+	r, err := c.ListEvents(ctx, connect.NewRequest(&agenv1.ListEventsRequest{Types: []string{"activity.warning", "task.stuck"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]int{}
+	for _, ev := range r.Msg.Events {
+		k := ev.Type
+		if ev.Type == "activity.warning" {
+			k += ":" + ev.Data.AsMap()["kind"].(string)
+		}
+		kinds[k]++
+		if ev.Type == "task.stuck" && ev.TaskId != task.Msg.Task.Id {
+			t.Fatalf("task.stuck names %q", ev.TaskId)
+		}
+	}
+	if kinds["activity.warning:quiet_run"] != 1 || kinds["task.stuck"] != 1 || kinds["activity.warning:output_cut"] != 1 {
+		t.Fatalf("warning events: %v", kinds)
+	}
+}

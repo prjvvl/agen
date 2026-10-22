@@ -11,12 +11,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
-	"sync"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/prjvvl/agen/platform/internal/bundle"
 	"github.com/prjvvl/agen/platform/internal/store"
@@ -26,8 +23,8 @@ import (
 var NotifyClient = &http.Client{Timeout: 10 * time.Second}
 
 // postSigned POSTs body to target, signed with key when it is not empty,
-// retrying network errors and 5xx answers.
-func postSigned(ctx context.Context, target, event string, body []byte, key string) error {
+// trying up to attempts times on network errors and 5xx answers.
+func postSigned(ctx context.Context, target, event string, body []byte, key string, attempts int) error {
 	if u, err := url.Parse(target); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return errors.New("the URL must be http(s)")
 	}
@@ -38,7 +35,7 @@ func postSigned(ctx context.Context, target, event string, body []byte, key stri
 		signature = "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	}
 	var last string
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -73,11 +70,11 @@ func postSigned(ctx context.Context, target, event string, body []byte, key stri
 }
 
 // notifyApproval sends a new pending approval to the deployment's
-// permissions.notify URL, if it has one, and to its namespace's targets.
-// Failures are logged on the deployment; the approval itself is unaffected.
+// permissions.notify URL, if it has one (namespace notification targets get
+// it from the event log). Failures are logged on the deployment; the
+// approval itself is unaffected.
 func (h *Hub) notifyApproval(ctx context.Context, a store.Approval) {
 	approval := h.approvalProto(a, h.principalNames(ctx))
-	h.notifyTargets(ctx, a.Namespace, a.Deployment, "approval.pending", "approval", approval)
 	d, err := h.Store.GetDeployment(ctx, a.Namespace, a.Deployment)
 	if err != nil {
 		return
@@ -111,67 +108,21 @@ func (h *Hub) notifyApproval(ctx context.Context, a store.Approval) {
 			return
 		}
 	}
-	if err := postSigned(ctx, n.URL, "approval.pending", body, key); err != nil {
+	if err := postSigned(ctx, n.URL, "approval.pending", body, key, 3); err != nil {
 		fail(err.Error())
 	}
 }
 
-// notifyTargets sends an event to the namespace's notification targets that
-// want it: {"type": event, field: <msg as protojson>}.
-func (h *Hub) notifyTargets(ctx context.Context, ns, deployment, event, field string, msg proto.Message) {
-	targets, err := h.Store.ListNotificationTargets(ctx, ns)
-	if err != nil || len(targets) == 0 {
-		return
-	}
-	raw, err := protojson.Marshal(msg)
-	if err != nil {
-		return
-	}
-	body, _ := json.Marshal(map[string]any{"type": event, field: json.RawMessage(raw)})
-	var wg sync.WaitGroup
-	for _, t := range targets {
-		if len(t.Events) > 0 && !slices.Contains(t.Events, event) {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key, err := h.Store.NotificationSecret(ctx, t.Namespace, t.Name)
-			if err == nil {
-				err = postSigned(ctx, t.URL, event, body, key)
-			}
-			if err != nil {
-				_ = h.Store.AppendLog(ctx, "", ns, deployment, "warn", fmt.Sprintf("%s: notification to %s (%s) failed: %s", event, t.Name, t.URL, err))
-			}
-		}()
-	}
-	wg.Wait()
-}
-
-// budgetNotified remembers the UTC day a deployment's exhausted budget was
-// last announced, so it is announced once a day.
-var budgetNotified sync.Map
-
-// afterTaskEnded sends task.failed for a failed task and budget.exhausted
-// when the deployment's daily budget just ran out.
+// afterTaskEnded handles what follows a task's end: provider holds, the
+// reply to the agent that started it, and the daily budget thresholds.
 func (h *Hub) afterTaskEnded(ctx context.Context, taskID string) {
 	t, err := h.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return
 	}
-	if t.State == "failed" {
-		h.notifyTargets(ctx, t.Namespace, t.Deployment, "task.failed", "task", TaskProto(t))
-	}
 	h.providerTaskEnded(ctx, t)
 	h.replyResult(ctx, t)
-	d, err := h.Store.GetDeployment(ctx, t.Namespace, t.Deployment)
-	if err != nil {
-		return
-	}
-	if _, exhausted, err := h.spentToday(ctx, d); err == nil && exhausted {
-		day := dayStartMs()
-		if prev, loaded := budgetNotified.Swap(d.Namespace+"/"+d.Name, day); !loaded || prev.(int64) != day {
-			h.notifyTargets(ctx, d.Namespace, d.Name, "budget.exhausted", "deployment", h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, d.Namespace, d.Name))))
-		}
+	if d, err := h.Store.GetDeployment(ctx, t.Namespace, t.Deployment); err == nil {
+		h.budgetThresholds(ctx, d)
 	}
 }

@@ -303,6 +303,9 @@ test("deploy from a template; costs and notification targets", async ({ page }) 
   await page.getByRole("dialog").getByRole("button", { name: "Add target" }).click();
   await expect(page.getByRole("status")).toContainText("Signing secret");
   await expect(page.locator("td", { hasText: "ops-chat" })).toBeVisible();
+  await expect(page.locator('tr', { hasText: "ops-chat" }).locator('[data-field="delivery"]')).toContainText("nothing sent yet");
+  const targets = await api<{ targets: { name: string; events?: string[] }[] }>("ListNotificationTargets", {});
+  expect(targets.targets.find((t) => t.name === "ops-chat")?.events ?? []).toEqual([]);
 });
 
 // features: models.router, models.fallback, agent.basics

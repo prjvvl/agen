@@ -128,15 +128,21 @@ func (e *env) cmdTranscript(ctx context.Context, args []string) error {
 
 // cmdNotify manages a namespace's notification targets.
 func (e *env) cmdNotify(ctx context.Context, args []string) error {
-	const usage = "agen notify set <name> <url> [--event E]... | agen notify ls | agen notify rm <name>"
+	const usage = "agen notify set <name> <url> [--event E]... [--deployment D] [--label k=v] [--severity S] | agen notify ls | agen notify rm <name>"
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		return usageErr(usage)
 	}
 	var cf clientFlags
 	fs := e.flags("notify "+args[0], &cf)
 	var events listFlag
+	labels := labelFlag{}
+	var deployment, severity *string
 	if args[0] == "set" {
-		fs.Var(&events, "event", "event to send (repeatable; default all): "+strings.Join(hub.NotificationEvents, ", "))
+		fs.Var(&events, "event", "event to send (repeatable; a type, a prefix such as task., task.failed or budget.exhausted; default: "+
+			strings.Join(hub.DefaultTargetEvents, ", ")+")")
+		deployment = fs.String("deployment", "", "only events of this deployment")
+		fs.Var(labels, "label", "only events with this key=value label (repeatable)")
+		severity = fs.String("severity", "", "only events at least this severe: info, warning or critical")
 	}
 	pos, err := parse(fs, args[1:])
 	if err != nil {
@@ -149,7 +155,7 @@ func (e *env) cmdNotify(ctx context.Context, args []string) error {
 	switch {
 	case args[0] == "set" && len(pos) == 2:
 		r, err := c.SetNotificationTarget(ctx, connect.NewRequest(&agenv1.SetNotificationTargetRequest{Target: &agenv1.NotificationTarget{
-			Namespace: cf.namespace, Name: pos[0], Url: pos[1], Events: events}}))
+			Namespace: cf.namespace, Name: pos[0], Url: pos[1], Events: events, Deployment: *deployment, Labels: labels, Severity: *severity}}))
 		if err != nil {
 			return err
 		}
@@ -167,13 +173,23 @@ func (e *env) cmdNotify(ctx context.Context, args []string) error {
 			return e.printJSON(r.Msg)
 		}
 		w := e.table()
-		fmt.Fprintln(w, "NAMESPACE\tNAME\tURL\tEVENTS")
+		fmt.Fprintln(w, "NAMESPACE\tNAME\tURL\tEVENTS\tDELIVERY")
 		for _, t := range r.Msg.Targets {
 			ev := strings.Join(t.Events, ",")
 			if ev == "" {
-				ev = "all"
+				ev = "default"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.Namespace, t.Name, t.Url, ev)
+			state := "ok"
+			switch {
+			case t.FailingSince != nil:
+				state = "failing since " + t.FailingSince.AsTime().Local().Format(time.RFC3339) + ": " + oneLine(t.LastError, 60)
+			case t.LastDeliveredAt == nil:
+				state = "nothing sent yet"
+			}
+			if t.Dropped > 0 {
+				state += fmt.Sprintf(" (%d dropped)", t.Dropped)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Namespace, t.Name, t.Url, ev, state)
 		}
 		return w.Flush()
 	case args[0] == "rm" && len(pos) == 1:

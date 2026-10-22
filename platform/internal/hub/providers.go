@@ -110,7 +110,6 @@ func (h *Hub) providerTaskEnded(ctx context.Context, t store.Task) {
 		if created {
 			h.event(ctx, store.Event{Namespace: d.Namespace, Type: "provider.held", Deployment: d.Name, Severity: "critical",
 				Data: map[string]any{"account": hold.Account, "reason": hold.Reason, "retryMs": hold.RetryMs}})
-			h.notifyTargets(ctx, d.Namespace, d.Name, "provider.held", "hold", providerHoldProto(hold))
 		}
 	case held && hold.ProbeTask == t.ID && t.State != "succeeded":
 		_ = h.Store.ReleaseProbe(ctx, acct, t.ID)
@@ -146,7 +145,6 @@ func (h *Hub) checkProviderHolds(ctx context.Context) error {
 				h.logger().Info("provider account works again", "account", hold.Account)
 				h.event(ctx, store.Event{Namespace: some.Namespace, Type: "provider.resumed", Deployment: some.Name,
 					Data: map[string]any{"account": hold.Account, "reason": "a run succeeded"}})
-				h.notifyTargets(ctx, some.Namespace, some.Name, "provider.resumed", "hold", providerHoldProto(hold))
 			}
 		}
 	}
@@ -195,7 +193,6 @@ func (h *Hub) ResumeProvider(ctx context.Context, req *connect.Request[agenv1.Re
 	if ns, _, ok := strings.Cut(req.Msg.Account, "/"); ok {
 		h.event(ctx, store.Event{Namespace: ns, Type: "provider.resumed",
 			Data: map[string]any{"account": req.Msg.Account, "reason": "resumed by " + PrincipalFrom(ctx).ID}})
-		h.notifyTargets(ctx, ns, "", "provider.resumed", "hold", &agenv1.ProviderHold{Account: req.Msg.Account, Reason: "resumed by " + PrincipalFrom(ctx).ID})
 	}
 	return connect.NewResponse(&agenv1.ResumeProviderResponse{}), nil
 }

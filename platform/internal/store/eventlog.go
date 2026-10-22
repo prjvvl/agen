@@ -21,6 +21,9 @@ type Event struct {
 	// Data: details per type, a JSON object.
 	Data map[string]any
 	AtMs int64
+	// DedupeKey: an event with a key already in the log is not written
+	// again (for things announced once: thresholds, warnings).
+	DedupeKey string
 }
 
 // Severities in order.
@@ -40,6 +43,13 @@ type execer interface {
 // from the event_seq row, so it should be the transaction's last write: the
 // row stays locked until commit, which keeps seq order equal to commit order.
 func appendEvent(ctx context.Context, ex execer, e Event) error {
+	_, err := insertEvent(ctx, ex, e)
+	return err
+}
+
+// insertEvent is appendEvent; it reports false when e's DedupeKey was
+// already in the log.
+func insertEvent(ctx context.Context, ex execer, e Event) (bool, error) {
 	if e.Severity == "" {
 		e.Severity = "info"
 	}
@@ -53,19 +63,37 @@ func appendEvent(ctx context.Context, ex execer, e Event) error {
 	}
 	var seq int64
 	if err := ex.QueryRowContext(ctx, "UPDATE event_seq SET seq = seq + 1 WHERE id = 1 RETURNING seq").Scan(&seq); err != nil {
-		return err
+		return false, err
 	}
 	if e.AtMs == 0 {
 		e.AtMs = NowMs()
 	}
-	_, err := ex.ExecContext(ctx, "INSERT INTO events (seq, namespace, type, deployment, task_id, parent_task_id, labels, severity, data, at_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-		seq, e.Namespace, e.Type, e.Deployment, e.TaskID, e.ParentTaskID, string(labels), e.Severity, string(data), e.AtMs)
-	return err
+	// A duplicate key leaves a gap in seq; readers do not mind gaps.
+	res, err := ex.ExecContext(ctx, "INSERT INTO events (seq, namespace, type, deployment, task_id, parent_task_id, labels, severity, data, at_ms, dedupe_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "+
+		"ON CONFLICT (dedupe_key) WHERE dedupe_key <> '' DO NOTHING",
+		seq, e.Namespace, e.Type, e.Deployment, e.TaskID, e.ParentTaskID, string(labels), e.Severity, string(data), e.AtMs, e.DedupeKey)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }
 
 // AppendEvent writes one event on its own.
 func (s *Store) AppendEvent(ctx context.Context, e Event) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error { return appendEvent(ctx, tx, e) })
+}
+
+// AppendEventOnce writes e unless an event with its DedupeKey is already in
+// the log; it reports whether it was written.
+func (s *Store) AppendEventOnce(ctx context.Context, e Event) (bool, error) {
+	var ok bool
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		ok, err = insertEvent(ctx, tx, e)
+		return err
+	})
+	return ok, err
 }
 
 // taskEvent is an event about task t.

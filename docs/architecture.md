@@ -707,7 +707,13 @@ event that commits late. `ListEvents` reads after a cursor with type, label,
 deployment and severity filters and an optional wait; the stream below
 carries the same events with `id: <seq>` and resumes from `Last-Event-ID`.
 Events are kept 7 days (pruned hourly by the leader); `agen migrate` copies
-them and the seq.
+them and the seq. Events announced once (budget thresholds, activity
+warnings, `task.stuck`) carry a unique dedupe key, so several Hubs or ticks
+write them once. The leader records `GetActivity` warnings every 30 s and
+delivers notification targets every tick: per target, in seq order from its
+stored cursor, one event at a time; a failure pauses the target (growing to
+5 min) with the error stored on it, and an event failing for an hour is
+dropped and counted.
 
 `GET /api/v1/events` streams change notices (server-sent events) for the
 caller's namespaces: tasks, runs, approvals, instances and deployments, and

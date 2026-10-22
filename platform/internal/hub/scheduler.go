@@ -18,8 +18,9 @@ import (
 // overwrite a newer leader's placement.
 type Scheduler struct {
 	Hub *Hub
-	// eventsPruned: when events past EventRetention were last dropped.
-	eventsPruned time.Time
+	// eventsPruned: when events past EventRetention were last dropped;
+	// warned: when activity warnings were last recorded as events.
+	eventsPruned, warned time.Time
 	// Holder identifies this Hub replica in the leader lease.
 	Holder    string
 	Tick      time.Duration
@@ -104,6 +105,11 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	if time.Since(s.eventsPruned) > time.Hour {
 		s.eventsPruned = time.Now()
 		s.Hub.pruneEvents(ctx)
+	}
+	go s.Hub.deliverTargets(context.WithoutCancel(ctx))
+	if time.Since(s.warned) > warningEvery {
+		s.warned = time.Now()
+		go s.Hub.recordWarnings(context.WithoutCancel(ctx))
 	}
 	lost, err := st.MarkLostNests(ctx, store.NowMs()-s.LostAfter.Milliseconds())
 	if err != nil {

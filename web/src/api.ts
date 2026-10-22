@@ -426,6 +426,15 @@ export interface NotificationTarget {
   url: string;
   events?: string[];
   createdAt?: string;
+  deployment?: string;
+  labels?: Record<string, string>;
+  severity?: string;
+  /** Delivery state. */
+  deliveredSeq?: Int;
+  lastDeliveredAt?: string;
+  failingSince?: string;
+  lastError?: string;
+  dropped?: Int;
 }
 
 export interface ApiToken {

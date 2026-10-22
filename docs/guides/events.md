@@ -14,8 +14,20 @@ one by one: from the API (`ListEvents`), over MCP (`list_events`), with
 | `approval.pending` | A run waits for an approval. | `approvalId`, `tool`, `runId`, `requestedBy` |
 | `approval.decided` | It was approved, denied or expired. | the same, `state`, `decidedBy` |
 | `provider.held` / `provider.resumed` | A provider account was held after an account error, or works again. | `account`, `reason` |
+| `task.stuck` | A running task made no progress for a while (`alerts.quietRun`, default 5 min). | `runId`, `message` |
+| `budget.threshold` | A deployment spent 50, 80 or 100% of its daily budget (each once per UTC day). | `percent`, `spentUsd`, `limitUsd` |
+| `activity.warning` | A warning from `GetActivity` (quiet run, long approval wait, queue waiting, a burst, model errors, answers cut at the output limit, ...), each once per subject and day. | `kind`, `message`, `runId` |
 | `trigger.missed` / `webhook.rejected` | A cron window was missed, or a webhook call was refused. | `trigger`, `message` |
 | `deployment.created` / `.updated` / `.deleted` | A deployment changed through the API (not autoscaling). | `digest`, `paused` |
+
+A deployment's `x-agen/config.json` can set when it warns:
+
+```json
+{ "alerts": { "quietRun": "15m", "waitingApproval": "2h", "queueWaiting": "10m" } }
+```
+
+[Notification targets](notifications.md) receive these events as signed
+webhooks.
 
 Every event has a `seq` (its place in the log), the namespace, deployment,
 task and parent task it is about, the task's labels, a `severity` (`info`,

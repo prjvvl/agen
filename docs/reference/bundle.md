@@ -138,6 +138,7 @@ See [Giving agents tools](../guides/tools.md).
 | `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, `reportTokens`, `stuckRepeats`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
 | `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action"}]`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
 | `triggers` | Cron and webhook triggers. See [Triggers](../guides/triggers.md). |
+| `alerts` | `quietRun`, `waitingApproval`, `queueWaiting` (`10m`, ...): when the Hub warns about this deployment. See [Events](../guides/events.md). |
 | `delegates` | `[{"name", "namespace", "url", "description"}]`: deployments the agent may call. |
 | `tools` | Per tool (`"<server>.<tool>"`): `sideEffect`, `idempotent`. See [Giving agents tools](../guides/tools.md#side-effects-and-retries). |
 | `workspace` | Reserved. |

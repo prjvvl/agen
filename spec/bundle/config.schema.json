@@ -72,6 +72,16 @@
       },
       "additionalProperties": false
     },
+    "alerts": {
+      "type": "object",
+      "description": "When the Hub warns about this deployment (activity warnings, activity.warning and task.stuck events)",
+      "properties": {
+        "quietRun": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "A run with no step finished for this long (default 5m)" },
+        "waitingApproval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "A pending approval this old (default 30m)" },
+        "queueWaiting": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "The oldest due task waiting this long (default 5m)" }
+      },
+      "additionalProperties": false
+    },
     "triggers": {
       "type": "array",
       "items": {
