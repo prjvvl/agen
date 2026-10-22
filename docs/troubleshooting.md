@@ -122,8 +122,12 @@ resend the earlier message (same `messageId`) to let it finish.
 of daily budget, held after a provider account error (`agen providers`), at
 `scale.max` with every instance busy, or waiting for an earlier task of the
 same conversation key. A task submitted with `--at` or `--in` waits for its
-start time (the console shows it as `scheduled`). `agen ps` and `agen tasks`
-show which.
+start time (the console shows it as `scheduled`). A queued task says which
+in its `wait_reason` (`GetTask`, `ListTasks`, `agen tasks`, the console):
+`not_before`, `paused`, `budget`, `provider_held`, `conversation_busy`,
+`caller_running` (an async result waits for the run that started the work),
+`asleep` (an instance is being woken), `capacity` (no Nest has room),
+`starting` or `busy`.
 
 **Queued tasks wait behind an approval.** When every run of a deployment
 waits for an approval, nothing else of it moves: its instances are busy with

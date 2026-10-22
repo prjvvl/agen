@@ -123,6 +123,9 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	}
 	// Triggers first: the tasks they queue are seen by the autoscaler in the
 	// same tick.
+	if err := s.FireEventTriggers(ctx); err != nil {
+		return epoch, err
+	}
 	if err := s.FireTriggers(ctx, epoch); err != nil {
 		return epoch, err
 	}

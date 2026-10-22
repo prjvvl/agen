@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
@@ -266,4 +267,54 @@ func (s *Store) PruneEvents(ctx context.Context, beforeMs int64) (int64, error) 
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// TriggerCursor is where an event trigger is in the event log.
+type TriggerCursor struct {
+	Seq int64
+	// Pending: matching events held while counting towards on.count.
+	Pending []int64
+}
+
+// GetTriggerCursor returns a trigger's cursor (found = false: none yet).
+func (s *Store) GetTriggerCursor(ctx context.Context, ns, deployment, trigger string) (TriggerCursor, bool, error) {
+	var c TriggerCursor
+	var pending string
+	err := s.db.QueryRowContext(ctx, "SELECT seq, pending FROM trigger_cursors WHERE namespace = $1 AND deployment = $2 AND trigger_name = $3",
+		ns, deployment, trigger).Scan(&c.Seq, &pending)
+	if errors.Is(err, sql.ErrNoRows) {
+		return c, false, nil
+	}
+	if err != nil {
+		return c, false, err
+	}
+	_ = json.Unmarshal([]byte(pending), &c.Pending)
+	return c, true, nil
+}
+
+// SetTriggerCursor stores a trigger's cursor.
+func (s *Store) SetTriggerCursor(ctx context.Context, ns, deployment, trigger string, c TriggerCursor) error {
+	if c.Pending == nil {
+		c.Pending = []int64{}
+	}
+	pending, _ := json.Marshal(c.Pending)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO trigger_cursors (namespace, deployment, trigger_name, seq, pending, updated_ms) VALUES ($1, $2, $3, $4, $5, $6) "+
+		"ON CONFLICT (namespace, deployment, trigger_name) DO UPDATE SET seq = excluded.seq, pending = excluded.pending, updated_ms = excluded.updated_ms",
+		ns, deployment, trigger, c.Seq, string(pending), NowMs())
+	return err
+}
+
+// EventsBySeq returns the events with these seqs, in seq order.
+func (s *Store) EventsBySeq(ctx context.Context, seqs []int64) ([]Event, error) {
+	var out []Event
+	for _, seq := range seqs {
+		events, _, err := s.ListEvents(ctx, EventFilter{AfterSeq: seq - 1, Limit: 1})
+		if err != nil {
+			return nil, err
+		}
+		if len(events) == 1 && events[0].Seq == seq {
+			out = append(out, events[0])
+		}
+	}
+	return out, nil
 }

@@ -604,6 +604,9 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 		if t.PendingApprovalId != "" {
 			state += " (approval " + t.PendingApprovalId + ")"
 		}
+		if t.WaitReason != "" {
+			state += " (" + strings.ReplaceAll(t.WaitReason, "_", " ") + ")"
+		}
 		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\n", t.Id, t.Namespace, t.Deployment, state, t.Source, t.Attempts,
 			t.CreatedAt.AsTime().Local().Format(time.RFC3339))
 	}

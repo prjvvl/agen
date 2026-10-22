@@ -218,7 +218,13 @@ input; the idempotency key (the `Idempotency-Key` header, or the header or
 JSON body field the trigger names) makes redeliveries return the same task;
 an optional conversation key and the trigger's labels go on the task.
 Rejected calls are recorded as `rejected` events; configuration errors are
-logged on the deployment, not returned to the caller.
+logged on the deployment, not returned to the caller. Event triggers read the
+namespace's event log from a cursor per trigger (`trigger_cursors`, created
+at the newest event); each firing's idempotency key is `event:<trigger>:<seq>`,
+a trigger skips the events of its own tasks, `on.count` holds matching seqs
+until the count is reached within `on.within`, and a task records how many
+event triggers led to it (`event_chain`): at 5 the next firing is rejected. A
+held provider account keeps the cursor where it is.
 
 **Nest failure**: heartbeat missing for `nest_lost_after` → Nest marked `lost`,
 its Assignments are rescheduled, its task leases expire. Singleton sessions

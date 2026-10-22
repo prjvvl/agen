@@ -1,7 +1,8 @@
 # Triggers
 
-Triggers submit tasks without anyone calling the API: on a schedule (cron) or
-when another system calls a webhook. Each firing becomes a durable task, so a
+Triggers submit tasks without anyone calling the API: on a schedule (cron),
+when another system calls a webhook, or when something happens in the fleet
+(an event). Each firing becomes a durable task, so a
 trigger that fires while the agent is asleep or no Nest is up still runs once
 it can.
 
@@ -93,6 +94,43 @@ per issue or ticket. See [Memory](memory.md).
 
 `labels` on a trigger are set on every task it submits, so its work can be
 told apart in tasks, runs, traces and tool calls.
+
+## Events
+
+An `event` trigger submits a task when the namespace's [event log](events.md)
+records a matching event, so an agent can react to other agents' work
+without polling:
+
+```json
+{
+  "type": "event", "name": "failures",
+  "input": "A task failed. Find out why and report.",
+  "on": { "types": ["task.finished"], "deployment": "researcher", "labels": { "project": "apollo" } },
+  "conversation": "{{event.labels.ticket}}",
+  "labels": { "via": "failures" }
+}
+```
+
+- `on` picks the events: `types` (event types, or prefixes such as
+  `task.`), and optionally `deployment`, `labels` and `severity`.
+- The task's input is the trigger's `input`, then `[Events from trigger
+  <name>]` and each event as one line of JSON (type, deployment, task id,
+  labels, data such as the task's state and outcome).
+- The task gets the event's labels, then the trigger's own.
+- `conversation` takes the task's conversation key from the event:
+  `{{event.taskId}}`, `{{event.parentTaskId}}`, `{{event.deployment}}`,
+  `{{event.type}}` or `{{event.labels.<key>}}`. Events with the same value
+  continue one conversation.
+- With `"count": 5, "within": "10m"` in `on`, the trigger fires once five
+  matching events arrived within ten minutes, with all of them in one task.
+- A new trigger starts with the events after it was deployed. Each event
+  fires at most once (`agen triggers <name>` lists the firings).
+- While the deployment's provider account is held, its event triggers wait,
+  and fire for the waiting events once the hold ends.
+- A trigger never reacts to the tasks it submitted itself, and when event
+  triggers lead from task to task five times in a row, the next firing is
+  refused and recorded as `rejected`, so triggers that set each other off
+  stop.
 
 ## One-off tasks at a later time
 

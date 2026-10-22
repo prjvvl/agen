@@ -61,7 +61,7 @@ message Limits {
 }
 
 message Trigger {
-  // "cron" or "webhook".
+  // "cron", "webhook" or "event".
   string type = 1;
   string name = 2;
   // Cron expression (cron triggers).
@@ -90,6 +90,28 @@ message Trigger {
   // with CRON_TZ=<zone>).
   google.protobuf.Timestamp next_due_at = 11;
   google.protobuf.Timestamp last_due_at = 12;
+  // Event triggers: which events of the namespace's event log submit a task.
+  EventMatch on = 13;
+  // Event triggers: the task's conversation key, from the event:
+  // {{event.taskId}}, {{event.parentTaskId}}, {{event.deployment}},
+  // {{event.type}} or {{event.labels.<key>}}. Empty: a new conversation.
+  string conversation = 14;
+}
+
+// Which events fire an event trigger.
+message EventMatch {
+  // Event types, or prefixes ending in "." (at least one).
+  repeated string types = 1;
+  // Only events of this deployment.
+  string deployment = 2;
+  // Only events whose labels include all of these.
+  map<string, string> labels = 3;
+  // Only events at least this severe: info, warning or critical.
+  string severity = 4;
+  // Fire once `count` matching events arrived within `within` (e.g. "10m"),
+  // with all of them in one task. Unset: every matching event fires.
+  int32 count = 5;
+  string within = 6;
 }
 
 message WebhookAuth {
@@ -320,6 +342,14 @@ message Task {
   string reply_conversation_key = 29;
   // How the task's run ended; unset until it ends.
   Outcome outcome = 30;
+  // Why a queued task has not started (set in responses): not_before (its
+  // start time is later), paused, budget (the daily budget is used up),
+  // provider_held, conversation_busy (an older task of its conversation is
+  // queued or running), caller_running (an async result waits for the run
+  // that started the work), asleep (an instance is being woken), capacity
+  // (no Nest has room for an instance), starting (an instance is starting),
+  // busy (every instance is busy). Empty: it is about to be taken.
+  string wait_reason = 31;
 }
 
 // One entry of the event log.

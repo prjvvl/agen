@@ -535,6 +535,7 @@ func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRe
 				return nil, connectErr(err)
 			}
 			out.PendingApprovalId = pending[t.ID]
+			out.WaitReason = h.waitReason(ctx, t, map[string]deploymentWait{})
 		}
 		// A task that starts waiting for an approval during the wait returns
 		// early: someone has to act. (One already waiting keeps waiting, so
@@ -596,8 +597,10 @@ func (h *Hub) ListTasks(ctx context.Context, req *connect.Request[agenv1.ListTas
 		return nil, connectErr(err)
 	}
 	out := &agenv1.ListTasksResponse{}
+	waits := map[string]deploymentWait{}
 	for _, t := range list {
 		pt := TaskProto(t)
+		pt.WaitReason = h.waitReason(ctx, t, waits)
 		pt.PendingApprovalId = pending[t.ID]
 		out.Tasks = append(out.Tasks, pt)
 	}

@@ -125,6 +125,31 @@
             },
             "required": ["name"],
             "additionalProperties": false
+          },
+          {
+            "properties": {
+              "type": { "const": "event" },
+              "name": { "type": "string" },
+              "input": { "type": "string", "description": "Task input before the events (which follow as JSON)" },
+              "on": {
+                "type": "object",
+                "description": "Which events of the namespace's event log fire it",
+                "properties": {
+                  "types": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Event types, or prefixes ending in '.'" },
+                  "deployment": { "type": "string" },
+                  "labels": { "$ref": "#/$defs/labels" },
+                  "severity": { "enum": ["info", "warning", "critical"] },
+                  "count": { "type": "integer", "minimum": 1, "description": "Fire once this many matching events arrived within 'within', with all of them in one task" },
+                  "within": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" }
+                },
+                "required": ["types"],
+                "additionalProperties": false
+              },
+              "conversation": { "type": "string", "description": "Conversation key from the event: {{event.taskId}}, {{event.parentTaskId}}, {{event.deployment}}, {{event.type}}, {{event.labels.<key>}}" },
+              "labels": { "$ref": "#/$defs/labels" }
+            },
+            "required": ["name", "on"],
+            "additionalProperties": false
           }
         ]
       }

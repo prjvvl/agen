@@ -390,6 +390,17 @@ test("schedule a task with a tier and cancel it; schedules, budget, logs and rol
     .toBe(first.deployment.definitionDigest);
 });
 
+// features: tasks.run
+test("a queued task says why it waits", async ({ page }) => {
+  await api("CreateDeployment", { name: "parked-ui", bundleFiles: bundle("parked-ui", { kind: "pool", scale: { min: 0, max: 1 } }, { cycle: true, responses: [{ text: "ok" }] }) });
+  await api("PauseDeployment", { ref: { name: "parked-ui" }, paused: true });
+  const sub = await api<{ task: { id: string } }>("SubmitTask", { ref: { name: "parked-ui" }, input: "later" });
+  await signIn(page);
+  await page.goto("/#/deployments/default/parked-ui/tasks");
+  await expect(page.locator(`tr[data-task="${sub.task.id}"] [data-field="state"]`)).toContainText("deployment stopped");
+  await api("CancelTask", { id: sub.task.id });
+});
+
 // features: engine.outcome
 test("a task's outcome shows with its report and result data", async ({ page }) => {
   const script = {

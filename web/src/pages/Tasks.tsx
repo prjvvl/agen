@@ -49,7 +49,7 @@ export function TasksTable({
               </td>
               <td data-field="state">
                 <div className="cell-main">
-                  <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
+                  <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore, t.waitReason)} />
                   <OutcomeStatus task={t} />
                 </div>
               </td>
@@ -101,7 +101,7 @@ export function TaskDetails({ id }: { id: string }) {
       ) : (
         <>
           <div className="toolbar">
-            <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
+            <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore, t.waitReason)} />
             <OutcomeStatus task={t} />
             <span className="grow" />
             {!["TASK_STATE_SUCCEEDED", "TASK_STATE_FAILED", "TASK_STATE_CANCELLED"].includes(t.state) && (

@@ -53,8 +53,12 @@ func validateTriggers(ts []*agenv1.Trigger) error {
 			if err := validateWebhook(t); err != nil {
 				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
 			}
+		case "event":
+			if err := validateEventTrigger(t); err != nil {
+				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
+			}
 		default:
-			return invalid(fmt.Sprintf("trigger %q: type must be cron or webhook", t.Name))
+			return invalid(fmt.Sprintf("trigger %q: type must be cron, webhook or event", t.Name))
 		}
 		if t.Name == "" {
 			return invalid("every trigger needs a name")

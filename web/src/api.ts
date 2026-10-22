@@ -181,6 +181,8 @@ export interface Task {
   depth?: number;
   /** How the task's run ended. */
   outcome?: Outcome;
+  /** Why a queued task has not started. */
+  waitReason?: string;
 }
 
 /** How a run ended, beyond its state. */
