@@ -17,7 +17,7 @@ const KEYS = {
   run: ['input', 'options', 'sameSession', 'cancelAfterMs', 'cancelBeforeStart', 'closeAfterMs', 'concurrent'],
   options: ['taskId', 'modelTier'],
   expect: ['status', 'output', 'minDeltas', 'deltasEqualOutput', 'toolCalls', 'approvalsAsked', 'toolCancelled',
-    'sameConversationAsPrevious', 'sameRunAsPrevious', 'maxWallMs', 'traceIncludes'],
+    'sameConversationAsPrevious', 'sameRunAsPrevious', 'maxWallMs', 'traceIncludes', 'outcome'],
 };
 
 function strict(obj, kind) {
@@ -85,6 +85,7 @@ async function check(agent, exp, got, prev, state, callsBefore, approvalsBefore,
     assert.ok(state.toolCancelled, 'tool never saw the cancel');
   }
   if (exp.sameConversationAsPrevious) assert.equal(got.conversationId, prev.conversationId);
+  for (const [k, v] of Object.entries(exp.outcome ?? {})) assert.deepEqual(got.outcome?.[k], v, `outcome.${k}`);
   if (exp.sameRunAsPrevious) assert.equal(got.runId, prev.runId);
   if (exp.traceIncludes) {
     const names = new Set((await agent.trace(got.traceId)).map((s) => s.name));

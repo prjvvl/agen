@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 use crate::bundle::{default_limits, Action, Budget, Bundle, Limits, Permissions, Skill};
+use crate::outcome::RunOutcome;
 use crate::permissions;
 use crate::provider::{self, Message, ModelProvider, ModelRequest, ProviderError, Role, ToolCall, Usage};
 use crate::secrets::{PlatformSecrets, Redactor, Secrets, StreamRedactor};
@@ -110,6 +111,10 @@ pub struct AgentConfig {
     pub model_request_timeout: Duration,
     /// How long one tool call may take (not `call_agent`).
     pub tool_timeout: Duration,
+    /// The data `finish` must return (harness `result.schema`).
+    pub result_schema: Option<crate::outcome::ResultSchema>,
+    /// Output limit of the report call at a limit (0: no report call).
+    pub report_tokens: u32,
 }
 
 impl AgentConfig {
@@ -143,6 +148,8 @@ impl AgentConfig {
             max_run_duration: default_limits::MAX_RUN_DURATION,
             model_request_timeout: default_limits::MODEL_REQUEST_TIMEOUT,
             tool_timeout: default_limits::TOOL_TIMEOUT,
+            result_schema: None,
+            report_tokens: default_limits::REPORT_TOKENS,
         }
     }
 }
@@ -206,6 +213,9 @@ pub struct RunResult {
     pub error: String,
     pub usage: Usage,
     pub trace_id: String,
+    /// How the run ended: status (done, partial, needs_input, rejected,
+    /// failed, cancelled), reason, report and data.
+    pub outcome: Option<RunOutcome>,
 }
 
 pub struct Agent {
@@ -221,6 +231,8 @@ pub struct Agent {
     /// MCP server connections (closed / killed when the agent is dropped).
     mcp: Option<crate::mcp::McpConnections>,
     log_sink: Option<LogSink>,
+    /// The engine's `finish` tool is registered (no host tool took the name).
+    finish: bool,
 }
 
 /// Receives operational log lines (level, redacted message). Default: stderr.
@@ -279,6 +291,11 @@ impl AgentBuilder {
         if !self.cfg.skills.is_empty() && !self.tools.iter().any(|t| t.spec().name == "load_skill") {
             self.tools.push(Arc::new(LoadSkill::new(&self.cfg.skills)));
         }
+        let finish = !self.tools.iter().any(|t| t.spec().name == crate::outcome::FINISH);
+        if finish {
+            self.tools
+                .push(Arc::new(crate::outcome::Finish::new(self.cfg.result_schema.clone())));
+        }
         let mut wire: std::collections::BTreeMap<String, String> = Default::default();
         for t in self.tools {
             let name = t.spec().name;
@@ -301,6 +318,7 @@ impl AgentBuilder {
             owner: self.owner.unwrap_or_else(new_id),
             mcp: self.mcp,
             log_sink: self.log_sink,
+            finish,
         })
     }
 }
@@ -332,6 +350,8 @@ struct Live {
     approval_wait_ms: std::sync::atomic::AtomicU64,
     /// Calls made so far per tool and arguments.
     calls: Mutex<BTreeMap<String, u32>>,
+    /// The run was asked once to end through finish.
+    nudged: bool,
 }
 
 impl Live {
@@ -342,6 +362,7 @@ impl Live {
             started: std::time::Instant::now(),
             approval_wait_ms: Default::default(),
             calls: Default::default(),
+            nudged: false,
         }
     }
 
@@ -414,6 +435,10 @@ impl Agent {
         }
         if let Some(t) = limits.tool_timeout.as_deref() {
             cfg.tool_timeout = duration_setting("limits.toolTimeout", t)?;
+        }
+        cfg.report_tokens = limits.report_tokens();
+        if let Some(r) = &bundle.harness.result {
+            cfg.result_schema = Some(crate::outcome::ResultSchema::new(r.schema.clone()).map_err(AgentError::Config)?);
         }
         let namespace = opts.namespace.unwrap_or_else(|| "default".into());
         cfg.namespace = namespace.clone();
@@ -624,6 +649,7 @@ impl Agent {
             started_ms: now_ms(),
             ended_ms: None,
             labels: opts.labels.clone(),
+            outcome: None,
         };
         let epoch = self.store.create_run(&rec, &self.owner).await?;
         let first = self.redact_message(&Message::user(input));
@@ -704,17 +730,27 @@ impl Agent {
             .await;
         }
         let outcome = self.drive_inner(&mut live, &tracer, &span.ctx, opts).await;
-        let (status, output, error) = match outcome {
-            Ok(Outcome::Done(text)) => (RunStatus::Succeeded, text, String::new()),
-            Ok(Outcome::Failed(err)) => (RunStatus::Failed, String::new(), err),
-            Ok(Outcome::Cancelled) => (RunStatus::Cancelled, String::new(), "cancelled".into()),
+        let mut ended = match outcome {
+            Ok(Outcome::Done(text)) => RunOutcome::new("done", "", &text),
+            Ok(Outcome::Failed(err)) => RunOutcome::new("failed", failure_reason(&err), &err),
+            Ok(Outcome::Cancelled) => RunOutcome::new("cancelled", "cancelled", ""),
+            Ok(Outcome::Ended(o)) => o,
             // Store failures (including losing ownership) leave the run as
             // it is: resumable, or owned by someone else.
             Err(AgentError::Store(e)) => {
                 tracer.end(span, "error").await;
                 return Err(AgentError::Store(e));
             }
-            Err(e) => (RunStatus::Failed, String::new(), self.redactor.redact(&e.to_string())),
+            Err(e) => RunOutcome::new("failed", "error", &e.to_string()),
+        };
+        ended.summary = self.redactor.redact(&ended.summary);
+        if let Some(d) = &ended.data {
+            ended.data = Some(self.redactor.redact_json(d));
+        }
+        let (status, output, error) = match ended.status.as_str() {
+            "failed" => (RunStatus::Failed, String::new(), ended.summary.clone()),
+            "cancelled" => (RunStatus::Cancelled, String::new(), "cancelled".to_string()),
+            _ => (RunStatus::Succeeded, ended.summary.clone(), String::new()),
         };
         // Never leave tool calls without results: the conversation must stay
         // valid for the next run.
@@ -722,9 +758,20 @@ impl Agent {
         span.set("gen_ai.usage.input_tokens", live.rec.usage.input_tokens);
         span.set("gen_ai.usage.output_tokens", live.rec.usage.output_tokens);
         span.set("agen.run.status", status.as_str());
-        let output = self.redactor.redact(&output);
+        span.set("agen.outcome.status", ended.status.clone());
+        if !ended.reason.is_empty() {
+            span.set("agen.outcome.reason", ended.reason.clone());
+        }
         self.store
-            .finish_run(&live.rec.id, live.epoch, status, &output, &error, live.rec.usage)
+            .finish_run(
+                &live.rec.id,
+                live.epoch,
+                status,
+                &output,
+                &error,
+                live.rec.usage,
+                Some(&ended),
+            )
             .await?;
         let summary = format!(
             "run {} {} in {} ms, {} input / {} output tokens{}",
@@ -747,6 +794,7 @@ impl Agent {
         live.rec.status = status;
         live.rec.output = output;
         live.rec.error = error;
+        live.rec.outcome = Some(ended);
         Ok(result_of(&live.rec))
     }
 
@@ -758,6 +806,10 @@ impl Agent {
         };
         let last = &msgs[last_idx];
         if last.tool_calls.is_empty() {
+            // A message after the answer (a nudge) asks for another turn.
+            if msgs[last_idx + 1..].iter().any(|m| m.role == Role::User) {
+                return Ok((vec![], None));
+            }
             return Ok((vec![], Some(last.content.clone())));
         }
         let answered: Vec<&str> = msgs[last_idx + 1..]
@@ -806,14 +858,34 @@ impl Agent {
             }
             let (pending, final_text) = self.pending_calls(&live.rec.id).await?;
             if let Some(text) = final_text {
+                if self.cfg.result_schema.is_some() && self.finish {
+                    // The result must come through finish: ask once.
+                    if live.nudged {
+                        return Ok(Outcome::Ended(RunOutcome::new(
+                            "failed",
+                            "error",
+                            "the agent ended without calling finish with its result",
+                        )));
+                    }
+                    live.nudged = true;
+                    self.add_user_note(
+                        live,
+                        "[agen] This agent must end by calling finish with data matching the result schema. Call finish now.",
+                    )
+                    .await?;
+                    continue;
+                }
                 return Ok(Outcome::Done(text));
+            }
+            if pending.is_empty() {
+                if let Some(o) = self.finished(&live.rec.id).await? {
+                    return Ok(Outcome::Ended(o));
+                }
             }
             // Calls that may wait for an approval run one at a time, so the
             // run's waiting state and the approval order stay simple.
-            let concurrent = self.cfg.parallel_tool_calls
-                && pending
-                    .iter()
-                    .all(|c| permissions::evaluate(&self.cfg.permissions, &c.name) != Action::Ask);
+            let concurrent =
+                self.cfg.parallel_tool_calls && pending.iter().all(|c| self.policy(&c.name) != Action::Ask);
             let width = if concurrent { pending.len().max(1) } else { 1 };
             let shared: &Live = live;
             let mut results = futures_util::stream::iter(pending.into_iter().map(|call| async move {
@@ -844,18 +916,20 @@ impl Agent {
             if opts.cancel.is_cancelled() {
                 return Ok(Outcome::Cancelled);
             }
+            if let Some(o) = self.finished(&live.rec.id).await? {
+                return Ok(Outcome::Ended(o));
+            }
             if live.rec.step >= self.cfg.max_turns as i64 {
-                return Ok(Outcome::Failed(format!("max_turns ({}) exceeded", self.cfg.max_turns)));
+                let why = format!("max_turns ({}) exceeded", self.cfg.max_turns);
+                return self.report(live, tracer, ctx, opts, "max_turns", why).await;
             }
             let max = self.cfg.max_run_duration;
             if !max.is_zero() && live.worked() > max {
-                return Ok(Outcome::Failed(format!(
-                    "max_run_duration ({}s) exceeded",
-                    max.as_secs()
-                )));
+                let why = format!("max_run_duration ({}s) exceeded", max.as_secs());
+                return self.report(live, tracer, ctx, opts, "duration", why).await;
             }
             if let Some(e) = self.budget_exceeded(&live.rec.usage) {
-                return Ok(Outcome::Failed(e));
+                return self.report(live, tracer, ctx, opts, "budget", e).await;
             }
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
@@ -963,6 +1037,133 @@ impl Agent {
         }
     }
 
+    /// The permission for a tool call. `finish` only ends the run, so it is
+    /// never asked for or denied.
+    fn policy(&self, tool: &str) -> Action {
+        if self.finish && tool == crate::outcome::FINISH {
+            return Action::Allow;
+        }
+        permissions::evaluate(&self.cfg.permissions, tool)
+    }
+
+    /// The outcome of an accepted `finish` call in the run's last turn.
+    async fn finished(&self, run_id: &str) -> Result<Option<RunOutcome>, AgentError> {
+        if !self.finish {
+            return Ok(None);
+        }
+        let msgs = self.store.run_messages(run_id).await?;
+        let Some(last_idx) = msgs.iter().rposition(|m| m.role == Role::Assistant) else {
+            return Ok(None);
+        };
+        for call in msgs[last_idx]
+            .tool_calls
+            .iter()
+            .filter(|c| c.name == crate::outcome::FINISH)
+        {
+            let accepted = msgs[last_idx + 1..]
+                .iter()
+                .any(|m| m.tool_call_id.as_deref() == Some(&call.id) && m.content == crate::outcome::FINISHED);
+            if accepted {
+                if let Ok(o) = crate::outcome::from_finish(&call.arguments, self.cfg.result_schema.as_ref()) {
+                    return Ok(Some(o));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Record an engine note to the model as a user message of the run.
+    async fn add_user_note(&self, live: &Live, text: &str) -> Result<(), AgentError> {
+        self.store
+            .checkpoint(
+                &live.rec.id,
+                live.epoch,
+                &live.rec.conversation_id,
+                Some(&Message::user(text)),
+                None,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// The run stopped at a limit (`reason`): one last call without tools
+    /// asks the model for its report, and the run ends partial with it.
+    /// With `limits.reportTokens` 0 the run fails as it did before.
+    async fn report(
+        &self,
+        live: &mut Live,
+        tracer: &Tracer,
+        ctx: &TraceContext,
+        opts: &RunOptions,
+        reason: &str,
+        why: String,
+    ) -> Result<Outcome, AgentError> {
+        if self.cfg.report_tokens == 0 {
+            return Ok(Outcome::Failed(why));
+        }
+        self.log("warn", &format!("run {}: {why}; asking for a report", live.rec.id))
+            .await;
+        self.add_user_note(
+            live,
+            &format!(
+                "[agen] This run has reached a limit ({why}) and must stop now. You cannot call tools any more. Write your report: what you did, what you found, what is left undone and what is needed to finish."
+            ),
+        )
+        .await?;
+        let mut extra = serde_json::Map::new();
+        extra.insert("tool_choice".into(), Value::String("none".into()));
+        let req = ModelRequest {
+            model: self.cfg.model.clone(),
+            system: self.redactor.redact(&self.system_prompt()),
+            messages: self.request_messages(&live.rec).await?,
+            tools: self.tools.specs(),
+            temperature: self.cfg.temperature,
+            max_output_tokens: Some(self.cfg.report_tokens),
+            extra,
+        };
+        let mut span = tracer.start(ctx, "gen_ai.chat");
+        span.set("gen_ai.operation.name", "chat");
+        span.set("gen_ai.provider.name", self.provider.name().to_string());
+        span.set("gen_ai.request.model", self.cfg.model.clone());
+        span.set("agen.report", reason.to_string());
+        tracer.record_open(&span).await;
+        let mut wasted = Usage::default();
+        let resp = tokio::select! {
+            r = self.complete_with_fallback(req, opts, &mut wasted) => r,
+            _ = opts.cancel.cancelled() => {
+                tracer.end(span, "cancelled").await;
+                return Ok(Outcome::Cancelled);
+            }
+        };
+        let text = match resp {
+            Ok((resp, _)) => {
+                span.set("gen_ai.usage.input_tokens", resp.usage.input_tokens);
+                span.set("gen_ai.usage.output_tokens", resp.usage.output_tokens);
+                live.rec.usage.add(resp.usage);
+                // Tool calls are not run any more; only the text counts.
+                let assistant = self.redact_message(&Message::assistant(resp.text.clone(), vec![]));
+                self.store
+                    .checkpoint(
+                        &live.rec.id,
+                        live.epoch,
+                        &live.rec.conversation_id,
+                        Some(&assistant),
+                        Some((live.rec.step, RunStatus::Running, live.rec.usage)),
+                    )
+                    .await?;
+                tracer.end(span, "ok").await;
+                resp.text
+            }
+            Err(e) => {
+                live.rec.usage.add(wasted);
+                span.set("error.type", e.to_string());
+                tracer.end(span, "error").await;
+                String::new()
+            }
+        };
+        Ok(Outcome::Ended(RunOutcome::new("partial", reason, &text)))
+    }
+
     /// Conversation history for the model: earlier runs' messages (trimmed
     /// oldest-first to fit `context_tokens`, starting at a user message) plus
     /// the current run's messages (oldest tool results shortened when they
@@ -993,6 +1194,7 @@ impl Agent {
         let mut req = base.clone();
         req.model = model.to_string();
         req.extra = self.cfg.request_extra.clone();
+        req.extra.extend(base.extra.clone());
         let mut tier = None;
         if let Some(kind) = crate::provider::router::router_for(model) {
             let settings = self.cfg.router.clone().unwrap_or_default();
@@ -1324,7 +1526,7 @@ impl Agent {
                 ));
             }
         }
-        let decision = permissions::evaluate(&self.cfg.permissions, &call.name);
+        let decision = self.policy(&call.name);
         span.set("agen.permission.action", format!("{decision:?}").to_lowercase());
         match decision {
             Action::Deny => return Ok(("error: permission denied by policy".into(), "denied")),
@@ -1487,6 +1689,23 @@ enum Outcome {
     Done(String),
     Failed(String),
     Cancelled,
+    /// Ended with an explicit outcome (finish, or a report at a limit).
+    Ended(RunOutcome),
+}
+
+/// The outcome reason of a run that failed with `err`.
+fn failure_reason(err: &str) -> &'static str {
+    if err.starts_with("no_answer") {
+        "no_answer"
+    } else if err.starts_with("max_turns") {
+        "max_turns"
+    } else if err.starts_with("max_run_duration") {
+        "duration"
+    } else if err.starts_with("budget_exceeded") {
+        "budget"
+    } else {
+        "error"
+    }
 }
 
 fn duration_setting(name: &str, value: &str) -> Result<Duration, AgentError> {
@@ -1644,6 +1863,7 @@ fn result_of(r: &RunRecord) -> RunResult {
         error: r.error.clone(),
         usage: r.usage,
         trace_id: r.trace_id.clone(),
+        outcome: r.outcome.clone(),
     }
 }
 

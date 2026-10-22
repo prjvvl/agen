@@ -221,6 +221,8 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		}
 	case "CancelTask":
 		c.args = []string{"cancel", str("id"), "--json"}
+	case "ListRuns":
+		c.args = append([]string{"runs", str("deployment"), "--json"}, ns()...)
 	case "GetLogs":
 		n, name := ref()
 		c.args = []string{"logs", name, "-n", n, "--json"}

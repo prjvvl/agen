@@ -206,6 +206,7 @@ function fromResult(d) {
     error: d.error,
     usage: d.usage,
     traceId: d.traceId,
+    outcome: d.outcome ?? null,
   };
 }
 

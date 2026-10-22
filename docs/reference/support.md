@@ -19,6 +19,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | OpenRouter request settings (provider routing, plugins) | ✓ | ✓ | ✓ | ✓ |
 | Long-run compaction (contextTokens) | ◐[^5] | ◐[^6] | ◐[^7] | ◐[^8] |
 | Limits (turns, tokens, durations, queue) | ✓ | ✓ | ✓ | ✓ |
+| Run outcomes (finish, result schema, report at a limit) | ✓ | ✓ | ✓ | ✓ |
 | Host tools (functions in your program) | ✓ | ✓ | ✓ | ✓ |
 | Permissions and approvals | ✓ | ✓ | ✓ | ✓ |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |
@@ -42,6 +43,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Provider account holds and resume | ✓ | ✓ | ✓ | ◐[^9] |  |
 | Long-run compaction (contextTokens) | ✓ | ✓ | ✓ |  |  |
 | Limits (turns, tokens, durations, queue) | ✓ |  | ✓ |  |  |
+| Run outcomes (finish, result schema, report at a limit) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Host tools (functions in your program) | –[^10] |  |  |  |  |
 | Tools from MCP servers in the bundle | ✓ |  | ✓ |  |  |
 | Built-in workspace and SQL tool servers |  |  | ✓ |  |  |

@@ -4,6 +4,43 @@ An agent hands work to another agent by calling its deployment over A2A.
 There are no hidden sub-agents: every agent it can call is a deployment you
 can see, scale and trace on its own.
 
+## How a run ends
+
+Every finished run (and its task) has an **outcome**: a `status`, an optional
+`reason`, a `summary` (the agent's report), and optional `data`.
+
+| Status | Meaning |
+|---|---|
+| `done` | The work is complete. A run that just answers ends `done`, with its answer as the summary. |
+| `partial` | Only part of it. Runs stopped at a limit end `partial` with a `reason` (`max_turns`, `duration`, `budget`) and the report they wrote (see [Budgets and limits](budgets.md#stopping-at-a-limit)). |
+| `needs_input` | The agent needs an answer to go on; `inputFrom` says from whom (`caller` or `human`). |
+| `rejected` | The agent will not do this work. |
+| `failed` | It could not do it; the task fails with the summary as its error. |
+| `cancelled` | The task was cancelled. |
+
+Every agent has a built-in `finish` tool to end its run with one of these
+(`status`, `summary`, optional `data`, `artifacts` and `inputFrom`). It never
+needs an approval. To require a structured result, give `x-agen/harness.json`
+a schema:
+
+```json
+{ "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",
+  "result": { "schema": { "type": "object", "properties": { "count": { "type": "integer" } }, "required": ["count"] } } }
+```
+
+The agent must then end with `finish` and `data` that matches it: data that
+does not match is sent back for the model to fix, and an agent that answers
+without `finish` is asked once, then fails. A `failed` or `rejected` finish
+may leave `data` out.
+
+The outcome is on `GetTask` and `ListRuns` (`outcome`), printed by `agen run`
+and `agen wait` when it is not `done`, shown in the console, and returned to
+SDK callers (`result.outcome`). Over A2A, `needs_input` and `rejected` become
+the task states `input-required` and `rejected`, the outcome is in the task
+metadata (`agen.outcome`), and `data` is a data part. A delegating agent's
+`call_agent` result starts with the status when it is not `done`
+(`[partial: budget] ...`) and ends with the data (`data: {...}`).
+
 ## Delegates
 
 List the deployments an agent may call in its `x-agen/config.json`:

@@ -293,6 +293,7 @@ async fn resume_reuses_completed_effect_without_calling_tool() {
         ended_ms: None,
         requested_by: String::new(),
         labels: Default::default(),
+        outcome: None,
     };
     let epoch = s.create_run(&run, "crashed-owner").await.unwrap();
     s.append_message(&conv, &run.id, &Message::user("pay")).await.unwrap();
@@ -393,7 +394,7 @@ async fn budget_and_max_turns_stop_runs() {
     c.budget.max_tokens_per_run = Some(1);
     let p = Arc::new(FakeProvider::new(vec![
         call("add", json!({"a": 1, "b": 2})),
-        say("never", None),
+        say("I added 1 and 2; the rest is undone.", None),
     ]));
     let agent = Agent::builder(c, s.clone())
         .provider(p)
@@ -401,8 +402,12 @@ async fn budget_and_max_turns_stop_runs() {
         .build()
         .unwrap();
     let r = agent.run("x", RunOptions::default()).await.unwrap();
-    assert_eq!(r.status, RunStatus::Failed);
-    assert!(r.error.contains("budget_exceeded"), "{}", r.error);
+    // Stopped at the limit, the run still reports what it has.
+    assert_eq!(r.status, RunStatus::Succeeded);
+    let o = r.outcome.clone().unwrap();
+    assert_eq!((o.status.as_str(), o.reason.as_str()), ("partial", "budget"));
+    assert_eq!(o.summary, "I added 1 and 2; the rest is undone.");
+    assert_eq!(r.output, o.summary);
 
     // $ per run, from the cost the provider reports.
     let mut c = cfg();
@@ -415,6 +420,38 @@ async fn budget_and_max_turns_stop_runs() {
         }),
         ..resp
     };
+    let p = Arc::new(FakeProvider::new(vec![
+        costly(call("add", json!({"a": 1, "b": 2}))),
+        costly(call("add", json!({"a": 3, "b": 4}))),
+        say("report", None),
+    ]));
+    let calls = p.clone();
+    let agent = Agent::builder(c, s.clone())
+        .provider(p)
+        .tool(add_tool())
+        .build()
+        .unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    let o = r.outcome.clone().unwrap();
+    assert_eq!(
+        (o.status.as_str(), o.reason.as_str(), o.summary.as_str()),
+        ("partial", "budget", "report")
+    );
+    assert_eq!(calls.calls(), 3, "only the report call after the budget is exceeded");
+    let reqs = calls.requests();
+    let last = reqs.last().unwrap();
+    assert_eq!(
+        last.extra.get("tool_choice"),
+        Some(&json!("none")),
+        "the report call runs no tools"
+    );
+    assert_eq!(last.max_output_tokens, Some(1024));
+    assert!(last.messages.last().unwrap().content.contains("budget_exceeded"));
+
+    // With reportTokens 0 a limit fails the run, as before.
+    let mut c = cfg();
+    c.budget.max_usd_per_run = Some(0.05);
+    c.report_tokens = 0;
     let p = Arc::new(FakeProvider::new(vec![
         costly(call("add", json!({"a": 1, "b": 2}))),
         costly(call("add", json!({"a": 3, "b": 4}))),
@@ -434,14 +471,137 @@ async fn budget_and_max_turns_stop_runs() {
         r.error
     );
     assert_eq!(calls.calls(), 2, "no model call after the budget is exceeded");
+    let o = r.outcome.unwrap();
+    assert_eq!((o.status.as_str(), o.reason.as_str()), ("failed", "budget"));
 
+    // A report call that answers with tool calls ends partial with no text.
     let mut c = cfg();
     c.max_turns = 2;
     let p = Arc::new(FakeProvider::new(vec![call("add", json!({"a": 1, "b": 2}))]).cycling());
     let agent = Agent::builder(c, s).provider(p).tool(add_tool()).build().unwrap();
     let r = agent.run("x", RunOptions::default()).await.unwrap();
+    let o = r.outcome.unwrap();
+    assert_eq!(
+        (o.status.as_str(), o.reason.as_str(), o.summary.as_str()),
+        ("partial", "max_turns", "")
+    );
+}
+
+#[tokio::test]
+async fn finish_ends_a_run_with_an_outcome() {
+    let (s, _d) = store().await;
+    let p = Arc::new(FakeProvider::new(vec![
+        call("add", json!({"a": 1, "b": 2})),
+        call(
+            "finish",
+            json!({"status": "needs_input", "summary": "Which account?", "inputFrom": "human"}),
+        ),
+        say("never", None),
+    ]));
+    let calls = p.clone();
+    let agent = Agent::builder(cfg(), s.clone())
+        .provider(p)
+        .tool(add_tool())
+        .build()
+        .unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded);
+    assert_eq!(calls.calls(), 2, "finish ends the run without another model call");
+    let o = r.outcome.clone().unwrap();
+    assert_eq!(
+        (o.status.as_str(), o.summary.as_str(), o.input_from.as_str()),
+        ("needs_input", "Which account?", "human")
+    );
+    assert!(calls.requests()[0].tools.iter().any(|t| t.name == "finish"));
+    // Stored on the run.
+    let stored = s.get_run(&r.run_id).await.unwrap();
+    assert_eq!(stored.outcome, Some(o));
+
+    // finish(failed) fails the run with its summary as the error.
+    let p = Arc::new(FakeProvider::new(vec![call(
+        "finish",
+        json!({"status": "failed", "summary": "no access to the repo"}),
+    )]));
+    let agent = Agent::builder(cfg(), s.clone()).provider(p).build().unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
     assert_eq!(r.status, RunStatus::Failed);
-    assert!(r.error.contains("max_turns"), "{}", r.error);
+    assert_eq!(r.error, "no access to the repo");
+
+    // Invalid arguments are refused and the model tries again.
+    let p = Arc::new(FakeProvider::new(vec![
+        call("finish", json!({"status": "great", "summary": "x"})),
+        call("finish", json!({"status": "done", "summary": "fixed"})),
+    ]));
+    let agent = Agent::builder(cfg(), s.clone()).provider(p).build().unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    assert_eq!(r.outcome.unwrap().summary, "fixed");
+
+    // A plain answer is a done outcome.
+    let p = Arc::new(FakeProvider::new(vec![say("hello", None)]));
+    let agent = Agent::builder(cfg(), s.clone()).provider(p).build().unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    let o = r.outcome.unwrap();
+    assert_eq!(
+        (o.status.as_str(), o.summary.as_str(), o.reason.as_str()),
+        ("done", "hello", "")
+    );
+
+    // finish never waits for an approval, even when everything else asks.
+    let mut c = cfg();
+    c.permissions.default = agen_engine::bundle::Action::Ask;
+    let p = Arc::new(FakeProvider::new(vec![call(
+        "finish",
+        json!({"status": "done", "summary": "ok"}),
+    )]));
+    let agent = Agent::builder(c, s).provider(p).build().unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    assert_eq!(r.outcome.unwrap().status, "done");
+}
+
+#[tokio::test]
+async fn result_schema_is_enforced() {
+    let (s, _d) = store().await;
+    let schema = agen_engine::outcome::ResultSchema::new(json!({
+        "type": "object",
+        "properties": {"count": {"type": "integer"}},
+        "required": ["count"]
+    }))
+    .unwrap();
+    let mut c = cfg();
+    c.result_schema = Some(schema);
+    // A plain answer is sent back once, then bad data is refused, then the
+    // result is accepted.
+    let p = Arc::new(FakeProvider::new(vec![
+        say("there are 3", None),
+        call(
+            "finish",
+            json!({"status": "done", "summary": "3", "data": {"count": "three"}}),
+        ),
+        call(
+            "finish",
+            json!({"status": "done", "summary": "3", "data": {"count": 3}}),
+        ),
+    ]));
+    let calls = p.clone();
+    let agent = Agent::builder(c.clone(), s.clone()).provider(p).build().unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    let o = r.outcome.unwrap();
+    assert_eq!(o.data, Some(json!({"count": 3})));
+    assert_eq!(calls.calls(), 3);
+    let finish = calls.requests()[0]
+        .tools
+        .iter()
+        .find(|t| t.name == "finish")
+        .cloned()
+        .unwrap();
+    assert_eq!(finish.parameters["properties"]["data"]["required"], json!(["count"]));
+
+    // Two plain answers: the run fails.
+    let p = Arc::new(FakeProvider::new(vec![say("3", None), say("I said 3", None)]));
+    let agent = Agent::builder(c, s).provider(p).build().unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Failed);
+    assert_eq!(r.outcome.unwrap().reason, "error");
 }
 
 #[tokio::test]

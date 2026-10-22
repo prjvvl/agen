@@ -1,0 +1,56 @@
+{
+  "name": "finish_outcome",
+  "description": "The finish tool ends a run with a status and report; a plain answer ends it done.",
+  "features": [
+    "engine.outcome"
+  ],
+  "agent": {
+    "name": "c",
+    "provider": {
+      "type": "fake",
+      "responses": [
+        {
+          "toolCalls": [
+            {
+              "name": "finish",
+              "arguments": {
+                "status": "needs_input",
+                "summary": "Which account should I use?"
+              }
+            }
+          ]
+        },
+        {
+          "text": "Hello."
+        }
+      ]
+    }
+  },
+  "runs": [
+    {
+      "input": "close the account"
+    },
+    {
+      "input": "hi"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "Which account should I use?",
+      "outcome": {
+        "status": "needs_input",
+        "summary": "Which account should I use?",
+        "inputFrom": "caller"
+      }
+    },
+    {
+      "status": "succeeded",
+      "output": "Hello.",
+      "outcome": {
+        "status": "done",
+        "summary": "Hello."
+      }
+    }
+  ]
+}

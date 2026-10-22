@@ -390,23 +390,48 @@ impl CallAgent {
                 })
                 .unwrap_or_default()
         };
+        let outcome = result.pointer("/metadata/agen.outcome");
         match state {
-            "completed" => Ok(result
-                .get("artifacts")
-                .and_then(Value::as_array)
-                .map(|arts| {
-                    arts.iter()
-                        .map(|a| text_of(a.get("parts")))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default()),
+            "completed" | "input-required" | "rejected" => {
+                let text = if state == "completed" {
+                    result
+                        .get("artifacts")
+                        .and_then(Value::as_array)
+                        .map(|arts| {
+                            arts.iter()
+                                .map(|a| text_of(a.get("parts")))
+                                .filter(|t| !t.is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                        .unwrap_or_default()
+                } else {
+                    text_of(result.pointer("/status/message/parts"))
+                };
+                Ok(with_outcome(text, outcome))
+            }
             other => Err(SendError::Remote(format!(
                 "agent task {other}: {}",
                 text_of(result.pointer("/status/message/parts"))
             ))),
         }
     }
+}
+
+/// A delegate's answer with how its run ended, when that is not simply done:
+/// `[partial: max_turns] <report>`, and its structured data as JSON.
+fn with_outcome(text: String, outcome: Option<&Value>) -> String {
+    let Some(o) = outcome else { return text };
+    let status = o.get("status").and_then(Value::as_str).unwrap_or("done");
+    let mut out = match (status, o.get("reason").and_then(Value::as_str)) {
+        ("done", _) => text,
+        (s, Some(r)) if !r.is_empty() => format!("[{s}: {r}] {text}"),
+        (s, _) => format!("[{s}] {text}"),
+    };
+    if let Some(d) = o.get("data").filter(|d| !d.is_null()) {
+        out.push_str(&format!("\ndata: {d}"));
+    }
+    out
 }
 
 /// Sends tasks/cancel (by message id) to the endpoint of a call in flight

@@ -382,6 +382,19 @@ Agent → Session → Conversation → Run → Span.
  router's reported decision (`agen.router.*`).
 - **Budgets**: token budgets always apply; USD budgets only when the provider
  reports cost (OpenRouter does, direct OpenAI does not).
+- **Outcome**: every finished run stores an outcome (`runs.outcome`, JSON:
+ status, reason, summary, data, artifacts, inputFrom) and the Manager copies
+ it to the task (`CompleteTask.outcome`, `tasks.outcome`). The engine's
+ built-in `finish` tool sets it (checked against harness `result.schema`; it
+ bypasses permissions); its accepted call is recognised from the stored turn,
+ so a resumed run ends the same way. A plain answer is `done`. At
+ `maxTurns`, `maxRunDuration` or a run budget the engine adds a user note and
+ makes one call with `tool_choice: none` and `limits.reportTokens` output, and
+ the run ends `partial` with that report (`reportTokens: 0`: it fails as
+ before). Work ended by the Hub (cancel, lease expiry) or by older hosts gets
+ the outcome its state implies in API responses. The Gateway maps
+ `needs_input`/`rejected` to A2A `input-required`/`rejected` and adds
+ `agen.outcome` metadata and a data part.
 - **MCP server isolation**: stdio servers get a cleared environment
   (a small allowlist such as PATH/HOME/TEMP) plus only their declared `env`,
   never the host's credentials. They run in a Job Object (Windows) or process

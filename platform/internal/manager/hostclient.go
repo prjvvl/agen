@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"google.golang.org/protobuf/encoding/protojson"
+
+	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
 )
 
 // HostClient calls an agen-host instance's HostService (Connect unary JSON:
@@ -80,7 +84,22 @@ type HostRunResult struct {
 		ID      string `json:"id"`
 		Status  string `json:"status"`
 		TraceID string `json:"traceId"`
+		// How the run ended (status, reason, summary, data, ...).
+		Outcome json.RawMessage `json:"outcome"`
 	} `json:"run"`
+}
+
+// Outcome is the run's outcome as the API message (nil when the host
+// reported none).
+func (r HostRunResult) Outcome() *agenv1.Outcome {
+	if len(r.Run.Outcome) == 0 || string(r.Run.Outcome) == "null" {
+		return nil
+	}
+	o := &agenv1.Outcome{}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(r.Run.Outcome, o); err != nil {
+		return nil
+	}
+	return o
 }
 
 func (c *HostClient) call(ctx context.Context, method string, in, out any) error {

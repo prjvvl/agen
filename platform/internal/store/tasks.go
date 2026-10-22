@@ -50,6 +50,9 @@ type Task struct {
 	// task ends its result is submitted to that deployment's conversation.
 	ReplyDeployment      string
 	ReplyConversationKey string
+	// Outcome: how the task's run ended (JSON: status, reason, summary,
+	// data, ...); "" until the Manager reports it.
+	Outcome string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -79,14 +82,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -266,15 +269,20 @@ func (s *Store) StartTask(ctx context.Context, taskID, leaseID, instanceID strin
 // CompleteTask records a result. Fails with ErrFenced unless leaseID is the
 // task's current lease (a partitioned nest cannot complete a re-leased task).
 func (s *Store) CompleteTask(ctx context.Context, taskID, leaseID string, success bool, output, errMsg, runID, instanceID string) error {
+	return s.CompleteTaskWithOutcome(ctx, taskID, leaseID, success, output, errMsg, runID, instanceID, "")
+}
+
+// CompleteTaskWithOutcome is CompleteTask with the run's outcome (JSON).
+func (s *Store) CompleteTaskWithOutcome(ctx context.Context, taskID, leaseID string, success bool, output, errMsg, runID, instanceID, outcome string) error {
 	state := "failed"
 	if success {
 		state = "succeeded"
 	}
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		t, err := scanTask(tx.QueryRowContext(ctx,
-			"UPDATE tasks SET state = $1, output = $2, error = $3, run_id = $4, instance_id = $5, lease_expires_ms = 0, updated_ms = $6 "+
-				"WHERE id = $7 AND lease_id = $8 AND state IN ('leased', 'running') RETURNING "+taskCols,
-			state, output, errMsg, runID, instanceID, NowMs(), taskID, leaseID))
+			"UPDATE tasks SET state = $1, output = $2, error = $3, run_id = $4, instance_id = $5, lease_expires_ms = 0, updated_ms = $6, outcome = $7 "+
+				"WHERE id = $8 AND lease_id = $9 AND state IN ('leased', 'running') RETURNING "+taskCols,
+			state, output, errMsg, runID, instanceID, NowMs(), outcome, taskID, leaseID))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFenced
 		}

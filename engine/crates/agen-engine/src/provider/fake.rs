@@ -70,6 +70,7 @@ pub struct FakeProvider {
     cycle: bool,
     per_run: bool,
     next: AtomicUsize,
+    requests: std::sync::Mutex<Vec<ModelRequest>>,
 }
 
 impl FakeProvider {
@@ -79,6 +80,7 @@ impl FakeProvider {
             cycle: false,
             per_run: false,
             next: AtomicUsize::new(0),
+            requests: Default::default(),
         }
     }
 
@@ -100,12 +102,18 @@ impl FakeProvider {
             cycle: s.cycle,
             per_run: s.per_run,
             next: AtomicUsize::new(0),
+            requests: Default::default(),
         })
     }
 
     /// Number of completions served so far.
     pub fn calls(&self) -> usize {
         self.next.load(Ordering::SeqCst)
+    }
+
+    /// The requests served so far, in order.
+    pub fn requests(&self) -> Vec<ModelRequest> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
@@ -122,13 +130,14 @@ impl ModelProvider for FakeProvider {
 
     async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError> {
         let n = self.next.fetch_add(1, Ordering::SeqCst);
+        self.requests.lock().unwrap().push(req.clone());
         let n = if self.per_run {
             // Turn index within this run: assistant messages after the last
-            // user message.
+            // user message (the engine's own "[agen]" notes do not count).
             req.messages
                 .iter()
                 .rev()
-                .take_while(|m| m.role != Role::User)
+                .take_while(|m| m.role != Role::User || m.content.starts_with("[agen] "))
                 .filter(|m| m.role == Role::Assistant)
                 .count()
         } else {

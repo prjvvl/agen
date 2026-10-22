@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
@@ -531,8 +532,29 @@ func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t 
 	}
 	if !asJSON {
 		fmt.Fprintln(e.stdout, t.Output)
+		if o := t.Outcome; o != nil && o.Status != "done" {
+			fmt.Fprintf(e.stderr, "outcome: %s\n", outcomeLabel(o))
+		}
+		if d := t.GetOutcome().GetData(); d != nil {
+			if b, err := protojson.Marshal(d); err == nil {
+				fmt.Fprintf(e.stderr, "data: %s\n", b)
+			}
+		}
 	}
 	return nil
+}
+
+// outcomeLabel is "partial (budget)", "needs_input (human)" or "done".
+func outcomeLabel(o *agenv1.Outcome) string {
+	switch {
+	case o == nil:
+		return "-"
+	case o.Reason != "":
+		return o.Status + " (" + o.Reason + ")"
+	case o.InputFrom != "":
+		return o.Status + " (" + o.InputFrom + ")"
+	}
+	return o.Status
 }
 
 func terminal(s agenv1.TaskState) bool {

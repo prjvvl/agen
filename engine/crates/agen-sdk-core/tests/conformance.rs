@@ -57,6 +57,7 @@ const EXPECT_KEYS: &[&str] = &[
     "toolCancelled",
     "sameConversationAsPrevious",
     "sameRunAsPrevious",
+    "outcome",
     "maxWallMs",
     "traceIncludes",
 ];
@@ -253,6 +254,11 @@ fn check(
     }
     if exp["sameConversationAsPrevious"].as_bool() == Some(true) {
         assert_eq!(got["conversationId"], prev.unwrap()["conversationId"], "{name}");
+    }
+    if let Some(want) = exp["outcome"].as_object() {
+        for (k, v) in want {
+            assert_eq!(&got["outcome"][k], v, "{name}: outcome.{k} in {got}");
+        }
     }
     if exp["sameRunAsPrevious"].as_bool() == Some(true) {
         assert_eq!(got["runId"], prev.unwrap()["runId"], "{name}");

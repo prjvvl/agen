@@ -4,7 +4,7 @@ import { call, Deployment, num, Run } from "../api";
 import { compact, money, runDuration, tokens } from "../format";
 import { useQuery } from "../live";
 import { go, setQuery, traceHref } from "../router";
-import { Alert, Badge, Empty, runStatus, Segmented, SkeletonRows, Status, Time } from "../ui";
+import { Alert, Badge, Empty, outcomeStatus, runStatus, Segmented, SkeletonRows, Status, Time } from "../ui";
 
 export interface RunFilter {
   namespace?: string;
@@ -96,7 +96,10 @@ export function RunsTable({ filter, limit }: { filter: RunFilter; limit?: number
               return (
                 <tr key={r.id} data-run={r.id} className="clickable" onClick={open}>
                   <td>
-                    <Status spec={runStatus(r.status)} />
+                    <div className="cell-main">
+                      <Status spec={runStatus(r.status)} />
+                      {outcomeStatus(r.outcome) && <Status spec={outcomeStatus(r.outcome)!} />}
+                    </div>
                   </td>
                   <td>
                     <div className="cell-main">

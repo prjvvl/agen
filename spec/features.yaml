@@ -103,6 +103,11 @@ features:
     contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
     on: [rust, python, node, go, api, cli]
 
+  - id: engine.outcome
+    title: Run outcomes (finish, result schema, report at a limit)
+    contract: [harness:result]
+    on: [rust, python, node, go, api, mcp, cli, console, a2a]
+
   # Tools and permissions
   - id: tools.host
     title: Host tools (functions in your program)

@@ -134,6 +134,12 @@ async fn runs_stop_at_max_run_duration() {
         .build()
         .unwrap();
     let r = agent.run("go", RunOptions::default()).await.unwrap();
-    assert_eq!(r.status, RunStatus::Failed);
-    assert!(r.error.contains("max_run_duration"), "{}", r.error);
+    // It stops at the limit and reports ("ok" is the report call's answer).
+    let o = r.outcome.unwrap();
+    assert_eq!(
+        (o.status.as_str(), o.reason.as_str(), o.summary.as_str()),
+        ("partial", "duration", "ok")
+    );
+    let msgs = s.run_messages(&r.run_id).await.unwrap();
+    assert!(msgs.iter().any(|m| m.content.contains("max_run_duration")), "{msgs:?}");
 }

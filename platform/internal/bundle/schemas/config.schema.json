@@ -66,7 +66,8 @@
         "maxRunDuration": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "Wall-clock time a run may take, not counting approval waits (default 1h, 0s = no limit)" },
         "maxIdenticalToolCalls": { "type": "integer", "minimum": 0, "description": "How often a run may make the same tool call with the same arguments (default 5, 0 = no limit)" },
         "modelRequestTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one model request may take (default 10m, 0s = no limit)" },
-        "toolTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one tool call may take, except call_agent (default 10m, 0s = no limit)" }
+        "toolTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one tool call may take, except call_agent (default 10m, 0s = no limit)" },
+        "reportTokens": { "type": "integer", "minimum": 0, "description": "Output limit of the last call a run gets to report when it stops at a limit (default 1024, 0 = no report call)" }
       },
       "additionalProperties": false
     },

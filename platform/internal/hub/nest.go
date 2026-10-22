@@ -418,7 +418,7 @@ func (n *NestAPI) CompleteTask(ctx context.Context, req *connect.Request[agenv1.
 	if _, err := n.requireNestTask(ctx, m.NestId, m.TaskId); err != nil {
 		return nil, err
 	}
-	if err := n.hub.Store.CompleteTask(ctx, m.TaskId, m.LeaseId, m.Success, m.Output, m.Error, m.RunId, m.InstanceId); err != nil {
+	if err := n.hub.Store.CompleteTaskWithOutcome(ctx, m.TaskId, m.LeaseId, m.Success, m.Output, m.Error, m.RunId, m.InstanceId, OutcomeJSON(m.Outcome)); err != nil {
 		return nil, connectErr(err)
 	}
 	go func() {

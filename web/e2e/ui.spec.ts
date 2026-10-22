@@ -387,6 +387,28 @@ test("schedule a task with a tier and cancel it; schedules, budget, logs and rol
     .toBe(first.deployment.definitionDigest);
 });
 
+// features: engine.outcome
+test("a task's outcome shows with its report and result data", async ({ page }) => {
+  const script = {
+    cycle: true,
+    responses: [{ text: "", toolCalls: [{ name: "finish", arguments: { status: "partial", summary: "Two of three done.", data: { done: 2 } } }] }],
+  };
+  await api("CreateDeployment", { name: "reporter-ui", bundleFiles: bundle("reporter-ui", { kind: "pool", scale: { min: 0, max: 1 } }, script) });
+  const sub = await api<{ task: { id: string } }>("SubmitTask", { ref: { name: "reporter-ui" }, input: "do three things" });
+  await expect
+    .poll(async () => (await api<{ task: { state: string } }>("GetTask", { id: sub.task.id, waitSeconds: 10 })).task.state, { timeout: 60_000 })
+    .toBe("TASK_STATE_SUCCEEDED");
+  await signIn(page);
+  await page.goto("/#/deployments/default/reporter-ui/tasks");
+  const row = page.locator(`tr[data-task="${sub.task.id}"]`);
+  await expect(row.locator('[data-field="outcome"]')).toContainText("partial");
+  await row.click();
+  const details = page.getByRole("dialog", { name: "Task" });
+  await expect(details.getByRole("heading", { name: "Report" })).toBeVisible();
+  await expect(details).toContainText("Two of three done.");
+  await expect(details.locator('[data-field="outcome-data"]')).toContainText('"done": 2');
+});
+
 test("command palette jumps to a deployment", async ({ page }) => {
   await signIn(page);
   await page.keyboard.press("Control+k");

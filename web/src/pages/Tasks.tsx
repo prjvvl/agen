@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { call, Task } from "../api";
 import { useQuery } from "../live";
 import { deploymentHref, traceHref } from "../router";
-import { Alert, Badge, Copy, Empty, Panel, SkeletonRows, Status, taskStatus, Time } from "../ui";
+import { Alert, Badge, Copy, Empty, outcomeStatus, Panel, SkeletonRows, Status, taskStatus, Time } from "../ui";
 
 export function TasksTable({
   namespace,
@@ -48,7 +48,10 @@ export function TasksTable({
                 </div>
               </td>
               <td data-field="state">
-                <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
+                <div className="cell-main">
+                  <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
+                  <OutcomeStatus task={t} />
+                </div>
               </td>
               <td className="muted nowrap">{t.source}</td>
               <td>
@@ -65,6 +68,15 @@ export function TasksTable({
       </table>
     </div>
   );
+}
+
+function OutcomeStatus({ task }: { task: Task }) {
+  const spec = outcomeStatus(task.outcome);
+  return spec ? (
+    <span data-field="outcome">
+      <Status spec={spec} />
+    </span>
+  ) : null;
 }
 
 export function TaskPanel({ id, onClose }: { id: string; onClose: () => void }) {
@@ -90,6 +102,7 @@ export function TaskDetails({ id }: { id: string }) {
         <>
           <div className="toolbar">
             <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore)} />
+            <OutcomeStatus task={t} />
             <span className="grow" />
             {!["TASK_STATE_SUCCEEDED", "TASK_STATE_FAILED", "TASK_STATE_CANCELLED"].includes(t.state) && (
               <button className="btn sm" onClick={() => call("CancelTask", { id: t.id }).then(() => task.reload())}>
@@ -114,10 +127,16 @@ export function TaskDetails({ id }: { id: string }) {
           </section>
           {(t.output || t.error) && (
             <section className="section">
-              <h3>{t.error ? "Error" : "Output"}</h3>
+              <h3>{t.error ? "Error" : t.outcome && t.outcome.status !== "done" ? "Report" : "Output"}</h3>
               <pre className="code" style={t.error ? { color: "var(--err)" } : undefined}>
                 {t.output || t.error}
               </pre>
+            </section>
+          )}
+          {t.outcome?.data !== undefined && (
+            <section className="section" data-field="outcome-data">
+              <h3>Result data</h3>
+              <pre className="code">{JSON.stringify(t.outcome.data, null, 2)}</pre>
             </section>
           )}
           <dl className="kv">

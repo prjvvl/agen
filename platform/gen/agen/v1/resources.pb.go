@@ -1906,8 +1906,10 @@ type Task struct {
 	// to reply_deployment with reply_conversation_key.
 	ReplyDeployment      string `protobuf:"bytes,28,opt,name=reply_deployment,json=replyDeployment,proto3" json:"reply_deployment,omitempty"`
 	ReplyConversationKey string `protobuf:"bytes,29,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// How the task's run ended; unset until it ends.
+	Outcome       *Outcome `protobuf:"bytes,30,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -2143,6 +2145,104 @@ func (x *Task) GetReplyConversationKey() string {
 	return ""
 }
 
+func (x *Task) GetOutcome() *Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return nil
+}
+
+// How a run ended, beyond its state: what it reports and why it stopped.
+type Outcome struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// done, partial, needs_input, rejected, failed or cancelled.
+	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// Why a run stopped early: max_turns, budget, duration, stuck, cancelled,
+	// interrupted, error or no_answer. Empty for a run that finished its work.
+	Reason string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The agent's report (its final answer when it did not call finish).
+	Summary string `protobuf:"bytes,3,opt,name=summary,proto3" json:"summary,omitempty"`
+	// Structured result from finish (checked against harness result.schema).
+	Data      *structpb.Value `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	Artifacts []string        `protobuf:"bytes,5,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
+	// needs_input: who must answer, "caller" or "human".
+	InputFrom     string `protobuf:"bytes,6,opt,name=input_from,json=inputFrom,proto3" json:"input_from,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Outcome) Reset() {
+	*x = Outcome{}
+	mi := &file_agen_v1_resources_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Outcome) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Outcome) ProtoMessage() {}
+
+func (x *Outcome) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_resources_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Outcome.ProtoReflect.Descriptor instead.
+func (*Outcome) Descriptor() ([]byte, []int) {
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *Outcome) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Outcome) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *Outcome) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *Outcome) GetData() *structpb.Value {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *Outcome) GetArtifacts() []string {
+	if x != nil {
+		return x.Artifacts
+	}
+	return nil
+}
+
+func (x *Outcome) GetInputFrom() string {
+	if x != nil {
+		return x.InputFrom
+	}
+	return ""
+}
+
 type Approval struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2170,7 +2270,7 @@ type Approval struct {
 
 func (x *Approval) Reset() {
 	*x = Approval{}
-	mi := &file_agen_v1_resources_proto_msgTypes[17]
+	mi := &file_agen_v1_resources_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2182,7 +2282,7 @@ func (x *Approval) String() string {
 func (*Approval) ProtoMessage() {}
 
 func (x *Approval) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[17]
+	mi := &file_agen_v1_resources_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2195,7 +2295,7 @@ func (x *Approval) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Approval.ProtoReflect.Descriptor instead.
 func (*Approval) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{17}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Approval) GetId() string {
@@ -2314,7 +2414,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_agen_v1_resources_proto_msgTypes[18]
+	mi := &file_agen_v1_resources_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2326,7 +2426,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[18]
+	mi := &file_agen_v1_resources_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2339,7 +2439,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{18}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Usage) GetInputTokens() int64 {
@@ -2381,7 +2481,7 @@ type Span struct {
 
 func (x *Span) Reset() {
 	*x = Span{}
-	mi := &file_agen_v1_resources_proto_msgTypes[19]
+	mi := &file_agen_v1_resources_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2393,7 +2493,7 @@ func (x *Span) String() string {
 func (*Span) ProtoMessage() {}
 
 func (x *Span) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[19]
+	mi := &file_agen_v1_resources_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2406,7 +2506,7 @@ func (x *Span) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Span.ProtoReflect.Descriptor instead.
 func (*Span) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{19}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Span) GetTraceId() string {
@@ -2484,7 +2584,7 @@ type LogLine struct {
 
 func (x *LogLine) Reset() {
 	*x = LogLine{}
-	mi := &file_agen_v1_resources_proto_msgTypes[20]
+	mi := &file_agen_v1_resources_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2496,7 +2596,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[20]
+	mi := &file_agen_v1_resources_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2509,7 +2609,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{20}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *LogLine) GetInstanceId() string {
@@ -2559,7 +2659,7 @@ type ApiToken struct {
 
 func (x *ApiToken) Reset() {
 	*x = ApiToken{}
-	mi := &file_agen_v1_resources_proto_msgTypes[21]
+	mi := &file_agen_v1_resources_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2571,7 +2671,7 @@ func (x *ApiToken) String() string {
 func (*ApiToken) ProtoMessage() {}
 
 func (x *ApiToken) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[21]
+	mi := &file_agen_v1_resources_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2584,7 +2684,7 @@ func (x *ApiToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApiToken.ProtoReflect.Descriptor instead.
 func (*ApiToken) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{21}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ApiToken) GetId() string {
@@ -2667,15 +2767,17 @@ type Run struct {
 	Steps int64 `protobuf:"varint,19,opt,name=steps,proto3" json:"steps,omitempty"`
 	// With ListRuns roots_only: usage and run count of the whole run tree
 	// (this run and every run it delegated to).
-	TreeUsage     *Usage `protobuf:"bytes,20,opt,name=tree_usage,json=treeUsage,proto3" json:"tree_usage,omitempty"`
-	TreeRuns      int32  `protobuf:"varint,21,opt,name=tree_runs,json=treeRuns,proto3" json:"tree_runs,omitempty"`
+	TreeUsage *Usage `protobuf:"bytes,20,opt,name=tree_usage,json=treeUsage,proto3" json:"tree_usage,omitempty"`
+	TreeRuns  int32  `protobuf:"varint,21,opt,name=tree_runs,json=treeRuns,proto3" json:"tree_runs,omitempty"`
+	// How the run ended; unset while it runs.
+	Outcome       *Outcome `protobuf:"bytes,22,opt,name=outcome,proto3" json:"outcome,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
 	*x = Run{}
-	mi := &file_agen_v1_resources_proto_msgTypes[22]
+	mi := &file_agen_v1_resources_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2687,7 +2789,7 @@ func (x *Run) String() string {
 func (*Run) ProtoMessage() {}
 
 func (x *Run) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[22]
+	mi := &file_agen_v1_resources_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2700,7 +2802,7 @@ func (x *Run) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Run.ProtoReflect.Descriptor instead.
 func (*Run) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{22}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Run) GetId() string {
@@ -2848,6 +2950,13 @@ func (x *Run) GetTreeRuns() int32 {
 		return x.TreeRuns
 	}
 	return 0
+}
+
+func (x *Run) GetOutcome() *Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return nil
 }
 
 var File_agen_v1_resources_proto protoreflect.FileDescriptor
@@ -3014,7 +3123,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xef\b\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x9b\t\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -3052,10 +3161,19 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"not_before\x18\x1a \x01(\v2\x1a.google.protobuf.TimestampR\tnotBefore\x12'\n" +
 	"\x0fbudget_pressure\x18\x1b \x01(\bR\x0ebudgetPressure\x12)\n" +
 	"\x10reply_deployment\x18\x1c \x01(\tR\x0freplyDeployment\x124\n" +
-	"\x16reply_conversation_key\x18\x1d \x01(\tR\x14replyConversationKey\x1a9\n" +
+	"\x16reply_conversation_key\x18\x1d \x01(\tR\x14replyConversationKey\x12*\n" +
+	"\aoutcome\x18\x1e \x01(\v2\x10.agen.v1.OutcomeR\aoutcome\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc8\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\x01\n" +
+	"\aOutcome\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x18\n" +
+	"\asummary\x18\x03 \x01(\tR\asummary\x12*\n" +
+	"\x04data\x18\x04 \x01(\v2\x16.google.protobuf.ValueR\x04data\x12\x1c\n" +
+	"\tartifacts\x18\x05 \x03(\tR\tartifacts\x12\x1d\n" +
+	"\n" +
+	"input_from\x18\x06 \x01(\tR\tinputFrom\"\xc8\x04\n" +
 	"\bApproval\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -3113,7 +3231,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x18\n" +
 	"\arevoked\x18\a \x01(\bR\arevoked\x12\x1b\n" +
-	"\ton_behalf\x18\b \x01(\bR\bonBehalf\"\x83\x06\n" +
+	"\ton_behalf\x18\b \x01(\bR\bonBehalf\"\xaf\x06\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -3141,7 +3259,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x05steps\x18\x13 \x01(\x03R\x05steps\x12-\n" +
 	"\n" +
 	"tree_usage\x18\x14 \x01(\v2\x0e.agen.v1.UsageR\ttreeUsage\x12\x1b\n" +
-	"\ttree_runs\x18\x15 \x01(\x05R\btreeRuns\x1a9\n" +
+	"\ttree_runs\x18\x15 \x01(\x05R\btreeRuns\x12*\n" +
+	"\aoutcome\x18\x16 \x01(\v2\x10.agen.v1.OutcomeR\aoutcome\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x84\x01\n" +
@@ -3197,7 +3316,7 @@ func file_agen_v1_resources_proto_rawDescGZIP() []byte {
 }
 
 var file_agen_v1_resources_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_agen_v1_resources_proto_goTypes = []any{
 	(DeploymentKind)(0),           // 0: agen.v1.DeploymentKind
 	(TriggerEventState)(0),        // 1: agen.v1.TriggerEventState
@@ -3222,79 +3341,84 @@ var file_agen_v1_resources_proto_goTypes = []any{
 	(*Nest)(nil),                  // 20: agen.v1.Nest
 	(*Assignment)(nil),            // 21: agen.v1.Assignment
 	(*Task)(nil),                  // 22: agen.v1.Task
-	(*Approval)(nil),              // 23: agen.v1.Approval
-	(*Usage)(nil),                 // 24: agen.v1.Usage
-	(*Span)(nil),                  // 25: agen.v1.Span
-	(*LogLine)(nil),               // 26: agen.v1.LogLine
-	(*ApiToken)(nil),              // 27: agen.v1.ApiToken
-	(*Run)(nil),                   // 28: agen.v1.Run
-	nil,                           // 29: agen.v1.Definition.FilesEntry
-	nil,                           // 30: agen.v1.Trigger.LabelsEntry
-	nil,                           // 31: agen.v1.Placement.LabelsEntry
-	nil,                           // 32: agen.v1.Nest.LabelsEntry
-	nil,                           // 33: agen.v1.Task.LabelsEntry
-	nil,                           // 34: agen.v1.Run.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 35: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 36: google.protobuf.Struct
+	(*Outcome)(nil),               // 23: agen.v1.Outcome
+	(*Approval)(nil),              // 24: agen.v1.Approval
+	(*Usage)(nil),                 // 25: agen.v1.Usage
+	(*Span)(nil),                  // 26: agen.v1.Span
+	(*LogLine)(nil),               // 27: agen.v1.LogLine
+	(*ApiToken)(nil),              // 28: agen.v1.ApiToken
+	(*Run)(nil),                   // 29: agen.v1.Run
+	nil,                           // 30: agen.v1.Definition.FilesEntry
+	nil,                           // 31: agen.v1.Trigger.LabelsEntry
+	nil,                           // 32: agen.v1.Placement.LabelsEntry
+	nil,                           // 33: agen.v1.Nest.LabelsEntry
+	nil,                           // 34: agen.v1.Task.LabelsEntry
+	nil,                           // 35: agen.v1.Run.LabelsEntry
+	(*timestamppb.Timestamp)(nil), // 36: google.protobuf.Timestamp
+	(*structpb.Value)(nil),        // 37: google.protobuf.Value
+	(*structpb.Struct)(nil),       // 38: google.protobuf.Struct
 }
 var file_agen_v1_resources_proto_depIdxs = []int32{
-	29, // 0: agen.v1.Definition.files:type_name -> agen.v1.Definition.FilesEntry
-	35, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
+	30, // 0: agen.v1.Definition.files:type_name -> agen.v1.Definition.FilesEntry
+	36, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
 	12, // 2: agen.v1.Trigger.auth:type_name -> agen.v1.WebhookAuth
 	13, // 3: agen.v1.Trigger.idempotency_key:type_name -> agen.v1.KeySource
 	13, // 4: agen.v1.Trigger.conversation_key:type_name -> agen.v1.KeySource
-	30, // 5: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
-	35, // 6: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
-	35, // 7: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
+	31, // 5: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
+	36, // 6: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
+	36, // 7: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
 	1,  // 8: agen.v1.TriggerEvent.state:type_name -> agen.v1.TriggerEventState
-	35, // 9: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
-	35, // 10: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
-	31, // 11: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
+	36, // 9: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
+	36, // 10: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
+	32, // 11: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
 	0,  // 12: agen.v1.Deployment.kind:type_name -> agen.v1.DeploymentKind
 	8,  // 13: agen.v1.Deployment.scale:type_name -> agen.v1.ScalePolicy
 	9,  // 14: agen.v1.Deployment.budget:type_name -> agen.v1.Budget
 	15, // 15: agen.v1.Deployment.placement:type_name -> agen.v1.Placement
-	35, // 16: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
-	35, // 17: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
+	36, // 16: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
+	36, // 17: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
 	10, // 18: agen.v1.Deployment.limits:type_name -> agen.v1.Limits
 	11, // 19: agen.v1.Deployment.triggers:type_name -> agen.v1.Trigger
 	17, // 20: agen.v1.Deployment.provider_hold:type_name -> agen.v1.ProviderHold
-	35, // 21: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
-	35, // 22: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
+	36, // 21: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
+	36, // 22: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
 	2,  // 23: agen.v1.Instance.state:type_name -> agen.v1.InstanceState
-	35, // 24: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
-	35, // 25: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
+	36, // 24: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
+	36, // 25: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
 	19, // 26: agen.v1.Instance.tool_servers:type_name -> agen.v1.ToolServer
-	32, // 27: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
+	33, // 27: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
 	3,  // 28: agen.v1.Nest.state:type_name -> agen.v1.NestState
-	35, // 29: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
+	36, // 29: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
 	4,  // 30: agen.v1.Task.state:type_name -> agen.v1.TaskState
-	35, // 31: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	35, // 32: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
-	35, // 33: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
-	33, // 34: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
-	35, // 35: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
-	36, // 36: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
-	5,  // 37: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
-	35, // 38: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
-	35, // 39: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
-	35, // 40: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
-	35, // 41: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
-	35, // 42: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
-	36, // 43: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
-	35, // 44: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	35, // 45: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
-	35, // 46: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
-	24, // 47: agen.v1.Run.usage:type_name -> agen.v1.Usage
-	35, // 48: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	35, // 49: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
-	34, // 50: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	24, // 51: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
-	52, // [52:52] is the sub-list for method output_type
-	52, // [52:52] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	36, // 31: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	36, // 32: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
+	36, // 33: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
+	34, // 34: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
+	36, // 35: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
+	23, // 36: agen.v1.Task.outcome:type_name -> agen.v1.Outcome
+	37, // 37: agen.v1.Outcome.data:type_name -> google.protobuf.Value
+	38, // 38: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
+	5,  // 39: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
+	36, // 40: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
+	36, // 41: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
+	36, // 42: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
+	36, // 43: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
+	36, // 44: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
+	38, // 45: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
+	36, // 46: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
+	36, // 47: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
+	36, // 48: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
+	25, // 49: agen.v1.Run.usage:type_name -> agen.v1.Usage
+	36, // 50: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	36, // 51: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
+	35, // 52: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
+	25, // 53: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	23, // 54: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }
@@ -3308,7 +3432,7 @@ func file_agen_v1_resources_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_resources_proto_rawDesc), len(file_agen_v1_resources_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   29,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

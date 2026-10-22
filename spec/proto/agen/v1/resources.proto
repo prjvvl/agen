@@ -318,6 +318,24 @@ message Task {
   // to reply_deployment with reply_conversation_key.
   string reply_deployment = 28;
   string reply_conversation_key = 29;
+  // How the task's run ended; unset until it ends.
+  Outcome outcome = 30;
+}
+
+// How a run ended, beyond its state: what it reports and why it stopped.
+message Outcome {
+  // done, partial, needs_input, rejected, failed or cancelled.
+  string status = 1;
+  // Why a run stopped early: max_turns, budget, duration, stuck, cancelled,
+  // interrupted, error or no_answer. Empty for a run that finished its work.
+  string reason = 2;
+  // The agent's report (its final answer when it did not call finish).
+  string summary = 3;
+  // Structured result from finish (checked against harness result.schema).
+  google.protobuf.Value data = 4;
+  repeated string artifacts = 5;
+  // needs_input: who must answer, "caller" or "human".
+  string input_from = 6;
 }
 
 enum ApprovalState {
@@ -415,4 +433,6 @@ message Run {
   // (this run and every run it delegated to).
   Usage tree_usage = 20;
   int32 tree_runs = 21;
+  // How the run ended; unset while it runs.
+  Outcome outcome = 22;
 }

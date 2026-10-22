@@ -1,0 +1,35 @@
+{
+  "responses": [
+    {
+      "text": "",
+      "toolCalls": [
+        {
+          "name": "finish",
+          "arguments": {
+            "status": "done",
+            "summary": "There are 3.",
+            "data": {
+              "count": "three"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "text": "",
+      "expect": "data does not match the result schema",
+      "toolCalls": [
+        {
+          "name": "finish",
+          "arguments": {
+            "status": "done",
+            "summary": "There are 3.",
+            "data": {
+              "count": 3
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

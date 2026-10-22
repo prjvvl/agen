@@ -175,7 +175,13 @@ async fn agent_runs_tool_loop_through_bundle_configured_provider() {
     );
     let seen = m.seen.lock().unwrap();
     assert_eq!(seen[0].0.as_deref(), Some("Bearer mock-secret-key-123"));
-    assert_eq!(seen[0].1["tools"][0]["function"]["name"], "math_add");
+    let names: Vec<&str> = seen[0].1["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["function"]["name"].as_str())
+        .collect();
+    assert_eq!(names, ["finish", "math_add"]);
     let second = &seen[1].1["messages"];
     assert_eq!(second[2]["tool_calls"][0]["function"]["name"], "math_add");
     assert_eq!(second[3]["content"], "5");

@@ -54,7 +54,7 @@ func (e *env) cmdRuns(ctx context.Context, args []string) error {
 		return e.printJSON(r.Msg)
 	}
 	w := e.table()
-	fmt.Fprintln(w, "RUN\tDEPLOYMENT\tSTATUS\tSTARTED\tDURATION\tTOKENS\tCOST\tTRACE\tERROR")
+	fmt.Fprintln(w, "RUN\tDEPLOYMENT\tSTATUS\tOUTCOME\tSTARTED\tDURATION\tTOKENS\tCOST\tTRACE\tERROR")
 	for _, run := range r.Msg.Runs {
 		u := run.Usage
 		if run.TreeUsage != nil {
@@ -64,7 +64,7 @@ func (e *env) cmdRuns(ctx context.Context, args []string) error {
 		if run.EndedAt != nil {
 			dur = run.EndedAt.AsTime().Sub(run.StartedAt.AsTime()).Round(time.Millisecond).String()
 		}
-		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%d\t$%.4f\t%s\t%s\n", run.Id, run.Namespace, run.Deployment, run.Status,
+		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%s\t%s\t%d\t$%.4f\t%s\t%s\n", run.Id, run.Namespace, run.Deployment, run.Status, outcomeLabel(run.Outcome),
 			run.StartedAt.AsTime().Local().Format(time.RFC3339), dur, u.GetInputTokens()+u.GetOutputTokens(), u.GetCostUsd(), run.TraceId, oneLine(run.Error, 80))
 	}
 	return w.Flush()

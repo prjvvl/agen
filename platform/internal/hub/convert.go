@@ -259,6 +259,7 @@ func TaskProto(t store.Task) *agenv1.Task {
 	if t.NotBeforeMs > 0 {
 		out.NotBefore = ms(t.NotBeforeMs)
 	}
+	out.Outcome = outcomeProto(t.Outcome, t.State, t.Output, t.Error)
 	if tp := t.Traceparent; len(tp) > 35 {
 		out.TraceId = tp[3:35]
 	}
@@ -306,7 +307,41 @@ func runProto(r store.RunRow) *agenv1.Run {
 	return &agenv1.Run{Id: r.ID, SessionId: r.SessionID, ConversationId: r.ConversationID, Namespace: r.Namespace, Deployment: r.Deployment,
 		Status: r.Status, Input: r.Input, Output: r.Output, Usage: &agenv1.Usage{InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUsd: r.CostUSD},
 		TraceId: r.TraceID, StartedAt: ms(r.StartedMs), EndedAt: ms(r.EndedMs), ParentRunId: r.ParentRunID, RootRunId: r.RootRunID,
-		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels, Error: r.Error, Steps: r.Step}
+		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels, Error: r.Error, Steps: r.Step,
+		Outcome: outcomeProto(r.Outcome, r.Status, r.Output, r.Error)}
+}
+
+// outcomeProto is the stored outcome (JSON), or for work that ended without
+// one (ended by the Hub, or by an older engine) the outcome its state
+// implies. Unfinished work has none.
+func outcomeProto(stored, state, output, errMsg string) *agenv1.Outcome {
+	if stored != "" {
+		o := &agenv1.Outcome{}
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal([]byte(stored), o); err == nil {
+			return o
+		}
+	}
+	switch state {
+	case "succeeded":
+		return &agenv1.Outcome{Status: "done", Summary: output}
+	case "failed":
+		return &agenv1.Outcome{Status: "failed", Reason: "error", Summary: errMsg}
+	case "cancelled":
+		return &agenv1.Outcome{Status: "cancelled", Reason: "cancelled"}
+	}
+	return nil
+}
+
+// OutcomeJSON is the stored form of an outcome ("" for none).
+func OutcomeJSON(o *agenv1.Outcome) string {
+	if o == nil || o.Status == "" {
+		return ""
+	}
+	b, err := protojson.Marshal(o)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func spanProto(s store.SpanRow) *agenv1.Span {

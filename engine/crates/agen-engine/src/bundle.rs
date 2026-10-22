@@ -77,6 +77,13 @@ pub struct Harness {
     pub api_key_secret: Option<String>,
     pub script: Option<String>,
     pub cassette: Option<String>,
+    /// The structured result a run returns through `finish`.
+    pub result: Option<ResultSpec>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ResultSpec {
+    pub schema: serde_json::Value,
 }
 
 /// OpenRouter request settings sent as given (`harness.json` `openrouter`).
@@ -149,6 +156,9 @@ pub struct Limits {
     /// How long one tool call may take ("10m"); delegated calls are bounded
     /// by the callee's own limits instead.
     pub tool_timeout: Option<String>,
+    /// Output limit of the report call a run gets when it stops at a limit
+    /// (0: no report call; the run fails as before).
+    pub report_tokens: Option<u32>,
 }
 
 /// Limit values used when a bundle does not set them. A limit set to 0 is
@@ -164,6 +174,7 @@ pub mod default_limits {
     pub const TOOL_TIMEOUT: Duration = Duration::from_secs(600);
     pub const MAX_OUTPUT_TOKENS: u32 = 8192;
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
+    pub const REPORT_TOKENS: u32 = 1024;
 }
 
 impl Limits {
@@ -181,6 +192,9 @@ impl Limits {
     pub fn identical_tool_calls(&self) -> u32 {
         self.max_identical_tool_calls
             .unwrap_or(default_limits::MAX_IDENTICAL_TOOL_CALLS)
+    }
+    pub fn report_tokens(&self) -> u32 {
+        self.report_tokens.unwrap_or(default_limits::REPORT_TOKENS)
     }
 }
 

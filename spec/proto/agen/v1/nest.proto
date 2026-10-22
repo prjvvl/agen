@@ -140,7 +140,8 @@ message CompleteTaskRequest {
   string instance_id = 7;
   // Must match the current lease or the call fails with FAILED_PRECONDITION
   // and the result is discarded.
-  string lease_id = 8;
+  string lease_id = 8;  // How the task's run ended.
+  Outcome outcome = 9;
 }
 message CompleteTaskResponse {}
 

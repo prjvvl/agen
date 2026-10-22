@@ -80,6 +80,20 @@ export interface RunResult {
   error: string;
   usage: { inputTokens: number; outputTokens: number; costUsd: number };
   traceId: string;
+  /** How the run ended, beyond its status. */
+  outcome: Outcome | null;
+}
+
+export interface Outcome {
+  status: 'done' | 'partial' | 'needs_input' | 'rejected' | 'failed' | 'cancelled';
+  /** Why a run stopped early: max_turns, budget, duration, cancelled, error, no_answer, ... */
+  reason?: string;
+  /** The agent's report (its final answer when it did not call finish). */
+  summary?: string;
+  data?: unknown;
+  artifacts?: string[];
+  /** needs_input: who must answer. */
+  inputFrom?: 'caller' | 'human';
 }
 
 export interface Span {

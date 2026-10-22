@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
 	"github.com/prjvvl/agen/platform/internal/calltoken"
@@ -143,6 +144,8 @@ func (g *Gateway) Handler() http.Handler {
 type Part struct {
 	Kind string `json:"kind"`
 	Text string `json:"text,omitempty"`
+	// Data is the value of a "data" part.
+	Data any `json:"data,omitempty"`
 }
 
 // Message is an A2A message.
@@ -595,10 +598,26 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 		task.Status = TaskStatus{State: "completed", Timestamp: now()}
 		task.Artifacts = []Artifact{{ArtifactID: "output", Parts: []Part{{Kind: "text", Text: res.Output}}}}
 		task.History = append(task.History, *agentText(contextID, taskID, res.Output))
+		if o := res.Outcome(); o != nil {
+			// A2A has its own states for these; partial stays completed and
+			// says so in the metadata.
+			switch o.Status {
+			case "needs_input":
+				task.Status = TaskStatus{State: "input-required", Timestamp: now(), Message: agentText(contextID, taskID, o.Summary)}
+			case "rejected":
+				task.Status = TaskStatus{State: "rejected", Timestamp: now(), Message: agentText(contextID, taskID, o.Summary)}
+			}
+			if o.Data != nil {
+				task.Artifacts = append(task.Artifacts, Artifact{ArtifactID: "data", Parts: []Part{{Kind: "data", Data: o.Data.AsInterface()}}})
+			}
+		}
 	case res.Run.Status == "cancelled":
 		task.Status = TaskStatus{State: "canceled", Timestamp: now()}
 	default:
 		task.Status = TaskStatus{State: "failed", Timestamp: now(), Message: agentText(contextID, taskID, res.Error)}
+	}
+	if o := res.Outcome(); o != nil {
+		task.Metadata["agen.outcome"] = outcomeMap(o)
 	}
 	if res.Run.ID != "" {
 		task.Metadata["agen.run_id"] = res.Run.ID
@@ -609,6 +628,17 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 	cp := *task
 	g.mu.Unlock()
 	return &cp, nil
+}
+
+// outcomeMap is an outcome as plain JSON for A2A metadata.
+func outcomeMap(o *agenv1.Outcome) map[string]any {
+	b, err := protojson.Marshal(o)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	return m
 }
 
 func agentText(contextID, taskID, text string) *Message {

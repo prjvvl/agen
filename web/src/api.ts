@@ -179,6 +179,21 @@ export interface Task {
   replyConversationKey?: string;
   parentTaskId?: string;
   depth?: number;
+  /** How the task's run ended. */
+  outcome?: Outcome;
+}
+
+/** How a run ended, beyond its state. */
+export interface Outcome {
+  /** done, partial, needs_input, rejected, failed or cancelled. */
+  status: string;
+  /** Why it stopped early: max_turns, budget, duration, cancelled, error, ... */
+  reason?: string;
+  summary?: string;
+  data?: unknown;
+  artifacts?: string[];
+  /** needs_input: "caller" or "human". */
+  inputFrom?: string;
 }
 
 export interface Usage {
@@ -192,6 +207,7 @@ export interface Run {
   namespace: string;
   deployment: string;
   status: string;
+  outcome?: Outcome;
   input?: string;
   output?: string;
   error?: string;

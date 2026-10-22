@@ -1022,7 +1022,7 @@ func (m *Manager) runTask(ctx context.Context, in *instance, t *agenv1.Task) {
 	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if _, err := m.hub().CompleteTask(c, connect.NewRequest(&agenv1.CompleteTaskRequest{NestId: m.nestID, TaskId: t.Id, Success: res.Success,
-		Output: res.Output, Error: res.Error, RunId: res.Run.ID, InstanceId: in.id, LeaseId: t.LeaseId})); err != nil {
+		Output: res.Output, Error: res.Error, RunId: res.Run.ID, InstanceId: in.id, LeaseId: t.LeaseId, Outcome: res.Outcome()})); err != nil {
 		log.Warn("complete task rejected", "err", err)
 	}
 }

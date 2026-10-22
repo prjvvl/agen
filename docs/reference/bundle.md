@@ -71,6 +71,7 @@ of names and descriptions until the model loads one.
 | `contextTokens` | integer, at least 4000 | About how many tokens of conversation one model call may send (default 64000). See below. |
 | `parallelToolCalls` | boolean | Run the tool calls of one turn at the same time (default `true`). |
 | `traceToolArguments` | boolean | Record tool call arguments (redacted, up to 4 KiB) in traces (default `false`). |
+| `result` | object | `{"schema": {...}}`: the JSON Schema of the data a run returns through `finish`. See [Run outcomes](../guides/agents.md#how-a-run-ends). |
 | `baseUrl` | string | An OpenAI-compatible endpoint. |
 | `apiKeySecret` | string | The secret holding the API key, if not the provider's default (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`). |
 | `script` | path | `fake`: the reply script. |
@@ -133,7 +134,7 @@ See [Giving agents tools](../guides/tools.md).
 | `kind` | `pool` (default), `singleton` or `task`. |
 | `scale` | `min`, `max`, `targetQueuePerInstance`, `idleTimeout` (`30s`, `5m`, ...), `maxConcurrency` (tasks per instance). |
 | `budget` | `maxTokensPerRun`, `maxUsdPerRun`, `maxUsdPerDay`. See [Budgets and limits](../guides/budgets.md). |
-| `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
+| `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, `reportTokens`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
 | `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action"}]`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
 | `triggers` | Cron and webhook triggers. See [Triggers](../guides/triggers.md). |
 | `delegates` | `[{"name", "namespace", "url", "description"}]`: deployments the agent may call. |

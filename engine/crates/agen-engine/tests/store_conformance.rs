@@ -44,6 +44,7 @@ fn run(session: &str, conv: &str, root: &str) -> RunRecord {
         ended_ms: None,
         requested_by: String::new(),
         labels: [("project".to_string(), "p1".to_string())].into(),
+        outcome: None,
     }
 }
 
@@ -143,11 +144,11 @@ async fn runs_lifecycle(s: &Store) {
         "fenced write must not append"
     );
     assert!(matches!(
-        s.finish_run(&r.id, epoch, RunStatus::Succeeded, "x", "", u).await,
+        s.finish_run(&r.id, epoch, RunStatus::Succeeded, "x", "", u, None).await,
         Err(StoreError::Fenced(_))
     ));
 
-    s.finish_run(&r.id, epoch2, RunStatus::Succeeded, "done", "", u)
+    s.finish_run(&r.id, epoch2, RunStatus::Succeeded, "done", "", u, None)
         .await
         .unwrap();
     let got = s.get_run(&r.id).await.unwrap();

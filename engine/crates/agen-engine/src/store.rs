@@ -14,7 +14,7 @@ use crate::provider::{Message, Usage};
 
 macro_rules! run_cols {
     () => {
-        "id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, output, error, step, input_tokens, output_tokens, cost_usd, trace_id, started_ms, ended_ms, requested_by, labels"
+        "id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, output, error, step, input_tokens, output_tokens, cost_usd, trace_id, started_ms, ended_ms, requested_by, labels, outcome"
     };
 }
 
@@ -168,6 +168,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0024_deployment_versions.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0024_deployment_versions.sql"),
     },
+    Migration {
+        version: 25,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0025_outcomes.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0025_outcomes.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -222,6 +227,9 @@ pub struct RunRecord {
     /// The task's labels, passed on to tool calls and delegated tasks.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+    /// How the run ended (status, reason, report, data); None while it runs.
+    #[serde(default)]
+    pub outcome: Option<crate::outcome::RunOutcome>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -747,6 +755,7 @@ impl Store {
         Ok(seq)
     }
 
+    #[allow(clippy::too_many_arguments)] // one column per argument
     pub async fn finish_run(
         &self,
         id: &str,
@@ -755,8 +764,10 @@ impl Store {
         output: &str,
         error: &str,
         usage: Usage,
+        outcome: Option<&crate::outcome::RunOutcome>,
     ) -> Result<()> {
-        let r = sqlx::query("UPDATE runs SET status = $1, output = $2, error = $3, input_tokens = $4, output_tokens = $5, cost_usd = $6, ended_ms = $7 WHERE id = $8 AND epoch = $9 AND ended_ms IS NULL")
+        let outcome = crate::outcome::RunOutcome::to_json(&outcome.cloned());
+        let r = sqlx::query("UPDATE runs SET status = $1, output = $2, error = $3, input_tokens = $4, output_tokens = $5, cost_usd = $6, ended_ms = $7, outcome = $8 WHERE id = $9 AND epoch = $10 AND ended_ms IS NULL")
             .bind(status.as_str())
             .bind(output)
             .bind(error)
@@ -764,6 +775,7 @@ impl Store {
             .bind(usage.output_tokens as i64)
             .bind(usage.cost_usd)
             .bind(now_ms())
+            .bind(outcome)
             .bind(id)
             .bind(epoch)
             .execute(&self.pool)
@@ -1164,6 +1176,7 @@ fn run_from_row(r: &AnyRow) -> Result<RunRecord> {
         ended_ms: r.get(19),
         requested_by: r.get(20),
         labels: serde_json::from_str(&r.get::<String, _>(21)).map_err(|e| StoreError::Invalid(e.to_string()))?,
+        outcome: crate::outcome::RunOutcome::from_json(&r.get::<String, _>(22)),
     })
 }
 

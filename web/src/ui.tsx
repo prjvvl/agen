@@ -15,7 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
-import { Deployment, MetricsBucket } from "./api";
+import { Deployment, MetricsBucket, Outcome } from "./api";
 import { ago, clock } from "./format";
 
 export type Tone = "ok" | "warn" | "err" | "info" | "muted";
@@ -54,6 +54,30 @@ export function runStatus(status?: string): StatusSpec {
       return { tone: "warn", label: "interrupted", icon: AlertTriangle };
     default:
       return { tone: "muted", label: status || "unknown", icon: CircleDashed };
+  }
+}
+
+const reasons: Record<string, string> = {
+  max_turns: "turn limit",
+  budget: "budget",
+  duration: "time limit",
+  stuck: "stuck",
+  cancelled: "cancelled",
+  interrupted: "interrupted",
+};
+
+/** What a finished run's outcome adds to its state (null when nothing:
+ * done, or a failure or cancel the state already shows). */
+export function outcomeStatus(o?: Outcome): StatusSpec | null {
+  switch (o?.status) {
+    case "partial":
+      return { tone: "warn", label: o.reason ? `partial · ${reasons[o.reason] ?? o.reason}` : "partial", icon: AlertTriangle };
+    case "needs_input":
+      return { tone: "warn", label: o.inputFrom === "human" ? "needs input from a person" : "needs input", icon: CirclePause };
+    case "rejected":
+      return { tone: "muted", label: "rejected", icon: Ban };
+    default:
+      return null;
   }
 }
 

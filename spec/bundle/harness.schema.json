@@ -55,6 +55,15 @@
       },
       "additionalProperties": false
     },
+    "result": {
+      "type": "object",
+      "description": "The structured result a run must return: the agent ends by calling finish with data matching schema.",
+      "properties": {
+        "schema": { "type": "object", "description": "JSON Schema for finish's data" }
+      },
+      "required": ["schema"],
+      "additionalProperties": false
+    },
     "script": { "type": "string", "description": "fake provider: path to script, relative to bundle" },
     "cassette": { "type": "string", "description": "replay provider: path to cassette, relative to bundle" }
   },
