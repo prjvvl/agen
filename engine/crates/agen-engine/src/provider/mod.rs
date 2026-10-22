@@ -165,6 +165,10 @@ pub type DeltaSink<'a> = &'a (dyn Fn(&str) + Send + Sync);
 pub trait ModelProvider: Send + Sync {
     fn name(&self) -> &str;
     async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError>;
+    /// The model's context window in tokens, when the provider says.
+    async fn context_window(&self, _model: &str) -> Option<u64> {
+        None
+    }
 }
 
 /// A sink that ignores deltas.

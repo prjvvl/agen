@@ -159,6 +159,9 @@ pub struct Limits {
     /// Output limit of the report call a run gets when it stops at a limit
     /// (0: no report call; the run fails as before).
     pub report_tokens: Option<u32>,
+    /// The same step with the same result this many turns in a row counts as
+    /// stuck: the run is nudged once, then stops and reports (0: off).
+    pub stuck_repeats: Option<u32>,
 }
 
 /// Limit values used when a bundle does not set them. A limit set to 0 is
@@ -175,6 +178,7 @@ pub mod default_limits {
     pub const MAX_OUTPUT_TOKENS: u32 = 8192;
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
     pub const REPORT_TOKENS: u32 = 1024;
+    pub const STUCK_REPEATS: u32 = 4;
 }
 
 impl Limits {
@@ -195,6 +199,9 @@ impl Limits {
     }
     pub fn report_tokens(&self) -> u32 {
         self.report_tokens.unwrap_or(default_limits::REPORT_TOKENS)
+    }
+    pub fn stuck_repeats(&self) -> u32 {
+        self.stuck_repeats.unwrap_or(default_limits::STUCK_REPEATS)
     }
 }
 

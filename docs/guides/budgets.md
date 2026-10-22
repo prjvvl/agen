@@ -31,11 +31,12 @@ Budgets stop an agent from spending more than you meant it to. They are set in
 ## Stopping at a limit
 
 A run that reaches `maxTurns`, `maxRunDuration`, `maxTokensPerRun` or
-`maxUsdPerRun` is not cut off empty-handed. It gets one more model call,
+`maxUsdPerRun`, or keeps repeating itself (`stuckRepeats`), is not cut off
+empty-handed. It gets one more model call,
 without tools and with at most `limits.reportTokens` (default 1024) output
 tokens, asking it to report what it did, what it found and what is left. The
 run then ends `succeeded` with the outcome `partial` and a `reason`
-(`max_turns`, `duration` or `budget`), and the report is its output. That
+(`max_turns`, `duration`, `budget` or `stuck`), and the report is its output. That
 last call can take a run slightly past a token or cost budget (by its input
 plus `reportTokens`).
 
@@ -80,7 +81,8 @@ to turn it off.
 | `maxOutputTokens` | `x-agen/harness.json` | 8192 | The most one model answer may produce. |
 | `maxRunDuration` | `limits` | `1h` | Working time of a run, not counting approval waits; past it the run stops and reports. |
 | `reportTokens` | `limits` | 1024 | Output limit of the report call at a limit; `0`: no report, the run fails. |
-| `maxIdenticalToolCalls` | `limits` | 5 | The same tool with the same arguments in one run; further identical calls are refused and the model is told to change course. |
+| `maxIdenticalToolCalls` | `limits` | 5 | The same tool with the same arguments in one run; further identical calls are refused and the model is told to change course. A call that failed 3 times in a row with the same error is refused the same way. |
+| `stuckRepeats` | `limits` | 4 | Turns in a row with the same calls and the same results count as stuck: the run is told once to change approach, and if it goes on repeating it [stops and reports](#stopping-at-a-limit) with reason `stuck`. |
 | `modelRequestTimeout` | `limits` | `10m` | One model request; it fails past it. |
 | `toolTimeout` | `limits` | `10m` | One tool call (not `call_agent`, which the callee's limits bound); the model gets a timeout error. |
 | `maxQueuedTasks` | `limits` | 1000 | Queued tasks per deployment; more are refused (`RESOURCE_EXHAUSTED`, webhooks get 429). |

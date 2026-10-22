@@ -23,7 +23,18 @@ pub struct OpenAiCompatible {
     base_url: String,
     api_key: String,
     client: reqwest::Client,
-    openrouter: bool,
+    dialect: Dialect,
+}
+
+/// Request differences between OpenAI-compatible endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialect {
+    OpenRouter,
+    /// api.openai.com: the output limit is `max_completion_tokens`
+    /// (reasoning models refuse `max_tokens`).
+    OpenAi,
+    /// Any other OpenAI-compatible server.
+    Compatible,
 }
 
 impl OpenAiCompatible {
@@ -39,7 +50,11 @@ impl OpenAiCompatible {
             base_url: base_url.trim_end_matches('/').into(),
             api_key: api_key.into(),
             client,
-            openrouter: name == "openrouter",
+            dialect: match name {
+                "openrouter" => Dialect::OpenRouter,
+                "openai" if base_url.trim_end_matches('/') == OPENAI_URL => Dialect::OpenAi,
+                _ => Dialect::Compatible,
+            },
         })
     }
 
@@ -68,7 +83,7 @@ pub fn wire_name(name: &str) -> String {
     s
 }
 
-pub fn request_body(req: &ModelRequest, openrouter: bool) -> (Value, BTreeMap<String, String>) {
+pub fn request_body(req: &ModelRequest, dialect: Dialect) -> (Value, BTreeMap<String, String>) {
     let mut names = BTreeMap::new(); // wire -> original
     for t in &req.tools {
         names.insert(wire_name(&t.name), t.name.clone());
@@ -96,9 +111,14 @@ pub fn request_body(req: &ModelRequest, openrouter: bool) -> (Value, BTreeMap<St
         body["temperature"] = json!(t);
     }
     if let Some(n) = req.max_output_tokens {
-        body["max_tokens"] = json!(n);
+        let field = if dialect == Dialect::OpenAi {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
+        body[field] = json!(n);
     }
-    if openrouter {
+    if dialect == Dialect::OpenRouter {
         body["usage"] = json!({"include": true});
     }
     for (k, v) in &req.extra {
@@ -262,11 +282,38 @@ impl ModelProvider for OpenAiCompatible {
         &self.name
     }
 
+    /// OpenRouter: the smallest context length of the model's endpoints, so
+    /// it holds whichever provider serves a request. Routing models pick the
+    /// model per request and have none.
+    async fn context_window(&self, model: &str) -> Option<u64> {
+        if self.dialect != Dialect::OpenRouter || router::router_for(model).is_some() || model.contains("..") {
+            return None;
+        }
+        let resp = self
+            .client
+            .get(format!("{}/models/{model}/endpoints", self.base_url))
+            .bearer_auth(&self.api_key)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let v: Value = resp.json().await.ok()?;
+        v.pointer("/data/endpoints")?
+            .as_array()?
+            .iter()
+            .filter_map(|e| e.get("context_length").and_then(Value::as_u64))
+            .filter(|n| *n > 0)
+            .min()
+    }
+
     async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError> {
-        let (body, names) = request_body(req, self.openrouter);
+        let (body, names) = request_body(req, self.dialect);
         // A routing model reports its decision when asked.
-        let router_plugin = self
-            .openrouter
+        let openrouter = self.dialect == Dialect::OpenRouter;
+        let router_plugin = openrouter
             .then(|| router::router_for(&req.model))
             .flatten()
             .map(|k| k.plugin_id);
@@ -275,7 +322,7 @@ impl ModelProvider for OpenAiCompatible {
             .post(format!("{}/chat/completions", self.base_url))
             .bearer_auth(&self.api_key)
             .json(&body);
-        if self.openrouter {
+        if openrouter {
             rb = rb
                 .header("X-Title", "Agen")
                 .header("HTTP-Referer", "https://github.com/prjvvl/agen");
@@ -382,7 +429,7 @@ mod tests {
                 .into_iter()
                 .collect(),
         };
-        let (b, names) = request_body(&req, true);
+        let (b, names) = request_body(&req, Dialect::OpenRouter);
         assert_eq!(b["messages"][0]["role"], "system");
         assert_eq!(b["messages"][2]["tool_calls"][0]["function"]["name"], "fs_read");
         assert_eq!(b["messages"][2]["tool_calls"][0]["function"]["arguments"], "{\"p\":1}");
@@ -393,7 +440,12 @@ mod tests {
         assert_eq!(b["usage"]["include"], true);
         assert_eq!(names["fs_read"], "fs.read");
         assert_eq!(b["provider"]["ignore"][0], "x");
-        assert!(request_body(&req, false).0.get("usage").is_none());
+        let (plain, _) = request_body(&req, Dialect::Compatible);
+        assert!(plain.get("usage").is_none());
+        assert_eq!(plain["max_tokens"], 20);
+        let (openai, _) = request_body(&req, Dialect::OpenAi);
+        assert_eq!(openai["max_completion_tokens"], 20);
+        assert!(openai.get("max_tokens").is_none());
     }
 
     #[test]

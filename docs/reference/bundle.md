@@ -68,7 +68,7 @@ of names and descriptions until the model loads one.
 | `openrouter` | object | Provider `openrouter` only: `provider` (OpenRouter provider routing) and `plugins` (each with an `id`), sent with every request as given. |
 | `temperature` | 0-2 | |
 | `maxOutputTokens` | integer | Output limit per model call; lowered further near the token budget. |
-| `contextTokens` | integer, at least 4000 | About how many tokens of conversation one model call may send (default 64000). See below. |
+| `contextTokens` | integer, at least 4000 | About how many tokens of conversation one model call may send (default 64000, or half the model's context window on OpenRouter when that is smaller). See below. |
 | `parallelToolCalls` | boolean | Run the tool calls of one turn at the same time (default `true`). |
 | `traceToolArguments` | boolean | Record tool call arguments (redacted, up to 4 KiB) in traces (default `false`). |
 | `result` | object | `{"schema": {...}}`: the JSON Schema of the data a run returns through `finish`. See [Run outcomes](../guides/agents.md#how-a-run-ends). |
@@ -97,10 +97,11 @@ that is not a routing model, and tiers the router does not offer. See
 **`contextTokens`**: before each model call, messages of earlier runs in the
 conversation are dropped, oldest first, to fit it. If the current run's own
 messages exceed it, its oldest tool results are shortened (their start is
-kept, with a note saying how much was left out) in blocks of eight, until the
-run fits in about two thirds of the budget. Short results and the latest four
-long ones stay whole, and the Store and the transcript keep every result in
-full. Shortening in blocks means the start of the request changes rarely,
+kept, with a note naming the tool and turn, saying how much was left out and
+not to call it again unless a detail is missing) in blocks of eight, until the
+run fits in about two thirds of the budget. Short results, the latest four
+long ones and `load_skill` results stay whole, and the Store and the
+transcript keep every result in full. Shortening in blocks means the start of the request changes rarely,
 which helps the provider's prompt cache.
 
 ## x-agen/secrets.json
@@ -134,7 +135,7 @@ See [Giving agents tools](../guides/tools.md).
 | `kind` | `pool` (default), `singleton` or `task`. |
 | `scale` | `min`, `max`, `targetQueuePerInstance`, `idleTimeout` (`30s`, `5m`, ...), `maxConcurrency` (tasks per instance). |
 | `budget` | `maxTokensPerRun`, `maxUsdPerRun`, `maxUsdPerDay`. See [Budgets and limits](../guides/budgets.md). |
-| `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, `reportTokens`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
+| `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, `reportTokens`, `stuckRepeats`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
 | `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action"}]`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
 | `triggers` | Cron and webhook triggers. See [Triggers](../guides/triggers.md). |
 | `delegates` | `[{"name", "namespace", "url", "description"}]`: deployments the agent may call. |

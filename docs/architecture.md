@@ -362,9 +362,11 @@ Agent → Session → Conversation → Run → Span.
   and the model is told `effect_unknown`.
 - **Model context**: history from earlier runs in the conversation is trimmed
  oldest-first to fit `context_tokens` (harness `contextTokens`, default
- 64000; always starting at a user turn). When the current run's own messages
+ 64000, lowered to half the model's window when OpenRouter reports a smaller
+ one; always starting at a user turn). When the current run's own messages
  exceed it, their oldest tool results (longer than 600 characters, except the
- latest four) are cut to their first 300 characters plus a note, in blocks of
+ latest four and `load_skill` results) are cut to their first 300 characters
+ plus a note naming the tool and turn, in blocks of
  eight, until the run fits in about two thirds of the budget; working in
  blocks makes the request prefix (and so the provider's prompt cache) change
  rarely. The Store keeps every message in full. Tool calls without a recorded result
@@ -374,14 +376,20 @@ Agent → Session → Conversation → Run → Span.
  description) to load with `load_skill`.
 - **Model turn**: the configured model, retried on rate limits and server
  errors, then each of `fallbackModels` in order. An empty answer (no text, no
- tool calls) is asked again once before moving on; if every model gives none,
- the run fails with `no_answer`. Account errors (HTTP 401/402/403) end the turn
+ tool calls) is asked again once before moving on, and an answer cut off at
+ the output limit with nothing usable is asked again once with twice the
+ limit; if every model gives none, the run fails with `no_answer`. Account errors (HTTP 401/402/403) end the turn
  at once (§8). A model-call span records the served model
  (`gen_ai.response.model`), the model sent and `agen.fallback` when a fallback
  served it, and for routing models the tier (`agen.router.tier`) and the
  router's reported decision (`agen.router.*`).
 - **Budgets**: token budgets always apply; USD budgets only when the provider
  reports cost (OpenRouter does, direct OpenAI does not).
+- **Guards**: tools a static `deny` rule matches are left out of the model's
+ tool list; the same call failing with the same error 3 times in a row is
+ refused; `limits.stuckRepeats` identical turns (calls and results) get one
+ nudge, then the report call with reason `stuck`. Direct OpenAI requests send
+ `max_completion_tokens` instead of `max_tokens`.
 - **Outcome**: every finished run stores an outcome (`runs.outcome`, JSON:
  status, reason, summary, data, artifacts, inputFrom) and the Manager copies
  it to the task (`CompleteTask.outcome`, `tasks.outcome`). The engine's

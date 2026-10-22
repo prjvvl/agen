@@ -352,6 +352,13 @@ struct Live {
     calls: Mutex<BTreeMap<String, u32>>,
     /// The run was asked once to end through finish.
     nudged: bool,
+    /// Per tool and arguments: the last error and how often in a row.
+    errors: Mutex<BTreeMap<String, (String, u32)>>,
+    /// Signatures of the latest turns (call, arguments and results), to
+    /// notice a run repeating itself.
+    turns: Vec<u64>,
+    /// The run was told once that it repeats itself.
+    stuck_nudged: bool,
 }
 
 impl Live {
@@ -363,6 +370,9 @@ impl Live {
             approval_wait_ms: Default::default(),
             calls: Default::default(),
             nudged: false,
+            errors: Default::default(),
+            turns: vec![],
+            stuck_nudged: false,
         }
     }
 
@@ -399,8 +409,14 @@ impl Agent {
         let mut cfg = AgentConfig::new(bundle.name(), &bundle.system_prompt, &bundle.harness.model);
         cfg.skills = bundle.skills.clone();
         cfg.preload_skills = bundle.agent.preload_skills.clone();
-        if let Some(n) = bundle.harness.context_tokens {
-            cfg.context_tokens = n;
+        match bundle.harness.context_tokens {
+            Some(n) => cfg.context_tokens = n,
+            // Default: 64000, or half the model's window when that is smaller.
+            None => {
+                if let Some(w) = provider.context_window(&bundle.harness.model).await {
+                    cfg.context_tokens = default_context_tokens(w);
+                }
+            }
         }
         cfg.temperature = bundle.harness.temperature;
         cfg.fallback_models = bundle.harness.fallback_models.clone();
@@ -919,6 +935,27 @@ impl Agent {
             if let Some(o) = self.finished(&live.rec.id).await? {
                 return Ok(Outcome::Ended(o));
             }
+            if self.repeating(live).await? {
+                if live.stuck_nudged {
+                    let why = format!(
+                        "stuck: the same step gave the same result {} times in a row",
+                        self.cfg.limits.stuck_repeats()
+                    );
+                    return self.report(live, tracer, ctx, opts, "stuck", why).await;
+                }
+                live.stuck_nudged = true;
+                live.turns.clear();
+                self.log(
+                    "warn",
+                    &format!("run {}: repeating the same step; nudging it", live.rec.id),
+                )
+                .await;
+                self.add_user_note(
+                    live,
+                    "[agen] You have made the same call with the same result several times in a row. It will not change. Try a different approach, or call finish to report where you are.",
+                )
+                .await?;
+            }
             if live.rec.step >= self.cfg.max_turns as i64 {
                 let why = format!("max_turns ({}) exceeded", self.cfg.max_turns);
                 return self.report(live, tracer, ctx, opts, "max_turns", why).await;
@@ -935,7 +972,7 @@ impl Agent {
                 model: self.cfg.model.clone(),
                 system: self.redactor.redact(&self.system_prompt()),
                 messages: self.request_messages(&live.rec).await?,
-                tools: self.tools.specs(),
+                tools: self.visible_tools(),
                 temperature: self.cfg.temperature,
                 max_output_tokens: self.output_cap(&live.rec.usage),
                 extra: Default::default(),
@@ -969,6 +1006,9 @@ impl Agent {
             if sent.model != self.cfg.model {
                 span.set("gen_ai.request.model", sent.model.clone());
                 span.set("agen.fallback", true);
+            }
+            if let Some(n) = sent.output_retry {
+                span.set("agen.output.retried_with", n as u64);
             }
             if !resp.model.is_empty() {
                 span.set("gen_ai.response.model", resp.model.clone());
@@ -1035,6 +1075,47 @@ impl Agent {
             tracer.end(span, if stored.is_ok() { "ok" } else { "error" }).await;
             stored?;
         }
+    }
+
+    /// The tools the model is offered: all but those its permissions deny.
+    fn visible_tools(&self) -> Vec<crate::provider::ToolSpec> {
+        self.tools
+            .specs()
+            .into_iter()
+            .filter(|t| self.policy(&t.name) != Action::Deny)
+            .collect()
+    }
+
+    /// Whether the run's latest turns are the same step with the same
+    /// results (`limits.stuckRepeats` in a row). Records the latest turn.
+    async fn repeating(&self, live: &mut Live) -> Result<bool, AgentError> {
+        let n = self.cfg.limits.stuck_repeats() as usize;
+        if n == 0 {
+            return Ok(false);
+        }
+        let msgs = self.store.run_messages(&live.rec.id).await?;
+        let Some(last) = msgs.iter().rposition(|m| m.role == Role::Assistant) else {
+            return Ok(false);
+        };
+        if msgs[last].tool_calls.is_empty() {
+            return Ok(false);
+        }
+        let mut h = Sha256::new();
+        h.update(msgs[last].content.as_bytes());
+        for c in &msgs[last].tool_calls {
+            h.update(c.name.as_bytes());
+            h.update(args_hash(&c.arguments).as_bytes());
+        }
+        for m in &msgs[last + 1..] {
+            h.update([0u8]);
+            h.update(m.content.as_bytes());
+        }
+        let sig = u64::from_le_bytes(h.finalize()[..8].try_into().unwrap());
+        live.turns.push(sig);
+        if live.turns.len() > n {
+            live.turns.remove(0);
+        }
+        Ok(live.turns.len() == n && live.turns.iter().all(|s| *s == sig))
     }
 
     /// The permission for a tool call. `finish` only ends the run, so it is
@@ -1116,7 +1197,7 @@ impl Agent {
             model: self.cfg.model.clone(),
             system: self.redactor.redact(&self.system_prompt()),
             messages: self.request_messages(&live.rec).await?,
-            tools: self.tools.specs(),
+            tools: self.visible_tools(),
             temperature: self.cfg.temperature,
             max_output_tokens: Some(self.cfg.report_tokens),
             extra,
@@ -1214,6 +1295,7 @@ impl Agent {
             Sent {
                 model: model.to_string(),
                 tier,
+                output_retry: None,
             },
         )
     }
@@ -1246,9 +1328,24 @@ impl Agent {
                 )
                 .await;
             }
-            let (req, sent) = self.request_for(&base, model, opts);
+            let (mut req, mut sent) = self.request_for(&base, model, opts);
             for attempt in 0..2 {
                 match self.complete_with_retry(&req, opts).await {
+                    Ok(r) if attempt == 0 && output_cut(&r) => {
+                        // The output limit ran out before a usable answer
+                        // (often spent on reasoning): once more with more room.
+                        spent.add(r.usage);
+                        let cur = req.max_output_tokens.unwrap_or(default_limits::MAX_OUTPUT_TOKENS);
+                        let more = cur.saturating_mul(2).clamp(cur, MAX_RETRY_OUTPUT_TOKENS);
+                        self.log(
+                            "warn",
+                            &format!("model {model} hit its output limit ({cur} tokens) without a usable answer; asking again with {more}"),
+                        )
+                        .await;
+                        req.max_output_tokens = Some(more);
+                        sent.output_retry = Some(more);
+                        continue;
+                    }
                     Ok(mut r) if r.is_empty() && !empty_ends_work(after_tools, &r) => {
                         spent.add(r.usage);
                         if attempt == 0 {
@@ -1474,6 +1571,19 @@ impl Agent {
         }
         tracer.record_open(&span).await;
         let (result, status) = self.execute_call_inner(live, call, tracer, &mut span, opts).await?;
+        {
+            let key = format!("{}\n{}", call.name, args_hash(&call.arguments));
+            let mut errors = live.errors.lock().unwrap();
+            if status == "error" && !result.contains("was not repeated") {
+                let e = errors.entry(key).or_insert_with(|| (result.clone(), 0));
+                if e.0 != result {
+                    *e = (result.clone(), 0);
+                }
+                e.1 += 1;
+            } else if status != "error" {
+                errors.remove(&key);
+            }
+        }
         span.set("agen.tool.result_chars", result.len() as u64);
         if status != "ok" {
             // Why it failed, on the span itself (the tool message is in the
@@ -1526,10 +1636,26 @@ impl Agent {
                 ));
             }
         }
+        let key = format!("{}\n{}", call.name, args_hash(&call.arguments));
+        if let Some((_, n)) = live.errors.lock().unwrap().get(&key) {
+            if *n >= IDENTICAL_ERRORS {
+                return Ok((
+                    format!(
+                        "error: this exact call failed {n} times in a row with the same error and was not repeated; change the arguments or try another way"
+                    ),
+                    "error",
+                ));
+            }
+        }
         let decision = self.policy(&call.name);
         span.set("agen.permission.action", format!("{decision:?}").to_lowercase());
         match decision {
-            Action::Deny => return Ok(("error: permission denied by policy".into(), "denied")),
+            Action::Deny => {
+                return Ok((
+                    "error: permission denied by policy: this tool is not available to this agent; do not call it again, use another tool or finish without it".into(),
+                    "denied",
+                ))
+            }
             Action::Ask => {
                 let mut pspan = tracer.start(&span.ctx, "agen.permission.check");
                 tracer.record_open(&pspan).await;
@@ -1712,11 +1838,37 @@ fn duration_setting(name: &str, value: &str) -> Result<Duration, AgentError> {
     crate::bundle::parse_duration(value).ok_or_else(|| AgentError::Config(format!("invalid {name} {value:?}")))
 }
 
+/// The conversation budget for a model with a `window`-token context: half
+/// of it (room for the answer and the system prompt), at most the usual
+/// 64000 and at least the 4000 a bundle may set.
+pub fn default_context_tokens(window: u64) -> u64 {
+    (window / 2).clamp(4_000, 64_000)
+}
+
+/// Identical calls that failed the same way this often in a row are not
+/// made again.
+const IDENTICAL_ERRORS: u32 = 3;
+
 /// What was sent for a model turn.
 #[derive(Debug, Clone)]
 struct Sent {
     model: String,
     tier: Option<String>,
+    /// The output limit of a retry after the answer was cut off.
+    output_retry: Option<u32>,
+}
+
+/// The largest output limit a retry after a cut-off answer asks for.
+const MAX_RETRY_OUTPUT_TOKENS: u32 = 32_768;
+
+/// The answer stopped at the output limit with nothing usable: no text and
+/// no calls, or calls whose arguments were cut off.
+fn output_cut(r: &provider::ModelResponse) -> bool {
+    r.finish_reason == "length"
+        && (r.is_empty()
+            || r.tool_calls
+                .iter()
+                .any(|c| c.arguments.get(crate::provider::INVALID_ARGS_KEY).is_some()))
 }
 
 /// Request extras from a bundle's harness: OpenRouter settings as given and
@@ -1785,10 +1937,24 @@ fn compact_run(mut msgs: Vec<Message>, limit: u64) -> Vec<Message> {
         return msgs;
     }
     let target = limit * 2 / 3;
+    // Which tool, in which model turn, each result answers.
+    let mut calls: BTreeMap<String, (String, usize)> = BTreeMap::new();
+    let mut turn = 0;
+    for m in &msgs {
+        if m.role == Role::Assistant {
+            turn += 1;
+            for c in &m.tool_calls {
+                calls.insert(c.id.clone(), (c.name.clone(), turn));
+            }
+        }
+    }
+    let call_of = |m: &Message| m.tool_call_id.as_ref().and_then(|id| calls.get(id)).cloned();
     let results: Vec<usize> = msgs
         .iter()
         .enumerate()
         .filter(|(_, m)| m.role == Role::Tool && m.content.len() > COMPACT_HEAD_CHARS * 2)
+        // Skill instructions stay whole: the run works by them.
+        .filter(|(_, m)| call_of(m).is_none_or(|(name, _)| name != "load_skill"))
         .map(|(i, _)| i)
         .collect();
     let candidates = results.len().saturating_sub(KEEP_RECENT_RESULTS);
@@ -1802,6 +1968,10 @@ fn compact_run(mut msgs: Vec<Message>, limit: u64) -> Vec<Message> {
     // Round up to a whole block (within the candidates).
     n = (n.div_ceil(COMPACT_BLOCK) * COMPACT_BLOCK).min(candidates);
     for &i in &results[..n] {
+        let what = match call_of(&msgs[i]) {
+            Some((name, turn)) => format!("this result of {name} (turn {turn})"),
+            None => "this older tool result".to_string(),
+        };
         let m = &mut msgs[i];
         let mut cut = COMPACT_HEAD_CHARS;
         while !m.content.is_char_boundary(cut) {
@@ -1809,7 +1979,7 @@ fn compact_run(mut msgs: Vec<Message>, limit: u64) -> Vec<Message> {
         }
         let left = m.content.len() - cut;
         m.content = format!(
-            "{}\n[… {left} more characters of this older tool result were left out to keep the conversation within its context budget; call the tool again if you need them]",
+            "{}\n[… {left} more characters of {what} were left out to keep the conversation within its context budget. You have already read it: do not call it again unless you need a detail that is missing here.]",
             &m.content[..cut]
         );
     }

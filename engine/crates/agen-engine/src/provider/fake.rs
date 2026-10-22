@@ -50,6 +50,10 @@ pub struct FakeResponse {
     pub expect_model: Option<String>,
     /// Assert these request extras (each key equal to the given value).
     pub expect_extra: Option<serde_json::Map<String, Value>>,
+    /// Report this finish reason (default: "stop", or "tool_calls").
+    pub finish_reason: Option<String>,
+    /// Assert the request's output limit.
+    pub expect_max_output: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,6 +165,14 @@ impl ModelProvider for FakeProvider {
                 )));
             }
         }
+        if let Some(n) = r.expect_max_output {
+            if req.max_output_tokens != Some(n) {
+                return Err(ProviderError::Script(format!(
+                    "response {idx}: expected output limit {n}, got {:?}",
+                    req.max_output_tokens
+                )));
+            }
+        }
         for (k, v) in r.expect_extra.iter().flatten() {
             if req.extra.get(k) != Some(v) {
                 return Err(ProviderError::Script(format!(
@@ -210,10 +222,10 @@ impl ModelProvider for FakeProvider {
             }
         });
         Ok(ModelResponse {
-            finish_reason: if r.tool_calls.is_empty() {
-                "stop".into()
-            } else {
-                "tool_calls".into()
+            finish_reason: match (&r.finish_reason, r.tool_calls.is_empty()) {
+                (Some(f), _) => f.clone(),
+                (None, true) => "stop".into(),
+                (None, false) => "tool_calls".into(),
             },
             text: r.text.clone(),
             tool_calls,

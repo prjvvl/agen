@@ -104,6 +104,11 @@ inspector lists them under the call's attributes.
   that is not retried, the next model in the list is called.
 - An empty answer (no text and no tool calls) is asked again once; if it is
   empty again, the next model is called.
+- An answer cut off at the output limit with nothing usable (no text and no
+  calls, or a call whose arguments were cut off; often the model's reasoning
+  used the whole limit) is asked again once with twice the output limit (at
+  most 32768 tokens). The model-call span records it as
+  `agen.output.retried_with`.
 - If every model gives no answer, the run fails with `no_answer`. A
   `finish_reason` of `length` there usually means reasoning used the whole
   output limit: raise `maxOutputTokens`.

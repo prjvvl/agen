@@ -25,7 +25,9 @@ allowed, sent to a person for approval, or denied.
 - Rules are evaluated deny first, then ask, then allow; the first match in
   that order wins, regardless of the order they are written in. Nothing
   matches: `default` applies (`ask` if unset).
-- A denied call returns an error to the model, which can try something else.
+- Tools a rule denies are not offered to the model at all. A call that names
+  one anyway gets an error saying it is not available, and the model can try
+  something else.
 - `agen deploy --validate` warns about a rule that names a server the bundle
   does not have.
 
