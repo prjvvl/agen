@@ -115,8 +115,13 @@ func (s *Store) CreateApproval(ctx context.Context, a Approval, ttlMs int64) (Ap
 	}
 	for attempt := 0; ; attempt++ {
 		now := NowMs()
-		_, err := s.db.ExecContext(ctx, "INSERT INTO approvals ("+approvalCols+") VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, '', $8, $9)",
-			a.ID, a.Namespace, a.Deployment, a.RunID, a.Tool, orEmpty(a.Arguments, "{}"), a.RequestedBy, now, now+ttlMs)
+		err := s.inTx(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO approvals ("+approvalCols+") VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, '', $8, $9)",
+				a.ID, a.Namespace, a.Deployment, a.RunID, a.Tool, orEmpty(a.Arguments, "{}"), a.RequestedBy, now, now+ttlMs); err != nil {
+				return err
+			}
+			return approvalEvent(ctx, tx, a.ID, "approval.pending", "warning")
+		})
 		if !isUnique(err) {
 			if err != nil {
 				return a, err
@@ -264,24 +269,76 @@ func (s *Store) DecideApproval(ctx context.Context, id string, approve bool, by 
 		state = "approved"
 	}
 	now := NowMs()
-	res, err := s.db.ExecContext(ctx, "UPDATE approvals SET state = $1, decided_by = $2, decided_ms = $3 WHERE id = $4 AND state = 'pending' AND expires_ms >= $3",
-		state, by, now, id)
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE approvals SET state = $1, decided_by = $2, decided_ms = $3 WHERE id = $4 AND state = 'pending' AND expires_ms >= $3",
+			state, by, now, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrConflict
+		}
+		return approvalEvent(ctx, tx, id, "approval.decided", "info")
+	})
 	if err != nil {
 		return a, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return a, ErrConflict
 	}
 	return s.GetApproval(ctx, id)
 }
 
+// approvalEvent records an approval event with the approval as it is now in
+// the transaction.
+func approvalEvent(ctx context.Context, tx *sql.Tx, id, typ, severity string) error {
+	a, err := scanApproval(tx.QueryRowContext(ctx, "SELECT "+approvalSelect+" FROM approvals WHERE id = $1", id))
+	if err != nil {
+		return err
+	}
+	var labels map[string]string
+	var labelsJSON string
+	if tx.QueryRowContext(ctx, "SELECT labels FROM runs WHERE id = $1", a.RunID).Scan(&labelsJSON) == nil {
+		_ = json.Unmarshal([]byte(labelsJSON), &labels)
+	}
+	data := map[string]any{"approvalId": a.ID, "tool": a.Tool, "runId": a.RunID, "state": a.State, "requestedBy": a.RequestedBy}
+	if a.DecidedBy != "" {
+		data["decidedBy"] = a.DecidedBy
+	}
+	return appendEvent(ctx, tx, Event{Namespace: a.Namespace, Type: typ, Deployment: a.Deployment, TaskID: a.TaskID, Labels: labels, Severity: severity, Data: data})
+}
+
 // ExpireApprovals marks overdue pending approvals expired.
 func (s *Store) ExpireApprovals(ctx context.Context) (int64, error) {
-	res, err := s.db.ExecContext(ctx, "UPDATE approvals SET state = 'expired', decided_ms = $1 WHERE state = 'pending' AND expires_ms < $1", NowMs())
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	var n int64
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		now := NowMs()
+		rows, err := tx.QueryContext(ctx, "SELECT id FROM approvals WHERE state = 'pending' AND expires_ms < $1", now)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		for _, id := range ids {
+			res, err := tx.ExecContext(ctx, "UPDATE approvals SET state = 'expired', decided_ms = $1 WHERE id = $2 AND state = 'pending'", now, id)
+			if err != nil {
+				return err
+			}
+			if k, _ := res.RowsAffected(); k == 1 {
+				n++
+				if err := approvalEvent(ctx, tx, id, "approval.decided", "warning"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return n, err
 }
 
 // ---- trigger events ----
@@ -305,14 +362,28 @@ func (s *Store) RecordTriggerEvent(ctx context.Context, e TriggerEvent) (bool, e
 	if e.ID == "" {
 		e.ID = NewID()
 	}
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO trigger_events (id, namespace, deployment, trigger_name, state, task_id, due_ms, recorded_ms, message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "+
-			"ON CONFLICT (namespace, deployment, trigger_name, due_ms) DO NOTHING",
-		e.ID, e.Namespace, e.Deployment, e.Trigger, e.State, e.TaskID, e.DueMs, NowMs(), e.Message)
+	var n int64
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO trigger_events (id, namespace, deployment, trigger_name, state, task_id, due_ms, recorded_ms, message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "+
+				"ON CONFLICT (namespace, deployment, trigger_name, due_ms) DO NOTHING",
+			e.ID, e.Namespace, e.Deployment, e.Trigger, e.State, e.TaskID, e.DueMs, NowMs(), e.Message)
+		if err != nil {
+			return err
+		}
+		if n, _ = res.RowsAffected(); n == 0 || (e.State != "missed" && e.State != "rejected") {
+			return nil
+		}
+		typ := "trigger.missed"
+		if e.State == "rejected" {
+			typ = "webhook.rejected"
+		}
+		return appendEvent(ctx, tx, Event{Namespace: e.Namespace, Type: typ, Deployment: e.Deployment, Severity: "warning",
+			Data: map[string]any{"trigger": e.Trigger, "dueMs": e.DueMs, "message": truncate(e.Message, 500)}})
+	})
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
 	return n == 1, nil
 }
 

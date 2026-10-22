@@ -1,0 +1,41 @@
+{
+  "name": "events",
+  "description": "Run a task and read what happened from the event log: queued, started and finished with its outcome, filtered by type and deployment.",
+  "features": ["events"],
+  "bundles": {
+    "hello": { "from": "examples/bundles/hello" }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "logged", "bundleText": "$bundle:hello" },
+      "expect": { "deployment.name": "logged" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "logged" }, "input": "hi" },
+      "save": { "t1": "task.id" }
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$t1", "waitSeconds": 60 },
+      "expect": { "task.state": "TASK_STATE_SUCCEEDED" },
+      "retry": 120
+    },
+    {
+      "call": "ListEvents",
+      "args": { "namespace": "$ns", "deployment": "logged", "types": ["task."] },
+      "expect": {
+        "events": { "has": { "type": "task.finished", "taskId": "$t1" } },
+        "events.0.type": "task.queued",
+        "events.0.taskId": "$t1"
+      },
+      "retry": 30
+    },
+    {
+      "call": "ListEvents",
+      "args": { "namespace": "$ns", "types": ["deployment.created"] },
+      "expect": { "events": { "has": { "type": "deployment.created", "deployment": "logged" } } }
+    }
+  ]
+}

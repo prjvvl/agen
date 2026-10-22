@@ -36,6 +36,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
+  agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -517,6 +518,33 @@ Usage of transcript:
     	also the system prompt
   -token string
     	API token
+```
+
+## agen events
+
+```text
+Usage of events:
+  -after int
+    	only events after this seq
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -f	keep printing new events
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -label value
+    	only events with this key=value label (repeatable)
+  -limit int
+    	events (default 50)
+  -n string
+    	namespace (default "default")
+  -severity string
+    	only events at least this severe: info, warning or critical
+  -token string
+    	API token
+  -type value
+    	only this type (repeatable; "task." matches every task event)
 ```
 
 ## agen triggers

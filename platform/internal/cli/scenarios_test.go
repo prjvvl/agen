@@ -223,6 +223,14 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		c.args = []string{"cancel", str("id"), "--json"}
 	case "ListRuns":
 		c.args = append([]string{"runs", str("deployment"), "--json"}, ns()...)
+	case "ListEvents":
+		c.args = append([]string{"events", str("deployment"), "--json", "--limit", "1000"}, ns()...)
+		if ts, ok := a["types"].([]any); ok {
+			used["types"] = true
+			for _, ty := range ts {
+				c.args = append(c.args, "--type", ty.(string))
+			}
+		}
 	case "GetLogs":
 		n, name := ref()
 		c.args = []string{"logs", name, "-n", n, "--json"}

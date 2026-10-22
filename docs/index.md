@@ -39,6 +39,8 @@ See [Install](install.md) for platforms, options and uninstalling.
   fallbacks, reasoning effort and provider account holds.
 - [Permissions and approvals](guides/permissions.md)
 - [Budgets and limits](guides/budgets.md)
+- [Events](guides/events.md): the event log of tasks, approvals, holds and
+  deployments, as a list or a resumable stream.
 - [Notifications](guides/notifications.md): approvals, failures and budgets,
   sent to your systems.
 - [Triggers](guides/triggers.md): schedules, webhooks and tasks at a later

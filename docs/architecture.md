@@ -697,6 +697,18 @@ schemas and an example; `WhoAmI` returns the caller's scopes;
 return warnings without deploying. `GetTask` waits up to 300 s and returns
 early when the task starts waiting for an approval.
 
+**Event log**: the Store's `events` table holds one row per notable change
+(task queued/started/finished/needs_input, approvals, provider holds, missed
+triggers and rejected webhooks, deployment changes through the API), written
+in the same transaction as the change. Its `seq` comes from the single
+`event_seq` row, taken as the transaction's last write: the row lock keeps seq
+order equal to commit order, so a reader following a cursor never skips an
+event that commits late. `ListEvents` reads after a cursor with type, label,
+deployment and severity filters and an optional wait; the stream below
+carries the same events with `id: <seq>` and resumes from `Last-Event-ID`.
+Events are kept 7 days (pruned hourly by the leader); `agen migrate` copies
+them and the seq.
+
 `GET /api/v1/events` streams change notices (server-sent events) for the
 caller's namespaces: tasks, runs, approvals, instances and deployments, and
 `step` events: a model call (`gen_ai.chat`) or tool call (`agen.tool`)

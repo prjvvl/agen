@@ -322,6 +322,27 @@ message Task {
   Outcome outcome = 30;
 }
 
+// One entry of the event log.
+message Event {
+  // Position in the log; increases in commit order.
+  int64 seq = 1;
+  string namespace = 2;
+  // task.queued, task.started, task.finished, task.needs_input, task.stuck,
+  // approval.pending, approval.decided, budget.threshold, provider.held,
+  // provider.resumed, activity.warning, trigger.missed, webhook.rejected,
+  // deployment.created, deployment.updated, deployment.deleted.
+  string type = 3;
+  string deployment = 4;
+  string task_id = 5;
+  string parent_task_id = 6;
+  map<string, string> labels = 7;
+  // info, warning or critical.
+  string severity = 8;
+  // Details per type (e.g. task.finished: state and outcome).
+  google.protobuf.Struct data = 9;
+  google.protobuf.Timestamp at = 10;
+}
+
 // How a run ended, beyond its state: what it reports and why it stopped.
 message Outcome {
   // done, partial, needs_input, rejected, failed or cancelled.

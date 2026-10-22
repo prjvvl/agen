@@ -151,7 +151,7 @@ func procedureScope(procedure string) string {
 	switch name {
 	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "Resolve",
 		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide",
-		"GetTranscript", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds":
+		"GetTranscript", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds", "ListEvents":
 		return ScopeViewer
 	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "RequestWake",
 		"CreateWebhookSecret", "ResumeProvider":

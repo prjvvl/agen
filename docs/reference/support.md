@@ -44,13 +44,14 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Long-run compaction (contextTokens) | ✓ | ✓ | ✓ |  |  |
 | Limits (turns, tokens, durations, queue) | ✓ |  | ✓ |  |  |
 | Run outcomes (finish, result schema, report at a limit) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Host tools (functions in your program) | –[^10] |  |  |  |  |
+| Event log (ListEvents, event stream with a cursor) | ✓ | ✓ | ✓ | –[^10] |  |
+| Host tools (functions in your program) | –[^11] |  |  |  |  |
 | Tools from MCP servers in the bundle | ✓ |  | ✓ |  |  |
 | Built-in workspace and SQL tool servers |  |  | ✓ |  |  |
 | Permissions and approvals | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
 | Cancel a task or run | ✓ | ✓ | ✓ | ✓ |  |
-| Stream output while a run is in progress | –[^11] |  |  |  |  |
+| Stream output while a run is in progress | –[^12] |  |  |  |  |
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |
 | Per-task cost tier | ✓ | ✓ | ✓ | ✓ |  |
 | Tasks with a start time | ✓ | ✓ | ✓ | ✓ |  |
@@ -89,5 +90,6 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 [^7]: Long-run compaction (contextTokens) on Node: engine tests only
 [^8]: Long-run compaction (contextTokens) on Go: engine tests only
 [^9]: Provider account holds and resume on Console: a held account cannot be made from the console test; Hub tests cover holds
-[^10]: Host tools (functions in your program) on API: deployed agents get tools from MCP servers in the bundle (tools.mcp)
-[^11]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events
+[^10]: Event log (ListEvents, event stream with a cursor) on Console: the console follows changes live through the same stream; it has no event log view yet
+[^11]: Host tools (functions in your program) on API: deployed agents get tools from MCP servers in the bundle (tools.mcp)
+[^12]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events

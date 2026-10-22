@@ -134,19 +134,33 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 		return scanTask(s.db.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND idempotency_key = $3",
 			t.Namespace, t.Deployment, t.IdempotencyKey))
 	}
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key) "+
-			"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20 "+
-			"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
-		t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-		t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued)
+	inserted := int64(0)
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key) "+
+				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20 "+
+				"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
+			t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
+			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued)
+		if err != nil {
+			return err
+		}
+		if inserted, _ = res.RowsAffected(); inserted == 0 {
+			return nil
+		}
+		data := map[string]any{"source": t.Source}
+		if t.NotBeforeMs > 0 {
+			data["notBeforeMs"] = t.NotBeforeMs
+		}
+		return appendEvent(ctx, tx, taskEvent(t, "task.queued", "info", data))
+	})
 	if isUnique(err) && t.IdempotencyKey != "" {
 		return existing()
 	}
 	if err != nil {
 		return t, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if inserted == 0 {
 		if t.IdempotencyKey != "" {
 			if prev, err := existing(); err == nil {
 				return prev, nil
@@ -261,9 +275,25 @@ func (s *Store) ExtendLease(ctx context.Context, taskID, leaseID string, leaseMs
 
 // StartTask marks a leased task as running on an instance.
 func (s *Store) StartTask(ctx context.Context, taskID, leaseID, instanceID string) error {
-	res, err := s.db.ExecContext(ctx, "UPDATE tasks SET state = 'running', instance_id = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
-		instanceID, NowMs(), taskID, leaseID)
-	return fenced(res, err)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		var prev string
+		err := tx.QueryRowContext(ctx, "SELECT state FROM tasks WHERE id = $1 AND lease_id = $2 AND state IN ('leased', 'running')", taskID, leaseID).Scan(&prev)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrFenced
+		}
+		if err != nil {
+			return err
+		}
+		t, err := scanTask(tx.QueryRowContext(ctx, "UPDATE tasks SET state = 'running', instance_id = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running') RETURNING "+taskCols,
+			instanceID, NowMs(), taskID, leaseID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrFenced
+		}
+		if err != nil || prev == "running" {
+			return err
+		}
+		return appendEvent(ctx, tx, taskEvent(t, "task.started", "info", map[string]any{"instanceId": instanceID, "attempt": t.Attempts}))
+	})
 }
 
 // CompleteTask records a result. Fails with ErrFenced unless leaseID is the
@@ -286,10 +316,15 @@ func (s *Store) CompleteTaskWithOutcome(ctx context.Context, taskID, leaseID str
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFenced
 		}
-		if err != nil || success {
+		if err != nil {
 			return err
 		}
-		return endTaskRun(ctx, tx, t, "failed", errMsg)
+		if !success {
+			if err := endTaskRun(ctx, tx, t, "failed", errMsg); err != nil {
+				return err
+			}
+		}
+		return taskFinished(ctx, tx, t)
 	})
 }
 
@@ -323,6 +358,11 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int6
 				msg, level = fmt.Sprintf("task %s failed: its lease on %s expired on attempt %d of %d", t.ID, where, t.Attempts, maxAttempts), "error"
 				if err == nil {
 					err = endTaskRun(ctx, tx, t, "failed", "the task failed: its lease expired too many times")
+				}
+				if err == nil {
+					ft := t
+					ft.State, ft.Error = "failed", "task lease expired "+itoa(maxAttempts)+" times (the instance running it crashed or became unreachable)"
+					err = taskFinished(ctx, tx, ft)
 				}
 			} else {
 				res, err = tx.ExecContext(ctx, "UPDATE tasks SET state = 'queued', lease_id = '', lease_nest_id = '', lease_expires_ms = 0, updated_ms = $1 WHERE id = $2 AND lease_id = $3",
@@ -393,7 +433,10 @@ func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
 		if err != nil {
 			return err
 		}
-		return endTaskRun(ctx, tx, t, "cancelled", "cancelled")
+		if err := endTaskRun(ctx, tx, t, "cancelled", "cancelled"); err != nil {
+			return err
+		}
+		return taskFinished(ctx, tx, t)
 	})
 	if err != nil {
 		return Task{}, err

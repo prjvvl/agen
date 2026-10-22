@@ -54,6 +54,7 @@ export const siteConfig = {
         "guides/models",
         "guides/permissions",
         "guides/budgets",
+        "guides/events",
         "guides/notifications",
         "guides/triggers",
         "guides/memory",

@@ -78,6 +78,8 @@ service HubService {
   rpc GetActivity(GetActivityRequest) returns (GetActivityResponse);
   // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+  // The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
 
   // Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
   rpc ListProviderHolds(ListProviderHoldsRequest) returns (ListProviderHoldsResponse);
@@ -503,6 +505,29 @@ message EntryEdge {
   DeploymentRef to = 3;
   int32 runs = 4;
   int32 failed = 5;
+}
+
+message ListEventsRequest {
+  // Empty: every namespace the caller may see.
+  string namespace = 1;
+  // Events after this seq (0: from the oldest kept).
+  int64 after_seq = 2;
+  // Only these types; a type ending in "." matches a prefix ("task.").
+  repeated string types = 3;
+  string deployment = 4;
+  // Only events whose labels include all of these.
+  map<string, string> labels = 5;
+  // Only events at least this severe: info, warning or critical.
+  string severity = 6;
+  // At most this many events (default 100, at most 1000).
+  int32 limit = 7;
+  // Wait up to this long (at most 300) for a first matching event.
+  int32 wait_seconds = 8;
+}
+message ListEventsResponse {
+  repeated Event events = 1;
+  // The cursor for the next call: the last seq looked at.
+  int64 next_seq = 2;
 }
 
 message GetActivityRequest {

@@ -249,6 +249,23 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListDeployments` · MCP tool:
 |---|---|---|
 | `namespace` | string | Empty means all namespaces the caller may see. |
 
+## ListEvents
+
+The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListEvents` · MCP tool: `list_events`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string | Empty: every namespace the caller may see. |
+| `afterSeq` | int64 | Events after this seq (0: from the oldest kept). |
+| `types` | list of string | Only these types; a type ending in "." matches a prefix ("task."). |
+| `deployment` | string |  |
+| `labels` | map&lt;string, string&gt; | Only events whose labels include all of these. |
+| `severity` | string | Only events at least this severe: info, warning or critical. |
+| `limit` | int32 | At most this many events (default 100, at most 1000). |
+| `waitSeconds` | int32 | Wait up to this long (at most 300) for a first matching event. |
+
 ## ListInstances
 
 Every instance on every Nest, with state, running tasks and loaded tools.

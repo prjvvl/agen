@@ -88,6 +88,12 @@ func TestCopyToMovesEverythingDurable(t *testing.T) {
 					t.Errorf("%s: copied %d, want %d", tbl, rep[tbl], want)
 				}
 			}
+			// The event log comes along, and new events continue after it.
+			srcSeq, _ := src.LastEventSeq(ctx)
+			dstSeq, _ := dst.LastEventSeq(ctx)
+			if rep["events"] == 0 || srcSeq == 0 || dstSeq != srcSeq {
+				t.Errorf("events: copied %d, seq %d -> %d", rep["events"], srcSeq, dstSeq)
+			}
 			// Everything reads back through the normal APIs.
 			d, err := dst.GetDeployment(ctx, "default", "hello")
 			if err != nil || d.DefinitionDigest != "sha256:d1" {

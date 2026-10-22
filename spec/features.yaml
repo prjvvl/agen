@@ -108,6 +108,13 @@ features:
     contract: [harness:result]
     on: [rust, python, node, go, api, mcp, cli, console, a2a]
 
+  - id: events
+    title: Event log (ListEvents, event stream with a cursor)
+    contract: [rpc:ListEvents, field:ListEvents.after_seq, field:ListEvents.types, field:ListEvents.deployment, field:ListEvents.labels,
+      field:ListEvents.severity, field:ListEvents.limit, field:ListEvents.wait_seconds, cli:events]
+    on: [api, mcp, cli]
+    not: {console: "the console follows changes live through the same stream; it has no event log view yet"}
+
   # Tools and permissions
   - id: tools.host
     title: Host tools (functions in your program)

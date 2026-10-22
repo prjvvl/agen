@@ -108,6 +108,8 @@ const (
 	HubServiceGetActivityProcedure = "/agen.v1.HubService/GetActivity"
 	// HubServiceGetLogsProcedure is the fully-qualified name of the HubService's GetLogs RPC.
 	HubServiceGetLogsProcedure = "/agen.v1.HubService/GetLogs"
+	// HubServiceListEventsProcedure is the fully-qualified name of the HubService's ListEvents RPC.
+	HubServiceListEventsProcedure = "/agen.v1.HubService/ListEvents"
 	// HubServiceListProviderHoldsProcedure is the fully-qualified name of the HubService's
 	// ListProviderHolds RPC.
 	HubServiceListProviderHoldsProcedure = "/agen.v1.HubService/ListProviderHolds"
@@ -209,6 +211,8 @@ type HubServiceClient interface {
 	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+	ListEvents(context.Context, *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error)
 	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
 	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
 	// End a provider hold now (e.g. after fixing the key or adding credit).
@@ -429,6 +433,12 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
 			connect.WithClientOptions(opts...),
 		),
+		listEvents: connect.NewClient[v1.ListEventsRequest, v1.ListEventsResponse](
+			httpClient,
+			baseURL+HubServiceListEventsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListEvents")),
+			connect.WithClientOptions(opts...),
+		),
 		listProviderHolds: connect.NewClient[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse](
 			httpClient,
 			baseURL+HubServiceListProviderHoldsProcedure,
@@ -542,6 +552,7 @@ type hubServiceClient struct {
 	getMetrics               *connect.Client[v1.GetMetricsRequest, v1.GetMetricsResponse]
 	getActivity              *connect.Client[v1.GetActivityRequest, v1.GetActivityResponse]
 	getLogs                  *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
+	listEvents               *connect.Client[v1.ListEventsRequest, v1.ListEventsResponse]
 	listProviderHolds        *connect.Client[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse]
 	resumeProvider           *connect.Client[v1.ResumeProviderRequest, v1.ResumeProviderResponse]
 	createJoinToken          *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
@@ -707,6 +718,11 @@ func (c *hubServiceClient) GetLogs(ctx context.Context, req *connect.Request[v1.
 	return c.getLogs.CallUnary(ctx, req)
 }
 
+// ListEvents calls agen.v1.HubService.ListEvents.
+func (c *hubServiceClient) ListEvents(ctx context.Context, req *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error) {
+	return c.listEvents.CallUnary(ctx, req)
+}
+
 // ListProviderHolds calls agen.v1.HubService.ListProviderHolds.
 func (c *hubServiceClient) ListProviderHolds(ctx context.Context, req *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {
 	return c.listProviderHolds.CallUnary(ctx, req)
@@ -834,6 +850,8 @@ type HubServiceHandler interface {
 	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+	ListEvents(context.Context, *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error)
 	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
 	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
 	// End a provider hold now (e.g. after fixing the key or adding credit).
@@ -1050,6 +1068,12 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceListEventsHandler := connect.NewUnaryHandler(
+		HubServiceListEventsProcedure,
+		svc.ListEvents,
+		connect.WithSchema(hubServiceMethods.ByName("ListEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceListProviderHoldsHandler := connect.NewUnaryHandler(
 		HubServiceListProviderHoldsProcedure,
 		svc.ListProviderHolds,
@@ -1190,6 +1214,8 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetActivityHandler.ServeHTTP(w, r)
 		case HubServiceGetLogsProcedure:
 			hubServiceGetLogsHandler.ServeHTTP(w, r)
+		case HubServiceListEventsProcedure:
+			hubServiceListEventsHandler.ServeHTTP(w, r)
 		case HubServiceListProviderHoldsProcedure:
 			hubServiceListProviderHoldsHandler.ServeHTTP(w, r)
 		case HubServiceResumeProviderProcedure:
@@ -1343,6 +1369,10 @@ func (UnimplementedHubServiceHandler) GetActivity(context.Context, *connect.Requ
 
 func (UnimplementedHubServiceHandler) GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetLogs is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListEvents(context.Context, *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListEvents is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {

@@ -150,6 +150,7 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	h.deploymentEvent(ctx, "deployment.created", d.Namespace, d.Name, map[string]any{"digest": d.DefinitionDigest, "kind": d.Kind})
 	return connect.NewResponse(&agenv1.CreateDeploymentResponse{Deployment: deploymentProto(d, 0), Warnings: warnings}), nil
 }
 
@@ -261,6 +262,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	h.deploymentEvent(ctx, "deployment.updated", d.Namespace, d.Name, map[string]any{"digest": d.DefinitionDigest})
 	return connect.NewResponse(&agenv1.UpdateDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name))), Warnings: warnings}), nil
 }
 
@@ -365,6 +367,7 @@ func (h *Hub) DeleteDeployment(ctx context.Context, req *connect.Request[agenv1.
 			h.replyResult(ctx, t)
 		}
 	}
+	h.deploymentEvent(ctx, "deployment.deleted", ns, req.Msg.GetRef().GetName(), nil)
 	return connect.NewResponse(&agenv1.DeleteDeploymentResponse{}), nil
 }
 
@@ -765,6 +768,7 @@ func (h *Hub) PauseDeployment(ctx context.Context, req *connect.Request[agenv1.P
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	h.deploymentEvent(ctx, "deployment.updated", ns, d.Name, map[string]any{"paused": d.Paused})
 	return connect.NewResponse(&agenv1.PauseDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name)))}), nil
 }
 
