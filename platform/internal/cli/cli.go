@@ -68,6 +68,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
+  agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
+  agen feedback ls [name]         feedback, newest first (--label, --since)
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -100,7 +102,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		"run": e.cmdRun, "wait": e.cmdWait, "cancel": e.cmdCancel, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
 		"runs": e.cmdRuns, "providers": e.cmdProviders, "mcp": e.cmdMCP, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
-		"events": e.cmdEvents,
+		"events": e.cmdEvents, "feedback": e.cmdFeedback,
 	}
 	switch args[0] {
 	case "version", "--version":

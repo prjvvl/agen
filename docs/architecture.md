@@ -489,6 +489,10 @@ Agent → Session → Conversation → Run → Span.
   Approval arguments are redacted before they are persisted or shown. With
   `permissions.notify`, the Hub POSTs each new pending approval to that URL,
   signed with a granted platform secret if one is named.
+- Feedback: a judgement on how a task went (score 0.0-1.0, labels, a note, who
+  gave it), recorded by `RecordFeedback` and read back by `ListFeedback`.
+  `DecideApproval` records one too (`by: "approval"`, score 1.0/0.0), so
+  approvals and explicit ratings land in the same place.
 - Secrets: resolved by name (env or the platform secret store; the OS keychain
   is reserved). Values
   are registered with a redactor that scrubs logs, spans, stored messages and

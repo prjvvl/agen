@@ -69,6 +69,23 @@ agen approve <id> --token <approver token>
 A delegated run's approvals name the person behind the root task, so
 delegation cannot be used to approve your own request either.
 
+## Feedback
+
+Record a judgement on how a task went: a person's rating, an automated
+check, or a judge model's score. `RecordFeedback` takes a `score` (0.0 worst
+to 1.0 best), optional `labels` and a `note`; `ListFeedback` reads it back,
+filtered by deployment, labels and time.
+
+```sh
+agen feedback record <task-id> --score 0.8 --note "mostly right" --label judge=rubric-v1
+agen feedback ls researcher --label judge=rubric-v1 --since 24h
+```
+
+Every approval decision is recorded as feedback too, `by: "approval"`:
+approved is a score of 1.0, denied a score of 0.0. This gives a single place
+to see how a deployment is doing, whether the signal came from a human
+rating, a check, or an approval.
+
 ## Notifications
 
 To hear about an approval as soon as it is raised, give the deployment a

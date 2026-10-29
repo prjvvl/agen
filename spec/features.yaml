@@ -134,6 +134,13 @@ features:
     contract: [sdk:permissions, sdk:approvalTimeoutSeconds, config:permissions, rpc:ListApprovals, rpc:DecideApproval,
       field:ListApprovals.state, field:DecideApproval.approve, cli:approvals]
     on: [rust, python, node, go, api, mcp, cli, console, a2a]
+  - id: feedback
+    title: Record and list feedback on tasks (a person, a check, or a judge model)
+    contract: [rpc:RecordFeedback, rpc:ListFeedback, field:RecordFeedback.task_id, field:RecordFeedback.score,
+      field:RecordFeedback.labels, field:RecordFeedback.note, field:ListFeedback.deployment, field:ListFeedback.labels,
+      field:ListFeedback.since, cli:feedback]
+    on: [api, mcp, cli]
+    not: {console: "no UI yet; use agen feedback or the API"}
 
   # Work
   - id: tasks.run

@@ -110,6 +110,33 @@ service HubService {
   rpc ListNotificationTargets(ListNotificationTargetsRequest) returns (ListNotificationTargetsResponse);
   // Remove a notification target.
   rpc DeleteNotificationTarget(DeleteNotificationTargetRequest) returns (DeleteNotificationTargetResponse);
+
+  // Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+  rpc RecordFeedback(RecordFeedbackRequest) returns (RecordFeedbackResponse);
+  // Feedback, filtered by deployment, labels and time, newest first.
+  rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
+}
+
+message RecordFeedbackRequest {
+  string task_id = 1;
+  // 0.0 (worst) to 1.0 (best).
+  double score = 2;
+  map<string, string> labels = 3;
+  string note = 4;
+}
+message RecordFeedbackResponse {
+  Feedback feedback = 1;
+}
+message ListFeedbackRequest {
+  string namespace = 1;
+  string deployment = 2;
+  map<string, string> labels = 3;
+  // Only feedback recorded at or after this time.
+  google.protobuf.Timestamp since = 4;
+  int32 limit = 5;
+}
+message ListFeedbackResponse {
+  repeated Feedback feedback = 1;
 }
 
 message ListProviderHoldsRequest {}

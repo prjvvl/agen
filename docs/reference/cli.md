@@ -37,6 +37,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
+  agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
+  agen feedback ls [name]         feedback, newest first (--label, --since)
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -549,6 +551,12 @@ Usage of events:
     	API token
   -type value
     	only this type (repeatable; "task." matches every task event)
+```
+
+## agen feedback
+
+```text
+usage: agen feedback record <task> --score S [--note TEXT] [--label k=v] | agen feedback ls [name] [--label k=v] [--since D]
 ```
 
 ## agen triggers

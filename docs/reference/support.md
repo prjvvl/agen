@@ -49,9 +49,10 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Tools from MCP servers in the bundle | ✓ |  | ✓ |  |  |
 | Built-in workspace and SQL tool servers |  |  | ✓ |  |  |
 | Permissions and approvals | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Record and list feedback on tasks (a person, a check, or a judge model) | ✓ | ✓ | ✓ | –[^12] |  |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
 | Cancel a task or run | ✓ | ✓ | ✓ | ✓ |  |
-| Stream output while a run is in progress | –[^12] |  |  |  |  |
+| Stream output while a run is in progress | –[^13] |  |  |  |  |
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |
 | Per-task cost tier | ✓ | ✓ | ✓ | ✓ |  |
 | Tasks with a start time, an expiry, or at most one queued per key | ✓ | ✓ | ✓ | ✓ |  |
@@ -92,4 +93,5 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 [^9]: Provider account holds and resume on Console: a held account cannot be made from the console test; Hub tests cover holds
 [^10]: Event log (ListEvents, event stream with a cursor) on Console: the console follows changes live through the same stream; it has no event log view yet
 [^11]: Host tools (functions in your program) on API: deployed agents get tools from MCP servers in the bundle (tools.mcp)
-[^12]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events
+[^12]: Record and list feedback on tasks (a person, a check, or a judge model) on Console: no UI yet; use agen feedback or the API
+[^13]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events

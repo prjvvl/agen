@@ -498,6 +498,22 @@ message ApiToken {
   bool on_behalf = 8;
 }
 
+// A judgement on how a task went: a person, a check, or a judge model.
+message Feedback {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  string task_id = 4;
+  // 0.0 (worst) to 1.0 (best).
+  double score = 5;
+  map<string, string> labels = 6;
+  string note = 7;
+  // Who gave it: a principal id, or "approval" for one recorded from an
+  // approval decision.
+  string by = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
 message Run {
   string id = 1;
   string session_id = 2;

@@ -298,6 +298,41 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		c.args = []string{"providers", "--json"}
 	case "ListTemplates":
 		c.args = []string{"init", "--list", "--json"}
+	case "RecordFeedback":
+		c.args = []string{"feedback", "record", str("taskId"), "--score", fmt.Sprint(a["score"]), "--json"}
+		used["score"] = true
+		if v := str("note"); v != "" {
+			c.args = append(c.args, "--note", v)
+		}
+		if l, ok := a["labels"].(map[string]any); ok {
+			used["labels"] = true
+			keys := make([]string, 0, len(l))
+			for k := range l {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				c.args = append(c.args, "--label", fmt.Sprintf("%s=%v", k, l[k]))
+			}
+		}
+	case "ListFeedback":
+		c.args = []string{"feedback", "ls"}
+		if dep := str("deployment"); dep != "" {
+			c.args = append(c.args, dep)
+		}
+		c.args = append(c.args, "--json")
+		c.args = append(c.args, ns()...)
+		if l, ok := a["labels"].(map[string]any); ok {
+			used["labels"] = true
+			keys := make([]string, 0, len(l))
+			for k := range l {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				c.args = append(c.args, "--label", fmt.Sprintf("%s=%v", k, l[k]))
+			}
+		}
 	default:
 		return c, fmt.Errorf("the CLI has no command for %s (map it in cliFor, or skip the step on cli with a reason)", method)
 	}

@@ -266,6 +266,20 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListEvents` · MCP tool: `lis
 | `limit` | int32 | At most this many events (default 100, at most 1000). |
 | `waitSeconds` | int32 | Wait up to this long (at most 300) for a first matching event. |
 
+## ListFeedback
+
+Feedback, filtered by deployment, labels and time, newest first.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListFeedback` · MCP tool: `list_feedback`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `deployment` | string |  |
+| `labels` | map&lt;string, string&gt; |  |
+| `since` | Timestamp | Only feedback recorded at or after this time. |
+| `limit` | int32 |  |
+
 ## ListInstances
 
 Every instance on every Nest, with state, running tasks and loaded tools.
@@ -370,6 +384,19 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/PauseDeployment` · MCP too
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `paused` | bool | false resumes. |
+
+## RecordFeedback
+
+Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/RecordFeedback` · MCP tool: `record_feedback`
+
+| Field | Type | Description |
+|---|---|---|
+| `taskId` | string |  |
+| `score` | double | 0.0 (worst) to 1.0 (best). |
+| `labels` | map&lt;string, string&gt; |  |
+| `note` | string |  |
 
 ## RequestWake
 

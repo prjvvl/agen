@@ -1,0 +1,42 @@
+{
+  "name": "feedback",
+  "description": "Record a judgement on how a task went and list it back, filtered by deployment and label.",
+  "features": ["feedback"],
+  "bundles": {
+    "hello": { "from": "examples/bundles/hello" }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "judged", "bundleText": "$bundle:hello" },
+      "expect": { "deployment.name": "judged" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "judged" }, "input": "hi" },
+      "save": { "t1": "task.id" }
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$t1", "waitSeconds": 60 },
+      "expect": { "task.state": "TASK_STATE_SUCCEEDED" },
+      "retry": 120
+    },
+    {
+      "call": "RecordFeedback",
+      "args": { "taskId": "$t1", "score": 0.8, "note": "mostly right", "labels": { "judge": "rubric-v1" } },
+      "expect": { "feedback.deployment": "judged", "feedback.score": 0.8 },
+      "save": { "f1": "feedback.id" }
+    },
+    {
+      "call": "ListFeedback",
+      "args": { "namespace": "$ns", "deployment": "judged" },
+      "expect": { "feedback": { "has": { "id": "$f1", "taskId": "$t1" } } }
+    },
+    {
+      "call": "ListFeedback",
+      "args": { "namespace": "$ns", "labels": { "judge": "rubric-v2" } },
+      "expect": { "feedback": { "len": 0 } }
+    }
+  ]
+}

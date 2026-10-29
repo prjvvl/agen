@@ -147,6 +147,11 @@ const (
 	// HubServiceDeleteNotificationTargetProcedure is the fully-qualified name of the HubService's
 	// DeleteNotificationTarget RPC.
 	HubServiceDeleteNotificationTargetProcedure = "/agen.v1.HubService/DeleteNotificationTarget"
+	// HubServiceRecordFeedbackProcedure is the fully-qualified name of the HubService's RecordFeedback
+	// RPC.
+	HubServiceRecordFeedbackProcedure = "/agen.v1.HubService/RecordFeedback"
+	// HubServiceListFeedbackProcedure is the fully-qualified name of the HubService's ListFeedback RPC.
+	HubServiceListFeedbackProcedure = "/agen.v1.HubService/ListFeedback"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -240,6 +245,10 @@ type HubServiceClient interface {
 	ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error)
 	// Remove a notification target.
 	DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error)
+	// Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+	RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error)
+	// Feedback, filtered by deployment, labels and time, newest first.
+	ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -517,6 +526,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("DeleteNotificationTarget")),
 			connect.WithClientOptions(opts...),
 		),
+		recordFeedback: connect.NewClient[v1.RecordFeedbackRequest, v1.RecordFeedbackResponse](
+			httpClient,
+			baseURL+HubServiceRecordFeedbackProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("RecordFeedback")),
+			connect.WithClientOptions(opts...),
+		),
+		listFeedback: connect.NewClient[v1.ListFeedbackRequest, v1.ListFeedbackResponse](
+			httpClient,
+			baseURL+HubServiceListFeedbackProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListFeedback")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -566,6 +587,8 @@ type hubServiceClient struct {
 	setNotificationTarget    *connect.Client[v1.SetNotificationTargetRequest, v1.SetNotificationTargetResponse]
 	listNotificationTargets  *connect.Client[v1.ListNotificationTargetsRequest, v1.ListNotificationTargetsResponse]
 	deleteNotificationTarget *connect.Client[v1.DeleteNotificationTargetRequest, v1.DeleteNotificationTargetResponse]
+	recordFeedback           *connect.Client[v1.RecordFeedbackRequest, v1.RecordFeedbackResponse]
+	listFeedback             *connect.Client[v1.ListFeedbackRequest, v1.ListFeedbackResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -788,6 +811,16 @@ func (c *hubServiceClient) DeleteNotificationTarget(ctx context.Context, req *co
 	return c.deleteNotificationTarget.CallUnary(ctx, req)
 }
 
+// RecordFeedback calls agen.v1.HubService.RecordFeedback.
+func (c *hubServiceClient) RecordFeedback(ctx context.Context, req *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error) {
+	return c.recordFeedback.CallUnary(ctx, req)
+}
+
+// ListFeedback calls agen.v1.HubService.ListFeedback.
+func (c *hubServiceClient) ListFeedback(ctx context.Context, req *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error) {
+	return c.listFeedback.CallUnary(ctx, req)
+}
+
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
 	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
@@ -879,6 +912,10 @@ type HubServiceHandler interface {
 	ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error)
 	// Remove a notification target.
 	DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error)
+	// Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+	RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error)
+	// Feedback, filtered by deployment, labels and time, newest first.
+	ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -1152,6 +1189,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("DeleteNotificationTarget")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceRecordFeedbackHandler := connect.NewUnaryHandler(
+		HubServiceRecordFeedbackProcedure,
+		svc.RecordFeedback,
+		connect.WithSchema(hubServiceMethods.ByName("RecordFeedback")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListFeedbackHandler := connect.NewUnaryHandler(
+		HubServiceListFeedbackProcedure,
+		svc.ListFeedback,
+		connect.WithSchema(hubServiceMethods.ByName("ListFeedback")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HubServiceCreateDeploymentProcedure:
@@ -1242,6 +1291,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceListNotificationTargetsHandler.ServeHTTP(w, r)
 		case HubServiceDeleteNotificationTargetProcedure:
 			hubServiceDeleteNotificationTargetHandler.ServeHTTP(w, r)
+		case HubServiceRecordFeedbackProcedure:
+			hubServiceRecordFeedbackHandler.ServeHTTP(w, r)
+		case HubServiceListFeedbackProcedure:
+			hubServiceListFeedbackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1425,4 +1478,12 @@ func (UnimplementedHubServiceHandler) ListNotificationTargets(context.Context, *
 
 func (UnimplementedHubServiceHandler) DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.DeleteNotificationTarget is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.RecordFeedback is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListFeedback is not implemented"))
 }

@@ -852,6 +852,14 @@ func (h *Hub) DecideApproval(ctx context.Context, req *connect.Request[agenv1.De
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	if decided.TaskID != "" {
+		score, note := 0.0, "denied: "+decided.Tool
+		if decided.State == "approved" {
+			score, note = 1.0, "approved: "+decided.Tool
+		}
+		_, _ = h.Store.RecordFeedback(ctx, store.Feedback{Namespace: decided.Namespace, Deployment: decided.Deployment, TaskID: decided.TaskID,
+			Score: score, Note: note, By: "approval"})
+	}
 	return connect.NewResponse(&agenv1.DecideApprovalResponse{Approval: h.approvalProto(decided, h.principalNames(ctx))}), nil
 }
 
