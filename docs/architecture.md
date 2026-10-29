@@ -304,7 +304,10 @@ instances it already reported keep reporting while they drain. Approval
 - `Hub.Resolve(ns/deployment)` returns the Gateway URLs of Nests assigned to it.
 - Gateway routes: `/a2a/<ns>/<deployment>` (JSON-RPC: `message/send`,
   `message/stream`, `tasks/get`) and
-  `/a2a/<ns>/<deployment>/.well-known/agent-card.json`.
+  `/a2a/<ns>/<deployment>/.well-known/agent-card.json`. The agent card
+  advertises A2A **1.0** (`gateway.A2AVersion`); the JSON-RPC methods and
+  the Task/Message/Part shapes this Gateway serves are unchanged from 0.3,
+  so an older client keeps working without a separate wire path.
 - A2A request metadata carries `traceparent`, `agen.depth`, `agen.root_run_id`,
   `agen.parent_run_id`, optional `agen.labels` and `agen.model_tier`, and the
   request carries the caller's call token (§10). Tasks carry the same lineage
@@ -708,7 +711,11 @@ One source: protobuf services in `spec/proto/agen/v1/`, served with Connect by t
 Hub, so the same handlers answer gRPC, Connect and plain JSON over HTTP
 (`POST /agen.v1.HubService/<Method>`). The MCP server at `/mcp` exposes the same
 RPCs as tools, generated from the proto descriptors, so REST, MCP and CLI
-cannot drift. The CLI and UI use the same API.
+cannot drift. The CLI and UI use the same API. `initialize` negotiates the
+MCP protocol revision: it echoes the client's `protocolVersion` back when
+this server still implements it (its `initialize`/`tools/list`/`tools/call`
+shape has not changed), else answers with its own latest
+(`mcpserver.ProtocolVersion`, **2025-11-25**).
 
 MCP transport is stateless streamable HTTP: JSON-RPC over `POST /mcp`
 (`initialize`, `ping`, `tools/list`, `tools/call`), answered with

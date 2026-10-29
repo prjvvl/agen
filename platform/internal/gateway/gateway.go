@@ -35,6 +35,13 @@ import (
 	"github.com/prjvvl/agen/platform/internal/store"
 )
 
+// A2AVersion is the A2A protocol revision the agent card advertises
+// (Major.Minor, as the spec's version negotiation expects). The JSON-RPC
+// methods this Gateway serves (message/send, message/stream, tasks/get)
+// and the Task/Message/Part shapes are unchanged between 0.3 and 1.0, so a
+// 0.3 client keeps working without a separate wire path.
+const A2AVersion = "1.0"
+
 // Fleet is what the Gateway needs from its Nest's Manager.
 type Fleet interface {
 	Acquire(ns, dep string) *manager.Slot
@@ -904,7 +911,7 @@ func agentCard(dir, url, ns, dep string) map[string]any {
 		skills = append(skills, map[string]any{"id": n, "name": name, "description": fm["description"], "tags": []string{}})
 	}
 	return map[string]any{
-		"protocolVersion":    "0.3.0",
+		"protocolVersion":    A2AVersion,
 		"name":               plugin.Name,
 		"description":        plugin.Description,
 		"version":            plugin.Version,
