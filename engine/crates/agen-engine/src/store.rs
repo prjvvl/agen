@@ -193,6 +193,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0029_task_overrides.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0029_task_overrides.sql"),
     },
+    Migration {
+        version: 30,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0030_task_scheduling.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0030_task_scheduling.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").

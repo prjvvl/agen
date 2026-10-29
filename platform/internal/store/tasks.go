@@ -60,6 +60,13 @@ type Task struct {
 	// Overrides: what this task may do, narrower than its bundle (JSON
 	// TaskOverrides; "" = the bundle as is).
 	Overrides string
+	// NotAfterMs: not leased after this time (0: no limit). A still-queued
+	// task past it ends failed, reason "expired".
+	NotAfterMs int64
+	// ScheduleKey: at most one queued task per (namespace, deployment, key);
+	// submitting a task with the same key cancels the queued task that
+	// already has it.
+	ScheduleKey string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -242,14 +249,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -296,12 +303,36 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 	}
 	inserted := int64(0)
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		// At most one queued task per (namespace, deployment, scheduleKey):
+		// cancel whichever one already has it before inserting the new one.
+		if t.ScheduleKey != "" {
+			rows, err := tx.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND schedule_key = $3 AND state = 'queued'",
+				t.Namespace, t.Deployment, t.ScheduleKey)
+			if err != nil {
+				return err
+			}
+			replaced, err := scanTasks(rows)
+			if err != nil {
+				return err
+			}
+			for _, old := range replaced {
+				if res, err := tx.ExecContext(ctx, "UPDATE tasks SET state = 'cancelled', error = 'replaced by a new task with the same schedule key', updated_ms = $1 WHERE id = $2 AND state = 'queued'",
+					now, old.ID); err != nil {
+					return err
+				} else if n, _ := res.RowsAffected(); n == 1 {
+					old.State, old.Error = "cancelled", "replaced by a new task with the same schedule key"
+					if err := taskFinished(ctx, tx, old); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides) "+
-				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23 "+
+			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides, not_after_ms, schedule_key) "+
+				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23, $24, $25 "+
 				"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
 			t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides)
+			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides, t.NotAfterMs, t.ScheduleKey)
 		if err != nil {
 			return err
 		}
@@ -549,6 +580,41 @@ func (s *Store) RequeueExpiredLeases(ctx context.Context, maxAttempts int) (int6
 		return 0, nil, err
 	}
 	return n, failed, nil
+}
+
+// ExpireOverdueTasks fails still-queued tasks whose not_after has passed
+// (reason "expired"), instead of leaving them queued indefinitely. Returns
+// the ids that were expired.
+func (s *Store) ExpireOverdueTasks(ctx context.Context) ([]string, error) {
+	now := NowMs()
+	var expired []string
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE state = 'queued' AND not_after_ms > 0 AND not_after_ms < $1", now)
+		if err != nil {
+			return err
+		}
+		due, err := scanTasks(rows)
+		if err != nil {
+			return err
+		}
+		for _, t := range due {
+			res, err := tx.ExecContext(ctx, "UPDATE tasks SET state = 'failed', error = 'expired: not_after passed before the task was leased', updated_ms = $1 WHERE id = $2 AND state = 'queued'",
+				now, t.ID)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				continue
+			}
+			t.State, t.Error = "failed", "expired: not_after passed before the task was leased"
+			if err := taskFinished(ctx, tx, t); err != nil {
+				return err
+			}
+			expired = append(expired, t.ID)
+		}
+		return nil
+	})
+	return expired, err
 }
 
 // ReleaseTask gives a leased task back to the queue before its lease expires

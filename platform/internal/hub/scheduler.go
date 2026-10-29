@@ -99,6 +99,17 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 			s.Hub.afterTaskEnded(c, id)
 		}()
 	}
+	expired, err := st.ExpireOverdueTasks(ctx)
+	if err != nil {
+		return epoch, err
+	}
+	for _, id := range expired {
+		go func() {
+			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			s.Hub.afterTaskEnded(c, id)
+		}()
+	}
 	if _, err := st.ExpireApprovals(ctx); err != nil {
 		return epoch, err
 	}

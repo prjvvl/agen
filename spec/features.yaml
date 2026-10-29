@@ -160,8 +160,8 @@ features:
     contract: [field:SubmitTask.model_tier, sdk:modelTier]
     on: [rust, python, node, go, api, mcp, cli, console]
   - id: tasks.schedule
-    title: Tasks with a start time
-    contract: [field:SubmitTask.not_before, field:ListTasks.scheduled]
+    title: Tasks with a start time, an expiry, or at most one queued per key
+    contract: [field:SubmitTask.not_before, field:ListTasks.scheduled, field:SubmitTask.not_after, field:SubmitTask.schedule_key]
     on: [api, mcp, cli, console]
   - id: triggers
     title: Cron and webhook triggers

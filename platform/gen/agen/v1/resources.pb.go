@@ -2029,7 +2029,13 @@ type Task struct {
 	WaitReason string `protobuf:"bytes,31,opt,name=wait_reason,json=waitReason,proto3" json:"wait_reason,omitempty"`
 	// What this task may do, narrower than its bundle: the task's own
 	// overrides combined with every ancestor's. Unset: the bundle as is.
-	Overrides     *TaskOverrides `protobuf:"bytes,32,opt,name=overrides,proto3" json:"overrides,omitempty"`
+	Overrides *TaskOverrides `protobuf:"bytes,32,opt,name=overrides,proto3" json:"overrides,omitempty"`
+	// Not leased after this time: a still-queued task past it ends failed,
+	// reason "expired", instead of waiting indefinitely.
+	NotAfter *timestamppb.Timestamp `protobuf:"bytes,33,opt,name=not_after,json=notAfter,proto3" json:"not_after,omitempty"`
+	// At most one queued task per (deployment, schedule_key); submitting a
+	// task with the same key cancels the queued task that already has it.
+	ScheduleKey   string `protobuf:"bytes,34,opt,name=schedule_key,json=scheduleKey,proto3" json:"schedule_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2286,6 +2292,20 @@ func (x *Task) GetOverrides() *TaskOverrides {
 		return x.Overrides
 	}
 	return nil
+}
+
+func (x *Task) GetNotAfter() *timestamppb.Timestamp {
+	if x != nil {
+		return x.NotAfter
+	}
+	return nil
+}
+
+func (x *Task) GetScheduleKey() string {
+	if x != nil {
+		return x.ScheduleKey
+	}
+	return ""
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child
@@ -3606,7 +3626,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xf2\t\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xce\n" +
+	"\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -3648,7 +3669,9 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\aoutcome\x18\x1e \x01(\v2\x10.agen.v1.OutcomeR\aoutcome\x12\x1f\n" +
 	"\vwait_reason\x18\x1f \x01(\tR\n" +
 	"waitReason\x124\n" +
-	"\toverrides\x18  \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x1a9\n" +
+	"\toverrides\x18  \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x127\n" +
+	"\tnot_after\x18! \x01(\v2\x1a.google.protobuf.TimestampR\bnotAfter\x12!\n" +
+	"\fschedule_key\x18\" \x01(\tR\vscheduleKey\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +
@@ -3924,34 +3947,35 @@ var file_agen_v1_resources_proto_depIdxs = []int32{
 	43, // 37: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
 	28, // 38: agen.v1.Task.outcome:type_name -> agen.v1.Outcome
 	24, // 39: agen.v1.Task.overrides:type_name -> agen.v1.TaskOverrides
-	25, // 40: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
-	26, // 41: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
-	41, // 42: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
-	44, // 43: agen.v1.Event.data:type_name -> google.protobuf.Struct
-	43, // 44: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
-	45, // 45: agen.v1.Outcome.data:type_name -> google.protobuf.Value
-	44, // 46: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
-	5,  // 47: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
-	43, // 48: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
-	43, // 49: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
-	43, // 50: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
-	43, // 51: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
-	43, // 52: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
-	44, // 53: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
-	43, // 54: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	43, // 55: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
-	43, // 56: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
-	30, // 57: agen.v1.Run.usage:type_name -> agen.v1.Usage
-	43, // 58: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	43, // 59: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
-	42, // 60: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	30, // 61: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
-	28, // 62: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
-	63, // [63:63] is the sub-list for method output_type
-	63, // [63:63] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	43, // 40: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
+	25, // 41: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
+	26, // 42: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
+	41, // 43: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
+	44, // 44: agen.v1.Event.data:type_name -> google.protobuf.Struct
+	43, // 45: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
+	45, // 46: agen.v1.Outcome.data:type_name -> google.protobuf.Value
+	44, // 47: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
+	5,  // 48: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
+	43, // 49: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
+	43, // 50: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
+	43, // 51: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
+	43, // 52: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
+	43, // 53: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
+	44, // 54: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
+	43, // 55: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
+	43, // 56: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
+	43, // 57: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 58: agen.v1.Run.usage:type_name -> agen.v1.Usage
+	43, // 59: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	43, // 60: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
+	42, // 61: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
+	30, // 62: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	28, // 63: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }

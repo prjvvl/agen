@@ -417,12 +417,14 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	tier := fs.String("tier", "", "cost tier for a routing model: low, medium, high, xhigh or max")
 	at := fs.String("at", "", "run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)")
 	in := fs.Duration("in", 0, "run no earlier than this long from now (e.g. 30m)")
+	expiresIn := fs.Duration("expires-in", 0, "fail as expired if still queued this long from now, instead of waiting indefinitely")
+	scheduleKey := fs.String("schedule-key", "", "at most one queued task per deployment and key; submitting again with the same key cancels the queued one")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--at TIME | --in D] [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--at TIME | --in D] [--expires-in D] [--schedule-key K] [--no-wait] [--timeout D]")
 	}
 	var notBefore *timestamppb.Timestamp
 	switch {
@@ -437,12 +439,16 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	case *in > 0:
 		notBefore = timestamppb.New(time.Now().Add(*in))
 	}
+	var notAfter *timestamppb.Timestamp
+	if *expiresIn > 0 {
+		notAfter = timestamppb.New(time.Now().Add(*expiresIn))
+	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
 	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
-		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, NotBefore: notBefore}))
+		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, NotBefore: notBefore, NotAfter: notAfter, ScheduleKey: *scheduleKey}))
 	if err != nil {
 		return err
 	}

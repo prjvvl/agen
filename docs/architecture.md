@@ -179,7 +179,12 @@ from a task (already carrying its source prefix) is accepted as is. Labels are
 copied to the task's runs, tool calls and child tasks. A task may carry
 `not_before` (at most 90 days ahead): until then it is not leased, does not
 count as load for the autoscaler and does not hold up its conversation, though
-it counts towards `maxQueuedTasks`. It may carry `model_tier`, the cost tier
+it counts towards `maxQueuedTasks`. It may carry `not_after`: the leader's
+scheduler tick fails a still-queued task past it (`ExpireOverdueTasks`,
+reason `expired`) instead of leaving it queued indefinitely. It may carry
+`schedule_key`: `SubmitTask` cancels, in the same transaction as the insert,
+the queued task of that deployment that already has the key, so at most one
+is ever queued per key. It may carry `model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
 the bundle's `router.budgetTier`. When the Hub fails a

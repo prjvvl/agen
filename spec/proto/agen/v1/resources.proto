@@ -353,6 +353,12 @@ message Task {
   // What this task may do, narrower than its bundle: the task's own
   // overrides combined with every ancestor's. Unset: the bundle as is.
   TaskOverrides overrides = 32;
+  // Not leased after this time: a still-queued task past it ends failed,
+  // reason "expired", instead of waiting indefinitely.
+  google.protobuf.Timestamp not_after = 33;
+  // At most one queued task per (deployment, schedule_key); submitting a
+  // task with the same key cancels the queued task that already has it.
+  string schedule_key = 34;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

@@ -54,7 +54,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Stream output while a run is in progress | –[^12] |  |  |  |  |
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |
 | Per-task cost tier | ✓ | ✓ | ✓ | ✓ |  |
-| Tasks with a start time | ✓ | ✓ | ✓ | ✓ |  |
+| Tasks with a start time, an expiry, or at most one queued per key | ✓ | ✓ | ✓ | ✓ |  |
 | Cron and webhook triggers | ✓ | ✓ | ✓ | ✓ |  |
 | Agents calling agents (call_agent) | ✓ |  | ✓ |  | ✓ |
 | Start an agent without waiting (start_agent) | ✓ |  |  |  | ✓ |

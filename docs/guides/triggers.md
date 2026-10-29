@@ -148,6 +148,23 @@ counts towards `maxQueuedTasks`. `ListTasks` with `scheduled` lists the tasks
 waiting for their start time, soonest first (`agen tasks --scheduled`);
 cancel one with `CancelTask` (`agen cancel <task>`).
 
+`notAfter` (`--expires-in`) bounds how long a task may wait: if it is still
+queued once that time passes, it ends `failed`, reason `expired`, instead of
+waiting for capacity indefinitely.
+
+```sh
+agen run reporter "Summarize this week's incidents" --in 30m --expires-in 2h --no-wait
+```
+
+`scheduleKey` (`--schedule-key`) keeps at most one queued task per deployment
+and key: submitting another task with the same key cancels the queued one
+that already has it, in the same transaction, so a repeated schedule never
+piles up:
+
+```sh
+agen run reporter "Nightly digest" --schedule-key nightly-digest --no-wait
+```
+
 ## The Schedules page
 
 The console's **Schedules** page shows everything that starts work on its

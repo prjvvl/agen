@@ -338,6 +338,8 @@ Usage of run:
     	pin the Hub CA of an https Hub
   -conversation string
     	continue the conversation of earlier tasks with this key
+  -expires-in duration
+    	fail as expired if still queued this long from now, instead of waiting indefinitely
   -hub string
     	Hub URL
   -idempotency-key string
@@ -352,6 +354,8 @@ Usage of run:
     	namespace (default "default")
   -no-wait
     	print the task id and return
+  -schedule-key string
+    	at most one queued task per deployment and key; submitting again with the same key cancels the queued one
   -tier string
     	cost tier for a routing model: low, medium, high, xhigh or max
   -timeout duration

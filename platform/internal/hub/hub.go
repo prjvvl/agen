@@ -441,13 +441,27 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	}
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier, Overrides: overridesFromProto(req.Msg.Overrides).JSON()}
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier, Overrides: overridesFromProto(req.Msg.Overrides).JSON(),
+		ScheduleKey: req.Msg.ScheduleKey}
 	if nb := req.Msg.GetNotBefore(); nb != nil {
 		at := nb.AsTime()
 		if at.After(time.Now().Add(maxScheduleAhead)) {
 			return nil, invalid(fmt.Sprintf("not_before is more than %s ahead", maxScheduleAhead))
 		}
 		task.NotBeforeMs = at.UnixMilli()
+	}
+	if na := req.Msg.GetNotAfter(); na != nil {
+		at := na.AsTime()
+		if at.After(time.Now().Add(maxScheduleAhead)) {
+			return nil, invalid(fmt.Sprintf("not_after is more than %s ahead", maxScheduleAhead))
+		}
+		if at.Before(time.Now()) {
+			return nil, invalid("not_after is in the past")
+		}
+		if nb := req.Msg.GetNotBefore(); nb != nil && !at.After(nb.AsTime()) {
+			return nil, invalid("not_after must be after not_before")
+		}
+		task.NotAfterMs = at.UnixMilli()
 	}
 	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
 		return nil, err
