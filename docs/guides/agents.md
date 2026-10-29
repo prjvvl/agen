@@ -49,7 +49,8 @@ List the deployments an agent may call in its `x-agen/config.json`:
 {
   "delegates": [
     { "name": "researcher", "description": "Reads web pages and answers factual questions" },
-    { "name": "writer", "description": "Turns notes into a polished summary" }
+    { "name": "writer", "description": "Turns notes into a polished summary" },
+    { "name": "worker", "description": "A generic worker for one piece of work", "overrides": true }
   ],
   "limits": { "maxDelegationDepth": 2, "maxFanOut": 10, "maxTotalDelegations": 30 }
 }
@@ -113,6 +114,32 @@ caller continues that conversation with it.
 A run started over A2A (no task of its own) can start tasks too: the Hub
 accepts its unfinished run as the parent and derives the depth from its
 lineage.
+
+## Narrowing a worker's brief
+
+A delegate marked `"overrides": true` is a generic worker: `start_agent`
+can narrow what it may do for this one piece of work, on top of its own
+bundle.
+
+```json
+{"agent": "worker", "message": "Count the .py files under src/", "tools": ["workspace.list"],
+ "budget": {"maxTokens": 5000, "maxDuration": "5m"}, "modelTier": "low"}
+```
+
+- `tools`: only these of the worker's tools (`finish` and `load_skill` are
+  always there); `skills`: skills of its bundle to preload; `budget`: run
+  limits (`maxTokens`, `maxUsd`, `maxTurns`, `maxDuration`).
+- These can only narrow what the worker's own bundle and permissions
+  already allow, never widen them: a tool left out stays hidden from the
+  model, and a budget field can only be smaller than the bundle's own.
+  `start_agent` on a delegate without `overrides: true` refuses any of
+  these arguments.
+- A worker that delegates again passes its own overrides on: a
+  grandchild's effective overrides are its parent's combined with its
+  own (tool and skill lists intersect, budgets take the smaller value), so
+  restrictions carry all the way down a tree.
+- Submitting a task directly (`SubmitTask`, `agen run`) takes the same
+  `overrides` shape, for any deployment, not only delegation.
 
 ## Limits
 

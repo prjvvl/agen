@@ -436,9 +436,12 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkTier(req.Msg.ModelTier); err != nil {
 		return nil, err
 	}
+	if err := validateOverrides(req.Msg.Overrides); err != nil {
+		return nil, invalid(err.Error())
+	}
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier}
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier, Overrides: overridesFromProto(req.Msg.Overrides).JSON()}
 	if nb := req.Msg.GetNotBefore(); nb != nil {
 		at := nb.AsTime()
 		if at.After(time.Now().Add(maxScheduleAhead)) {
@@ -475,6 +478,9 @@ func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deploym
 		return nil
 	}
 	t.ParentTaskID, t.Depth, t.RootRunID = parent.ID, parent.Depth+1, parent.RootRunID
+	parentOv, _ := store.ParseOverrides(parent.Overrides)
+	childOv, _ := store.ParseOverrides(t.Overrides)
+	t.Overrides = store.CombineOverrides(parentOv, childOv).JSON()
 	if runID := hdr.Get(RunHeader); runID != "" {
 		if run, err := h.Store.GetRun(ctx, runID); err == nil && run.TaskID == parent.ID {
 			t.ParentRunID, t.Traceparent = run.ID, hdr.Get("Traceparent")

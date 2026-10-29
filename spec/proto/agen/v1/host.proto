@@ -44,6 +44,10 @@ message StartTaskRequest {
   string reply_conversation_key = 5;
   // The same key returns the same task (a retried or resumed call).
   string idempotency_key = 6;
+  // Narrow what the child may do (only for delegates with overrides on).
+  TaskOverrides overrides = 7;
+  // Cost tier for a routing model.
+  string model_tier = 8;
 }
 message StartTaskResponse {
   Task task = 1;

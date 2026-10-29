@@ -471,6 +471,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `labels` | map&lt;string, string&gt; | Free-form labels, copied to runs, tool calls and delegated tasks. |
 | `modelTier` | string | Cost tier for a routing model; see Task.model_tier. |
 | `notBefore` | Timestamp | Run no earlier than this (a scheduled task); unset: as soon as possible. |
+| `overrides` | TaskOverrides | Narrow what this task may do: tools, skills, a system prompt addendum, extra deny/ask rules and run limits. |
 
 ## UpdateDeployment
 

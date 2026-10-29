@@ -180,7 +180,7 @@ func (s *managerService) StartTask(ctx context.Context, req *connect.Request[age
 	}
 	sub := &agenv1.SubmitChildTaskRequest{NestId: s.m.nestID, InstanceId: id, Ref: &agenv1.DeploymentRef{Namespace: ns, Name: req.Msg.GetRef().GetName()},
 		Input: req.Msg.Input, ParentRunId: req.Msg.RunId, Traceparent: req.Msg.Traceparent, IdempotencyKey: req.Msg.IdempotencyKey,
-		ReplyConversationKey: req.Msg.ReplyConversationKey}
+		ReplyConversationKey: req.Msg.ReplyConversationKey, Overrides: req.Msg.Overrides, ModelTier: req.Msg.ModelTier}
 	for attempt := 0; ; attempt++ {
 		c, cancel := context.WithTimeout(ctx, 10*time.Second)
 		r, err := s.m.hub().SubmitChildTask(c, connect.NewRequest(sub))

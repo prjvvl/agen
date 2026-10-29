@@ -191,6 +191,27 @@ The Hub logs instance starts,
 failures and exits (from Nest reports) and task releases and lease expiries
 on the deployment's log.
 
+**Task overrides**: a task may carry `overrides` (`TaskOverrides`: `tools`,
+`skills`, `systemAddendum`, `permissions` (deny/ask only), `budget`), which
+can only narrow what its bundle allows, never widen it. `SubmitTask` and
+`SubmitChildTask` both validate it (an `allow` permission rule, or an
+unparsable `budget.maxDuration`, is refused) and store it on the task as
+JSON. A child task's effective overrides are its parent's combined with its
+own (`store.CombineOverrides`): `tools` and `skills` allowlists intersect,
+`permissions` concatenate, `systemAddendum` appends, and `budget` fields
+take the smaller of each side — so restrictions accumulate down a tree and
+a descendant can never regain what an ancestor gave up. The engine applies
+them per run (never by mutating the shared `AgentConfig`, since one agent
+process can run several tasks concurrently): a tool outside the `tools`
+allowlist is hidden from the model outright (stronger than a plain `deny`),
+`permissions` rules are merged in ahead of the bundle's own, `skills` adds
+to the bundle's own `preloadSkills`, `systemAddendum` is appended last to
+the system prompt, and `budget` narrows `maxTurns`, `maxRunDuration`,
+`maxTokensPerRun` and `maxUsdPerRun` (a bundle's own, lower limit is never
+widened by a looser override). `start_agent` can set overrides only on a
+delegate whose `x-agen/config.json` `delegates[].overrides` is `true`; the
+calling engine enforces this before the request reaches the Hub.
+
 **Hub leader**: several Hub replicas can serve the API; exactly one is leader
 and runs the scheduler, autoscaler and triggers. Leadership is a Store row
 `(name='hub-leader', holder, epoch, expires_at)` renewed every few seconds.

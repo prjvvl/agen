@@ -4,6 +4,7 @@ pub mod delegate;
 pub mod managed;
 pub mod mcp;
 pub mod outcome;
+pub mod overrides;
 pub mod permissions;
 pub mod provider;
 pub mod secrets;

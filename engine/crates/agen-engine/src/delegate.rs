@@ -109,6 +109,9 @@ pub struct StartRequest<'a> {
     pub traceparent: &'a str,
     pub reply_conversation_key: &'a str,
     pub idempotency_key: &'a str,
+    /// Narrows what the child may do (only for delegates with `overrides: true`).
+    pub overrides: Option<&'a crate::overrides::TaskOverrides>,
+    pub model_tier: &'a str,
 }
 
 #[async_trait]
@@ -125,6 +128,8 @@ impl TaskStarter for ManagerResolver {
                 "traceparent": req.traceparent,
                 "replyConversationKey": req.reply_conversation_key,
                 "idempotencyKey": req.idempotency_key,
+                "overrides": req.overrides,
+                "modelTier": req.model_tier,
             }))
             .timeout(Duration::from_secs(60))
             .send()
@@ -191,18 +196,46 @@ impl Tool for StartAgent {
             .filter(|d| d.url.is_none())
             .map(|d| d.name.as_str())
             .collect();
+        let with_overrides: Vec<&str> = self
+            .delegates
+            .iter()
+            .filter(|d| d.url.is_none() && d.overrides)
+            .map(|d| d.name.as_str())
+            .collect();
+        let overrides_note = if with_overrides.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " For {}, you may also narrow the brief with tools, skills, budget and modelTier.",
+                with_overrides.join(", ")
+            )
+        };
         ToolSpec {
             name: START_AGENT.into(),
-            description:
+            description: format!(
                 "Start another agent on a task without waiting for it (for long work). The tool returns at once; \
                  the agent's answer arrives later in this conversation as a new message that begins with \
-                 \"[Result of the task you started on ...]\". After starting, finish your current turn; do not poll."
-                    .into(),
+                 \"[Result of the task you started on ...]\". After starting, finish your current turn; do not poll.{overrides_note}"
+            ),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "agent": {"type": "string", "enum": names},
-                    "message": {"type": "string", "description": "What the agent should do"}
+                    "message": {"type": "string", "description": "What the agent should do"},
+                    "tools": {"type": "array", "items": {"type": "string"}, "description": "Only let it call these of its tools (narrows; only for delegates that accept overrides)"},
+                    "skills": {"type": "array", "items": {"type": "string"}, "description": "Skills of its bundle to preload"},
+                    "budget": {
+                        "type": "object",
+                        "description": "Run limits, at most its own",
+                        "properties": {
+                            "maxTokens": {"type": "integer"},
+                            "maxUsd": {"type": "number"},
+                            "maxTurns": {"type": "integer"},
+                            "maxDuration": {"type": "string", "description": "e.g. \"20m\""}
+                        },
+                        "additionalProperties": false
+                    },
+                    "modelTier": {"type": "string", "description": "Cost tier for a routing model"}
                 },
                 "required": ["agent", "message"],
                 "additionalProperties": false
@@ -224,6 +257,13 @@ impl Tool for StartAgent {
             .iter()
             .find(|d| d.name == agent && d.url.is_none())
             .ok_or_else(|| ToolError::new(format!("unknown agent {agent:?}")))?;
+        let overrides = crate::overrides::TaskOverrides::from_call_args(&args).map_err(ToolError::new)?;
+        if overrides.is_some() && !d.overrides {
+            return Err(ToolError::new(format!(
+                "{agent} does not accept overrides (its delegate entry needs \"overrides\": true)"
+            )));
+        }
+        let model_tier = args.get("modelTier").and_then(Value::as_str).unwrap_or_default();
         let max = self.limits.delegation_depth();
         if max > 0 && ctx.depth + 1 > max {
             return Err(ToolError::new(format!(
@@ -279,6 +319,8 @@ impl Tool for StartAgent {
                 traceparent: &ctx.traceparent,
                 reply_conversation_key: &reply_key,
                 idempotency_key: &format!("start:{call_key}"),
+                overrides: overrides.as_ref(),
+                model_tier,
             })
             .await
             .map_err(ToolError::new)?;

@@ -21,7 +21,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use crate::bundle::{default_limits, Action, Budget, Bundle, Limits, Permissions, Skill};
+use crate::bundle::{default_limits, Action, Budget, Bundle, Limits, PermissionRule, Permissions, Skill};
 use crate::outcome::RunOutcome;
 use crate::permissions;
 use crate::provider::{self, Message, ModelProvider, ModelRequest, ProviderError, Role, ToolCall, Usage};
@@ -194,6 +194,9 @@ pub struct RunOptions {
     /// A model request is being retried: discard text streamed since the
     /// last reset.
     pub on_reset: Option<ResetCallback>,
+    /// What this run may do, narrower than the bundle (already combined
+    /// with every ancestor task's overrides, if any).
+    pub overrides: Option<crate::overrides::TaskOverrides>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -901,7 +904,7 @@ impl Agent {
             // Calls that may wait for an approval run one at a time, so the
             // run's waiting state and the approval order stay simple.
             let concurrent =
-                self.cfg.parallel_tool_calls && pending.iter().all(|c| self.policy(&c.name) != Action::Ask);
+                self.cfg.parallel_tool_calls && pending.iter().all(|c| self.policy(opts, &c.name) != Action::Ask);
             let width = if concurrent { pending.len().max(1) } else { 1 };
             let shared: &Live = live;
             let mut results = futures_util::stream::iter(pending.into_iter().map(|call| async move {
@@ -956,25 +959,32 @@ impl Agent {
                 )
                 .await?;
             }
-            if live.rec.step >= self.cfg.max_turns as i64 {
-                let why = format!("max_turns ({}) exceeded", self.cfg.max_turns);
+            let max_turns = narrow_max_turns(
+                self.cfg.max_turns,
+                opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+            );
+            if live.rec.step >= max_turns as i64 {
+                let why = format!("max_turns ({max_turns}) exceeded");
                 return self.report(live, tracer, ctx, opts, "max_turns", why).await;
             }
-            let max = self.cfg.max_run_duration;
+            let max = narrow_max_run_duration(
+                self.cfg.max_run_duration,
+                opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+            );
             if !max.is_zero() && live.worked() > max {
                 let why = format!("max_run_duration ({}s) exceeded", max.as_secs());
                 return self.report(live, tracer, ctx, opts, "duration", why).await;
             }
-            if let Some(e) = self.budget_exceeded(&live.rec.usage) {
+            if let Some(e) = self.budget_exceeded(opts, &live.rec.usage) {
                 return self.report(live, tracer, ctx, opts, "budget", e).await;
             }
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
-                system: self.redactor.redact(&self.system_prompt()),
+                system: self.redactor.redact(&self.system_prompt(opts)),
                 messages: self.request_messages(&live.rec).await?,
-                tools: self.visible_tools(),
+                tools: self.visible_tools(opts),
                 temperature: self.cfg.temperature,
-                max_output_tokens: self.output_cap(&live.rec.usage),
+                max_output_tokens: self.output_cap(opts, &live.rec.usage),
                 extra: Default::default(),
             };
             let mut span = tracer.start(ctx, "gen_ai.chat");
@@ -1078,11 +1088,11 @@ impl Agent {
     }
 
     /// The tools the model is offered: all but those its permissions deny.
-    fn visible_tools(&self) -> Vec<crate::provider::ToolSpec> {
+    fn visible_tools(&self, opts: &RunOptions) -> Vec<crate::provider::ToolSpec> {
         self.tools
             .specs()
             .into_iter()
-            .filter(|t| self.policy(&t.name) != Action::Deny)
+            .filter(|t| self.policy(opts, &t.name) != Action::Deny)
             .collect()
     }
 
@@ -1119,12 +1129,45 @@ impl Agent {
     }
 
     /// The permission for a tool call. `finish` only ends the run, so it is
-    /// never asked for or denied.
-    fn policy(&self, tool: &str) -> Action {
+    /// never asked for or denied. A task's overrides can only narrow this:
+    /// a tool outside its `tools` allowlist is denied outright, and its
+    /// extra `permissions` rules (deny/ask only) are checked alongside the
+    /// bundle's own.
+    fn policy(&self, opts: &RunOptions, tool: &str) -> Action {
         if self.finish && tool == crate::outcome::FINISH {
             return Action::Allow;
         }
-        permissions::evaluate(&self.cfg.permissions, tool)
+        let Some(ov) = &opts.overrides else {
+            return permissions::evaluate(&self.cfg.permissions, tool);
+        };
+        if !override_allows_tool(ov, tool) {
+            return Action::Deny;
+        }
+        if ov.permissions.is_empty() {
+            return permissions::evaluate(&self.cfg.permissions, tool);
+        }
+        let mut rules: Vec<PermissionRule> = ov
+            .permissions
+            .iter()
+            .filter_map(|r| {
+                let action = match r.action.as_str() {
+                    "deny" => Some(Action::Deny),
+                    "ask" => Some(Action::Ask),
+                    _ => None,
+                };
+                action.map(|action| PermissionRule {
+                    tool: r.tool.clone(),
+                    action,
+                })
+            })
+            .collect();
+        rules.extend(self.cfg.permissions.rules.iter().cloned());
+        let combined = Permissions {
+            default: self.cfg.permissions.default,
+            rules,
+            approval_timeout: self.cfg.permissions.approval_timeout.clone(),
+        };
+        permissions::evaluate(&combined, tool)
     }
 
     /// The outcome of an accepted `finish` call in the run's last turn.
@@ -1195,9 +1238,9 @@ impl Agent {
         extra.insert("tool_choice".into(), Value::String("none".into()));
         let req = ModelRequest {
             model: self.cfg.model.clone(),
-            system: self.redactor.redact(&self.system_prompt()),
+            system: self.redactor.redact(&self.system_prompt(opts)),
             messages: self.request_messages(&live.rec).await?,
-            tools: self.visible_tools(),
+            tools: self.visible_tools(opts),
             temperature: self.cfg.temperature,
             max_output_tokens: Some(self.cfg.report_tokens),
             extra,
@@ -1463,9 +1506,13 @@ impl Agent {
     /// lowered so the turn's output cannot take the run past its token budget.
     /// Without a configured maximum the remaining budget is only sent once it
     /// is small (providers reject or pre-charge large limits).
-    fn output_cap(&self, u: &Usage) -> Option<u32> {
+    fn output_cap(&self, opts: &RunOptions, u: &Usage) -> Option<u32> {
         const UNSET_CEILING: u32 = 8192;
-        let remaining = self.cfg.budget.max_tokens_per_run.map(|max| {
+        let budget = narrow_budget(
+            &self.cfg.budget,
+            opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+        );
+        let remaining = budget.max_tokens_per_run.map(|max| {
             u32::try_from(max.saturating_sub(u.total_tokens()))
                 .unwrap_or(u32::MAX)
                 .max(1)
@@ -1477,8 +1524,12 @@ impl Agent {
         }
     }
 
-    fn budget_exceeded(&self, u: &Usage) -> Option<String> {
-        if let Some(max) = self.cfg.budget.max_tokens_per_run {
+    fn budget_exceeded(&self, opts: &RunOptions, u: &Usage) -> Option<String> {
+        let budget = narrow_budget(
+            &self.cfg.budget,
+            opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+        );
+        if let Some(max) = budget.max_tokens_per_run {
             if u.total_tokens() >= max {
                 return Some(format!(
                     "budget_exceeded: {} tokens used, limit {max}",
@@ -1487,7 +1538,7 @@ impl Agent {
             }
         }
         // Only enforceable when the provider reports cost (OpenRouter does).
-        if let Some(max) = self.cfg.budget.max_usd_per_run {
+        if let Some(max) = budget.max_usd_per_run {
             if u.cost_usd >= max {
                 return Some(format!("budget_exceeded: ${:.4} used, limit ${max}", u.cost_usd));
             }
@@ -1495,13 +1546,17 @@ impl Agent {
         None
     }
 
-    fn system_prompt(&self) -> String {
+    /// The bundle's system prompt, with skills preloaded (the bundle's
+    /// `preloadSkills` plus any a task's overrides add), and the task's
+    /// `overrides.systemAddendum`, if any, appended last.
+    fn system_prompt(&self, opts: &RunOptions) -> String {
+        let extra_preload: &[String] = opts.overrides.as_ref().map(|o| o.skills.as_slice()).unwrap_or(&[]);
         let mut s = self.cfg.system_prompt.clone();
         let (pre, lazy): (Vec<&Skill>, Vec<&Skill>) = self
             .cfg
             .skills
             .iter()
-            .partition(|sk| self.cfg.preload_skills.contains(&sk.name));
+            .partition(|sk| self.cfg.preload_skills.contains(&sk.name) || extra_preload.contains(&sk.name));
         for sk in pre {
             s.push_str(&format!("\n\n## Skill: {}\n{}\n", sk.name, sk.body.trim()));
         }
@@ -1510,6 +1565,15 @@ impl Agent {
             for sk in lazy {
                 s.push_str(&format!("- {}: {}\n", sk.name, sk.description));
             }
+        }
+        if let Some(addendum) = opts
+            .overrides
+            .as_ref()
+            .map(|o| o.system_addendum.trim())
+            .filter(|a| !a.is_empty())
+        {
+            s.push_str("\n\n");
+            s.push_str(addendum);
         }
         s
     }
@@ -1647,7 +1711,7 @@ impl Agent {
                 ));
             }
         }
-        let decision = self.policy(&call.name);
+        let decision = self.policy(opts, &call.name);
         span.set("agen.permission.action", format!("{decision:?}").to_lowercase());
         match decision {
             Action::Deny => {
@@ -1869,6 +1933,70 @@ fn output_cut(r: &provider::ModelResponse) -> bool {
             || r.tool_calls
                 .iter()
                 .any(|c| c.arguments.get(crate::provider::INVALID_ARGS_KEY).is_some()))
+}
+
+/// Whether a task's overrides allow this tool at all (its `tools`
+/// allowlist, empty = every tool; `finish` and `load_skill` always pass).
+fn override_allows_tool(ov: &crate::overrides::TaskOverrides, tool: &str) -> bool {
+    if ov.tools.is_empty() || tool == crate::outcome::FINISH || tool == "load_skill" {
+        return true;
+    }
+    ov.tools.iter().any(|pat| permissions::glob_match(pat, tool))
+}
+
+/// A run budget narrowed by a task's `overrides.budget` (never widened: an
+/// override field of 0 or unset leaves the bundle's value).
+fn narrow_budget(base: &Budget, over: Option<&crate::overrides::RunBudgetOverride>) -> Budget {
+    let Some(over) = over else { return base.clone() };
+    Budget {
+        max_tokens_per_run: narrow_opt(base.max_tokens_per_run, over.max_tokens),
+        max_usd_per_run: narrow_opt_f(base.max_usd_per_run, over.max_usd),
+        max_usd_per_day: base.max_usd_per_day,
+    }
+}
+
+/// `max_turns` narrowed by `overrides.budget.maxTurns` (0/unset: unchanged).
+fn narrow_max_turns(base: u32, over: Option<&crate::overrides::RunBudgetOverride>) -> u32 {
+    match over.and_then(|o| o.max_turns).filter(|n| *n > 0) {
+        Some(n) => base.min(n),
+        None => base,
+    }
+}
+
+/// `max_run_duration` narrowed by `overrides.budget.maxDuration` (an
+/// unparsable or zero override duration leaves the bundle's value; the
+/// bundle's own 0 means "no limit", so any override duration narrows it).
+fn narrow_max_run_duration(base: Duration, over: Option<&crate::overrides::RunBudgetOverride>) -> Duration {
+    let Some(d) = over
+        .and_then(|o| o.max_duration.as_deref())
+        .and_then(crate::bundle::parse_duration)
+    else {
+        return base;
+    };
+    if d.is_zero() {
+        return base;
+    }
+    if base.is_zero() {
+        d
+    } else {
+        base.min(d)
+    }
+}
+
+fn narrow_opt(base: Option<u64>, over: Option<u64>) -> Option<u64> {
+    match (base, over.filter(|n| *n > 0)) {
+        (Some(b), Some(o)) => Some(b.min(o)),
+        (None, Some(o)) => Some(o),
+        (b, None) => b,
+    }
+}
+
+fn narrow_opt_f(base: Option<f64>, over: Option<f64>) -> Option<f64> {
+    match (base, over.filter(|n| *n > 0.0)) {
+        (Some(b), Some(o)) => Some(b.min(o)),
+        (None, Some(o)) => Some(o),
+        (b, None) => b,
+    }
 }
 
 /// Request extras from a bundle's harness: OpenRouter settings as given and

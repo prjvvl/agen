@@ -9,6 +9,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Task is a durable unit of work for a deployment.
@@ -56,9 +57,165 @@ type Task struct {
 	Outcome string
 	// EventChain: how many event triggers in a row led to this task.
 	EventChain int
+	// Overrides: what this task may do, narrower than its bundle (JSON
+	// TaskOverrides; "" = the bundle as is).
+	Overrides string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
+}
+
+// TaskOverrides is the stored (and wire, host-bound) form of what a task
+// may do, narrower than its bundle. Every field can only narrow: a task
+// never widens what its bundle or its parent task already allows.
+type TaskOverrides struct {
+	// Tools: only these of the bundle's tools (exact names or globs).
+	// finish and load_skill are always available. Empty: every bundle tool.
+	Tools []string `json:"tools,omitempty"`
+	// Skills (of the bundle) to preload into the system prompt, in addition
+	// to the bundle's own preloadSkills.
+	Skills []string `json:"skills,omitempty"`
+	// SystemAddendum: text appended after the system prompt.
+	SystemAddendum string `json:"systemAddendum,omitempty"`
+	// Permissions: extra rules, deny or ask only, checked before the
+	// bundle's own rules.
+	Permissions []OverrideRule `json:"permissions,omitempty"`
+	// Budget: run limits, at most the bundle's own.
+	Budget *RunBudget `json:"budget,omitempty"`
+}
+
+type OverrideRule struct {
+	Tool string `json:"tool"`
+	// "deny" or "ask".
+	Action string `json:"action"`
+}
+
+type RunBudget struct {
+	MaxTokens int64   `json:"maxTokens,omitempty"`
+	MaxUsd    float64 `json:"maxUsd,omitempty"`
+	MaxTurns  int32   `json:"maxTurns,omitempty"`
+	// e.g. "20m".
+	MaxDuration string `json:"maxDuration,omitempty"`
+}
+
+// ParseOverrides decodes a task's stored overrides ("" = none).
+func ParseOverrides(raw string) (*TaskOverrides, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var o TaskOverrides
+	if err := json.Unmarshal([]byte(raw), &o); err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// JSON encodes overrides for storage (nil/empty -> "").
+func (o *TaskOverrides) JSON() string {
+	if o == nil {
+		return ""
+	}
+	b, err := json.Marshal(o)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// CombineOverrides narrows parent's overrides by child's: tool and skill
+// allowlists intersect (empty on one side keeps the other's), permission
+// rules concatenate (parent's first), the system addendum appends, and
+// budgets take the smaller of each set field. Either side may be nil.
+func CombineOverrides(parent, child *TaskOverrides) *TaskOverrides {
+	if parent == nil {
+		return child
+	}
+	if child == nil {
+		return parent
+	}
+	out := &TaskOverrides{
+		Tools:          intersectOrEither(parent.Tools, child.Tools),
+		Skills:         intersectOrEither(parent.Skills, child.Skills),
+		SystemAddendum: strings.TrimSpace(parent.SystemAddendum + "\n" + child.SystemAddendum),
+		Permissions:    append(append([]OverrideRule{}, parent.Permissions...), child.Permissions...),
+	}
+	out.Budget = combineBudgets(parent.Budget, child.Budget)
+	return out
+}
+
+func intersectOrEither(a, b []string) []string {
+	switch {
+	case len(a) == 0:
+		return b
+	case len(b) == 0:
+		return a
+	}
+	bs := map[string]bool{}
+	for _, v := range b {
+		bs[v] = true
+	}
+	var out []string
+	for _, v := range a {
+		if bs[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func combineBudgets(a, b *RunBudget) *RunBudget {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	out := &RunBudget{}
+	out.MaxTokens = minPositive(a.MaxTokens, b.MaxTokens)
+	out.MaxUsd = minPositiveF(a.MaxUsd, b.MaxUsd)
+	out.MaxTurns = int32(minPositive(int64(a.MaxTurns), int64(b.MaxTurns)))
+	switch {
+	case a.MaxDuration == "":
+		out.MaxDuration = b.MaxDuration
+	case b.MaxDuration == "":
+		out.MaxDuration = a.MaxDuration
+	default:
+		da, erra := time.ParseDuration(a.MaxDuration)
+		db, errb := time.ParseDuration(b.MaxDuration)
+		if erra == nil && errb == nil && da < db {
+			out.MaxDuration = a.MaxDuration
+		} else {
+			out.MaxDuration = b.MaxDuration
+		}
+	}
+	return out
+}
+
+// minPositive is the smaller of a, b, treating 0 (unset) as "no limit".
+func minPositive(a, b int64) int64 {
+	switch {
+	case a == 0:
+		return b
+	case b == 0:
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
+}
+
+func minPositiveF(a, b float64) float64 {
+	switch {
+	case a == 0:
+		return b
+	case b == 0:
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
 }
 
 // CheckLabels enforces the limits on task labels: at most 32, keys of 1-63
@@ -85,14 +242,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -140,11 +297,11 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 	inserted := int64(0)
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain) "+
-				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22 "+
+			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides) "+
+				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23 "+
 				"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
 			t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain)
+			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides)
 		if err != nil {
 			return err
 		}

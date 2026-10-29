@@ -32,8 +32,12 @@ type StartTaskRequest struct {
 	ReplyConversationKey string `protobuf:"bytes,5,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
 	// The same key returns the same task (a retried or resumed call).
 	IdempotencyKey string `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Narrow what the child may do (only for delegates with overrides on).
+	Overrides *TaskOverrides `protobuf:"bytes,7,opt,name=overrides,proto3" json:"overrides,omitempty"`
+	// Cost tier for a routing model.
+	ModelTier     string `protobuf:"bytes,8,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartTaskRequest) Reset() {
@@ -104,6 +108,20 @@ func (x *StartTaskRequest) GetReplyConversationKey() string {
 func (x *StartTaskRequest) GetIdempotencyKey() string {
 	if x != nil {
 		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *StartTaskRequest) GetOverrides() *TaskOverrides {
+	if x != nil {
+		return x.Overrides
+	}
+	return nil
+}
+
+func (x *StartTaskRequest) GetModelTier() string {
+	if x != nil {
+		return x.ModelTier
 	}
 	return ""
 }
@@ -774,14 +792,17 @@ var File_agen_v1_host_proto protoreflect.FileDescriptor
 
 const file_agen_v1_host_proto_rawDesc = "" +
 	"\n" +
-	"\x12agen/v1/host.proto\x12\aagen.v1\x1a\x11agen/v1/hub.proto\x1a\x17agen/v1/resources.proto\"\xea\x01\n" +
+	"\x12agen/v1/host.proto\x12\aagen.v1\x1a\x11agen/v1/hub.proto\x1a\x17agen/v1/resources.proto\"\xbf\x02\n" +
 	"\x10StartTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12 \n" +
 	"\vtraceparent\x18\x04 \x01(\tR\vtraceparent\x124\n" +
 	"\x16reply_conversation_key\x18\x05 \x01(\tR\x14replyConversationKey\x12'\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"6\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\x124\n" +
+	"\toverrides\x18\a \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x12\x1d\n" +
+	"\n" +
+	"model_tier\x18\b \x01(\tR\tmodelTier\"6\n" +
 	"\x11StartTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\"\xac\x01\n" +
 	"\x16RequestApprovalRequest\x12\x1f\n" +
@@ -864,41 +885,43 @@ var file_agen_v1_host_proto_goTypes = []any{
 	(*DrainRequest)(nil),            // 12: agen.v1.DrainRequest
 	(*DrainResponse)(nil),           // 13: agen.v1.DrainResponse
 	(*DeploymentRef)(nil),           // 14: agen.v1.DeploymentRef
-	(*Task)(nil),                    // 15: agen.v1.Task
-	(*Approval)(nil),                // 16: agen.v1.Approval
-	(*ToolServer)(nil),              // 17: agen.v1.ToolServer
-	(*Run)(nil),                     // 18: agen.v1.Run
-	(*ResolveRequest)(nil),          // 19: agen.v1.ResolveRequest
-	(*ResolveResponse)(nil),         // 20: agen.v1.ResolveResponse
+	(*TaskOverrides)(nil),           // 15: agen.v1.TaskOverrides
+	(*Task)(nil),                    // 16: agen.v1.Task
+	(*Approval)(nil),                // 17: agen.v1.Approval
+	(*ToolServer)(nil),              // 18: agen.v1.ToolServer
+	(*Run)(nil),                     // 19: agen.v1.Run
+	(*ResolveRequest)(nil),          // 20: agen.v1.ResolveRequest
+	(*ResolveResponse)(nil),         // 21: agen.v1.ResolveResponse
 }
 var file_agen_v1_host_proto_depIdxs = []int32{
 	14, // 0: agen.v1.StartTaskRequest.ref:type_name -> agen.v1.DeploymentRef
-	15, // 1: agen.v1.StartTaskResponse.task:type_name -> agen.v1.Task
-	16, // 2: agen.v1.RequestApprovalResponse.approval:type_name -> agen.v1.Approval
-	17, // 3: agen.v1.HealthResponse.tool_servers:type_name -> agen.v1.ToolServer
-	15, // 4: agen.v1.RunTaskRequest.task:type_name -> agen.v1.Task
-	18, // 5: agen.v1.RunTaskResponse.run:type_name -> agen.v1.Run
-	6,  // 6: agen.v1.HostService.Health:input_type -> agen.v1.HealthRequest
-	8,  // 7: agen.v1.HostService.RunTask:input_type -> agen.v1.RunTaskRequest
-	10, // 8: agen.v1.HostService.CancelTask:input_type -> agen.v1.HostCancelTaskRequest
-	12, // 9: agen.v1.HostService.Drain:input_type -> agen.v1.DrainRequest
-	2,  // 10: agen.v1.ManagerService.RequestApproval:input_type -> agen.v1.RequestApprovalRequest
-	4,  // 11: agen.v1.ManagerService.ResolveSecret:input_type -> agen.v1.ResolveSecretRequest
-	19, // 12: agen.v1.ManagerService.Resolve:input_type -> agen.v1.ResolveRequest
-	0,  // 13: agen.v1.ManagerService.StartTask:input_type -> agen.v1.StartTaskRequest
-	7,  // 14: agen.v1.HostService.Health:output_type -> agen.v1.HealthResponse
-	9,  // 15: agen.v1.HostService.RunTask:output_type -> agen.v1.RunTaskResponse
-	11, // 16: agen.v1.HostService.CancelTask:output_type -> agen.v1.HostCancelTaskResponse
-	13, // 17: agen.v1.HostService.Drain:output_type -> agen.v1.DrainResponse
-	3,  // 18: agen.v1.ManagerService.RequestApproval:output_type -> agen.v1.RequestApprovalResponse
-	5,  // 19: agen.v1.ManagerService.ResolveSecret:output_type -> agen.v1.ResolveSecretResponse
-	20, // 20: agen.v1.ManagerService.Resolve:output_type -> agen.v1.ResolveResponse
-	1,  // 21: agen.v1.ManagerService.StartTask:output_type -> agen.v1.StartTaskResponse
-	14, // [14:22] is the sub-list for method output_type
-	6,  // [6:14] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	15, // 1: agen.v1.StartTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
+	16, // 2: agen.v1.StartTaskResponse.task:type_name -> agen.v1.Task
+	17, // 3: agen.v1.RequestApprovalResponse.approval:type_name -> agen.v1.Approval
+	18, // 4: agen.v1.HealthResponse.tool_servers:type_name -> agen.v1.ToolServer
+	16, // 5: agen.v1.RunTaskRequest.task:type_name -> agen.v1.Task
+	19, // 6: agen.v1.RunTaskResponse.run:type_name -> agen.v1.Run
+	6,  // 7: agen.v1.HostService.Health:input_type -> agen.v1.HealthRequest
+	8,  // 8: agen.v1.HostService.RunTask:input_type -> agen.v1.RunTaskRequest
+	10, // 9: agen.v1.HostService.CancelTask:input_type -> agen.v1.HostCancelTaskRequest
+	12, // 10: agen.v1.HostService.Drain:input_type -> agen.v1.DrainRequest
+	2,  // 11: agen.v1.ManagerService.RequestApproval:input_type -> agen.v1.RequestApprovalRequest
+	4,  // 12: agen.v1.ManagerService.ResolveSecret:input_type -> agen.v1.ResolveSecretRequest
+	20, // 13: agen.v1.ManagerService.Resolve:input_type -> agen.v1.ResolveRequest
+	0,  // 14: agen.v1.ManagerService.StartTask:input_type -> agen.v1.StartTaskRequest
+	7,  // 15: agen.v1.HostService.Health:output_type -> agen.v1.HealthResponse
+	9,  // 16: agen.v1.HostService.RunTask:output_type -> agen.v1.RunTaskResponse
+	11, // 17: agen.v1.HostService.CancelTask:output_type -> agen.v1.HostCancelTaskResponse
+	13, // 18: agen.v1.HostService.Drain:output_type -> agen.v1.DrainResponse
+	3,  // 19: agen.v1.ManagerService.RequestApproval:output_type -> agen.v1.RequestApprovalResponse
+	5,  // 20: agen.v1.ManagerService.ResolveSecret:output_type -> agen.v1.ResolveSecretResponse
+	21, // 21: agen.v1.ManagerService.Resolve:output_type -> agen.v1.ResolveResponse
+	1,  // 22: agen.v1.ManagerService.StartTask:output_type -> agen.v1.StartTaskResponse
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_host_proto_init() }

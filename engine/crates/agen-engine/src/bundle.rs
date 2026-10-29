@@ -205,7 +205,7 @@ impl Limits {
     }
 }
 
-/// Another deployment this agent may call (`call_agent`).
+/// Another deployment this agent may call (`call_agent`, `start_agent`).
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Delegate {
@@ -217,6 +217,10 @@ pub struct Delegate {
     pub url: Option<String>,
     /// Shown to the model.
     pub description: Option<String>,
+    /// Accept narrowing overrides from the caller's brief (default false:
+    /// only deployments meant as generic workers should set this).
+    #[serde(default)]
+    pub overrides: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

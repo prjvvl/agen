@@ -350,6 +350,39 @@ message Task {
   // (no Nest has room for an instance), starting (an instance is starting),
   // busy (every instance is busy). Empty: it is about to be taken.
   string wait_reason = 31;
+  // What this task may do, narrower than its bundle: the task's own
+  // overrides combined with every ancestor's. Unset: the bundle as is.
+  TaskOverrides overrides = 32;
+}
+
+// Per-task settings that can only narrow what the bundle allows. A child
+// task gets its own overrides combined with its parent's, so restrictions
+// pass down a tree.
+message TaskOverrides {
+  // Only these of the bundle's tools (exact names or globs, as permission
+  // rules write them). finish and load_skill are always there.
+  repeated string tools = 1;
+  // Skills (of the bundle) whose instructions are in the system prompt.
+  repeated string skills = 2;
+  // Text added after the system prompt.
+  string system_addendum = 3;
+  // Extra rules, deny or ask only, checked before the bundle's.
+  repeated OverrideRule permissions = 4;
+  // Run limits, at most the bundle's.
+  RunBudget budget = 5;
+}
+message OverrideRule {
+  string tool = 1;
+  // "deny" or "ask".
+  string action = 2;
+}
+// Limits for one run (0 or unset: the bundle's).
+message RunBudget {
+  int64 max_tokens = 1;
+  double max_usd = 2;
+  int32 max_turns = 3;
+  // e.g. "20m".
+  string max_duration = 4;
 }
 
 // One entry of the event log.

@@ -321,6 +321,9 @@ message SubmitTaskRequest {
   string model_tier = 6;
   // Run no earlier than this (a scheduled task); unset: as soon as possible.
   google.protobuf.Timestamp not_before = 7;
+  // Narrow what this task may do: tools, skills, a system prompt addendum,
+  // extra deny/ask rules and run limits.
+  TaskOverrides overrides = 8;
 }
 message SubmitTaskResponse {
   Task task = 1;

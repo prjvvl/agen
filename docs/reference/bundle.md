@@ -139,7 +139,7 @@ See [Giving agents tools](../guides/tools.md).
 | `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action"}]`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
 | `triggers` | Cron and webhook triggers. See [Triggers](../guides/triggers.md). |
 | `alerts` | `quietRun`, `waitingApproval`, `queueWaiting` (`10m`, ...): when the Hub warns about this deployment. See [Events](../guides/events.md). |
-| `delegates` | `[{"name", "namespace", "url", "description"}]`: deployments the agent may call. |
+| `delegates` | `[{"name", "namespace", "url", "description", "overrides"}]`: deployments the agent may call. `overrides: true` lets `start_agent` narrow this delegate's brief (see [Connecting agents](../guides/agents.md#narrowing-a-workers-brief)). |
 | `tools` | Per tool (`"<server>.<tool>"`): `sideEffect`, `idempotent`. See [Giving agents tools](../guides/tools.md#side-effects-and-retries). |
 | `workspace` | Reserved. |
 

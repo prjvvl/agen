@@ -2002,7 +2002,10 @@ type SubmitTaskRequest struct {
 	// Cost tier for a routing model; see Task.model_tier.
 	ModelTier string `protobuf:"bytes,6,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
 	// Run no earlier than this (a scheduled task); unset: as soon as possible.
-	NotBefore     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=not_before,json=notBefore,proto3" json:"not_before,omitempty"`
+	NotBefore *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=not_before,json=notBefore,proto3" json:"not_before,omitempty"`
+	// Narrow what this task may do: tools, skills, a system prompt addendum,
+	// extra deny/ask rules and run limits.
+	Overrides     *TaskOverrides `protobuf:"bytes,8,opt,name=overrides,proto3" json:"overrides,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2082,6 +2085,13 @@ func (x *SubmitTaskRequest) GetModelTier() string {
 func (x *SubmitTaskRequest) GetNotBefore() *timestamppb.Timestamp {
 	if x != nil {
 		return x.NotBefore
+	}
+	return nil
+}
+
+func (x *SubmitTaskRequest) GetOverrides() *TaskOverrides {
+	if x != nil {
+		return x.Overrides
 	}
 	return nil
 }
@@ -6102,7 +6112,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tinstances\x18\x01 \x03(\v2\x11.agen.v1.InstanceR\tinstances\"\x12\n" +
 	"\x10ListNestsRequest\"8\n" +
 	"\x11ListNestsResponse\x12#\n" +
-	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xfc\x02\n" +
+	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xb2\x03\n" +
 	"\x11SubmitTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12'\n" +
@@ -6112,7 +6122,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\n" +
 	"model_tier\x18\x06 \x01(\tR\tmodelTier\x129\n" +
 	"\n" +
-	"not_before\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tnotBefore\x1a9\n" +
+	"not_before\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tnotBefore\x124\n" +
+	"\toverrides\x18\b \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +
@@ -6591,20 +6602,21 @@ var file_agen_v1_hub_proto_goTypes = []any{
 	(*DeploymentRef)(nil),                    // 122: agen.v1.DeploymentRef
 	(*Instance)(nil),                         // 123: agen.v1.Instance
 	(*Nest)(nil),                             // 124: agen.v1.Nest
-	(*Task)(nil),                             // 125: agen.v1.Task
-	(TaskState)(0),                           // 126: agen.v1.TaskState
-	(ApprovalState)(0),                       // 127: agen.v1.ApprovalState
-	(*Approval)(nil),                         // 128: agen.v1.Approval
-	(*Run)(nil),                              // 129: agen.v1.Run
-	(*structpb.Value)(nil),                   // 130: google.protobuf.Value
-	(*Usage)(nil),                            // 131: agen.v1.Usage
-	(*Event)(nil),                            // 132: agen.v1.Event
-	(*Span)(nil),                             // 133: agen.v1.Span
-	(*Definition)(nil),                       // 134: agen.v1.Definition
-	(TriggerEventState)(0),                   // 135: agen.v1.TriggerEventState
-	(*TriggerEvent)(nil),                     // 136: agen.v1.TriggerEvent
-	(*LogLine)(nil),                          // 137: agen.v1.LogLine
-	(*ApiToken)(nil),                         // 138: agen.v1.ApiToken
+	(*TaskOverrides)(nil),                    // 125: agen.v1.TaskOverrides
+	(*Task)(nil),                             // 126: agen.v1.Task
+	(TaskState)(0),                           // 127: agen.v1.TaskState
+	(ApprovalState)(0),                       // 128: agen.v1.ApprovalState
+	(*Approval)(nil),                         // 129: agen.v1.Approval
+	(*Run)(nil),                              // 130: agen.v1.Run
+	(*structpb.Value)(nil),                   // 131: google.protobuf.Value
+	(*Usage)(nil),                            // 132: agen.v1.Usage
+	(*Event)(nil),                            // 133: agen.v1.Event
+	(*Span)(nil),                             // 134: agen.v1.Span
+	(*Definition)(nil),                       // 135: agen.v1.Definition
+	(TriggerEventState)(0),                   // 136: agen.v1.TriggerEventState
+	(*TriggerEvent)(nil),                     // 137: agen.v1.TriggerEvent
+	(*LogLine)(nil),                          // 138: agen.v1.LogLine
+	(*ApiToken)(nil),                         // 139: agen.v1.ApiToken
 }
 var file_agen_v1_hub_proto_depIdxs = []int32{
 	113, // 0: agen.v1.ListProviderHoldsResponse.holds:type_name -> agen.v1.ProviderHold
@@ -6651,165 +6663,166 @@ var file_agen_v1_hub_proto_depIdxs = []int32{
 	122, // 41: agen.v1.SubmitTaskRequest.ref:type_name -> agen.v1.DeploymentRef
 	109, // 42: agen.v1.SubmitTaskRequest.labels:type_name -> agen.v1.SubmitTaskRequest.LabelsEntry
 	114, // 43: agen.v1.SubmitTaskRequest.not_before:type_name -> google.protobuf.Timestamp
-	125, // 44: agen.v1.SubmitTaskResponse.task:type_name -> agen.v1.Task
-	125, // 45: agen.v1.GetTaskResponse.task:type_name -> agen.v1.Task
-	126, // 46: agen.v1.ListTasksRequest.state:type_name -> agen.v1.TaskState
-	125, // 47: agen.v1.ListTasksResponse.tasks:type_name -> agen.v1.Task
-	125, // 48: agen.v1.CancelTaskResponse.task:type_name -> agen.v1.Task
-	122, // 49: agen.v1.ResolveRequest.ref:type_name -> agen.v1.DeploymentRef
-	122, // 50: agen.v1.ResolveRequest.caller:type_name -> agen.v1.DeploymentRef
-	114, // 51: agen.v1.ResolveResponse.token_expires_at:type_name -> google.protobuf.Timestamp
-	122, // 52: agen.v1.RequestWakeRequest.ref:type_name -> agen.v1.DeploymentRef
-	121, // 53: agen.v1.RequestWakeResponse.deployment:type_name -> agen.v1.Deployment
-	127, // 54: agen.v1.ListApprovalsRequest.state:type_name -> agen.v1.ApprovalState
-	128, // 55: agen.v1.ListApprovalsResponse.approvals:type_name -> agen.v1.Approval
-	128, // 56: agen.v1.DecideApprovalResponse.approval:type_name -> agen.v1.Approval
-	110, // 57: agen.v1.ListRunsRequest.labels:type_name -> agen.v1.ListRunsRequest.LabelsEntry
-	114, // 58: agen.v1.ListRunsRequest.since:type_name -> google.protobuf.Timestamp
-	129, // 59: agen.v1.ListRunsResponse.runs:type_name -> agen.v1.Run
-	130, // 60: agen.v1.ToolCallMessage.arguments:type_name -> google.protobuf.Value
-	55,  // 61: agen.v1.TranscriptMessage.tool_calls:type_name -> agen.v1.ToolCallMessage
-	114, // 62: agen.v1.TranscriptMessage.created_at:type_name -> google.protobuf.Timestamp
-	129, // 63: agen.v1.GetTranscriptResponse.run:type_name -> agen.v1.Run
-	56,  // 64: agen.v1.GetTranscriptResponse.messages:type_name -> agen.v1.TranscriptMessage
-	122, // 65: agen.v1.DeploymentMetrics.ref:type_name -> agen.v1.DeploymentRef
-	131, // 66: agen.v1.DeploymentMetrics.usage:type_name -> agen.v1.Usage
-	59,  // 67: agen.v1.DeploymentMetrics.buckets:type_name -> agen.v1.MetricsBucket
-	122, // 68: agen.v1.CallEdge.from:type_name -> agen.v1.DeploymentRef
-	122, // 69: agen.v1.CallEdge.to:type_name -> agen.v1.DeploymentRef
-	131, // 70: agen.v1.ModelMetrics.usage:type_name -> agen.v1.Usage
-	60,  // 71: agen.v1.GetMetricsResponse.deployments:type_name -> agen.v1.DeploymentMetrics
-	61,  // 72: agen.v1.GetMetricsResponse.edges:type_name -> agen.v1.CallEdge
-	114, // 73: agen.v1.GetMetricsResponse.since:type_name -> google.protobuf.Timestamp
-	62,  // 74: agen.v1.GetMetricsResponse.models:type_name -> agen.v1.ModelMetrics
-	64,  // 75: agen.v1.GetMetricsResponse.entries:type_name -> agen.v1.EntryEdge
-	122, // 76: agen.v1.EntryEdge.from:type_name -> agen.v1.DeploymentRef
-	122, // 77: agen.v1.EntryEdge.to:type_name -> agen.v1.DeploymentRef
-	111, // 78: agen.v1.ListEventsRequest.labels:type_name -> agen.v1.ListEventsRequest.LabelsEntry
-	132, // 79: agen.v1.ListEventsResponse.events:type_name -> agen.v1.Event
-	122, // 80: agen.v1.ActiveRun.ref:type_name -> agen.v1.DeploymentRef
-	114, // 81: agen.v1.ActiveRun.started_at:type_name -> google.protobuf.Timestamp
-	131, // 82: agen.v1.ActiveRun.usage:type_name -> agen.v1.Usage
-	114, // 83: agen.v1.ActiveRun.activity_since:type_name -> google.protobuf.Timestamp
-	114, // 84: agen.v1.ActiveRun.last_step_at:type_name -> google.protobuf.Timestamp
-	122, // 85: agen.v1.ActiveRun.caller:type_name -> agen.v1.DeploymentRef
-	122, // 86: agen.v1.QueueStatus.ref:type_name -> agen.v1.DeploymentRef
-	114, // 87: agen.v1.QueueStatus.oldest_queued_at:type_name -> google.protobuf.Timestamp
-	122, // 88: agen.v1.ActivityWarning.ref:type_name -> agen.v1.DeploymentRef
-	68,  // 89: agen.v1.GetActivityResponse.runs:type_name -> agen.v1.ActiveRun
-	69,  // 90: agen.v1.GetActivityResponse.queues:type_name -> agen.v1.QueueStatus
-	70,  // 91: agen.v1.GetActivityResponse.warnings:type_name -> agen.v1.ActivityWarning
-	114, // 92: agen.v1.GetActivityResponse.now:type_name -> google.protobuf.Timestamp
-	133, // 93: agen.v1.GetTraceResponse.spans:type_name -> agen.v1.Span
-	129, // 94: agen.v1.GetTraceResponse.runs:type_name -> agen.v1.Run
-	122, // 95: agen.v1.ListDefinitionsRequest.ref:type_name -> agen.v1.DeploymentRef
-	134, // 96: agen.v1.ListDefinitionsResponse.definitions:type_name -> agen.v1.Definition
-	134, // 97: agen.v1.GetDefinitionResponse.definition:type_name -> agen.v1.Definition
-	112, // 98: agen.v1.GetDefinitionResponse.text_files:type_name -> agen.v1.GetDefinitionResponse.TextFilesEntry
-	114, // 99: agen.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
-	81,  // 100: agen.v1.ListSecretsResponse.secrets:type_name -> agen.v1.SecretInfo
-	122, // 101: agen.v1.CreateWebhookSecretRequest.ref:type_name -> agen.v1.DeploymentRef
-	122, // 102: agen.v1.ListTriggerEventsRequest.ref:type_name -> agen.v1.DeploymentRef
-	135, // 103: agen.v1.ListTriggerEventsRequest.state:type_name -> agen.v1.TriggerEventState
-	136, // 104: agen.v1.ListTriggerEventsResponse.events:type_name -> agen.v1.TriggerEvent
-	122, // 105: agen.v1.GetLogsRequest.ref:type_name -> agen.v1.DeploymentRef
-	114, // 106: agen.v1.GetLogsRequest.since:type_name -> google.protobuf.Timestamp
-	137, // 107: agen.v1.GetLogsResponse.lines:type_name -> agen.v1.LogLine
-	138, // 108: agen.v1.CreateApiTokenResponse.token:type_name -> agen.v1.ApiToken
-	138, // 109: agen.v1.ListApiTokensResponse.tokens:type_name -> agen.v1.ApiToken
-	18,  // 110: agen.v1.HubService.CreateDeployment:input_type -> agen.v1.CreateDeploymentRequest
-	20,  // 111: agen.v1.HubService.UpdateDeployment:input_type -> agen.v1.UpdateDeploymentRequest
-	22,  // 112: agen.v1.HubService.GetDeployment:input_type -> agen.v1.GetDeploymentRequest
-	24,  // 113: agen.v1.HubService.ListDeployments:input_type -> agen.v1.ListDeploymentsRequest
-	26,  // 114: agen.v1.HubService.ScaleDeployment:input_type -> agen.v1.ScaleDeploymentRequest
-	28,  // 115: agen.v1.HubService.DeleteDeployment:input_type -> agen.v1.DeleteDeploymentRequest
-	30,  // 116: agen.v1.HubService.PauseDeployment:input_type -> agen.v1.PauseDeploymentRequest
-	32,  // 117: agen.v1.HubService.ListInstances:input_type -> agen.v1.ListInstancesRequest
-	34,  // 118: agen.v1.HubService.ListNests:input_type -> agen.v1.ListNestsRequest
-	36,  // 119: agen.v1.HubService.SubmitTask:input_type -> agen.v1.SubmitTaskRequest
-	38,  // 120: agen.v1.HubService.GetTask:input_type -> agen.v1.GetTaskRequest
-	40,  // 121: agen.v1.HubService.ListTasks:input_type -> agen.v1.ListTasksRequest
-	42,  // 122: agen.v1.HubService.CancelTask:input_type -> agen.v1.CancelTaskRequest
-	44,  // 123: agen.v1.HubService.Resolve:input_type -> agen.v1.ResolveRequest
-	46,  // 124: agen.v1.HubService.RequestWake:input_type -> agen.v1.RequestWakeRequest
-	48,  // 125: agen.v1.HubService.ListApprovals:input_type -> agen.v1.ListApprovalsRequest
-	50,  // 126: agen.v1.HubService.DecideApproval:input_type -> agen.v1.DecideApprovalRequest
-	74,  // 127: agen.v1.HubService.ListDefinitions:input_type -> agen.v1.ListDefinitionsRequest
-	76,  // 128: agen.v1.HubService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
-	87,  // 129: agen.v1.HubService.ListTriggerEvents:input_type -> agen.v1.ListTriggerEventsRequest
-	85,  // 130: agen.v1.HubService.CreateWebhookSecret:input_type -> agen.v1.CreateWebhookSecretRequest
-	78,  // 131: agen.v1.HubService.SetSecret:input_type -> agen.v1.SetSecretRequest
-	80,  // 132: agen.v1.HubService.ListSecrets:input_type -> agen.v1.ListSecretsRequest
-	83,  // 133: agen.v1.HubService.DeleteSecret:input_type -> agen.v1.DeleteSecretRequest
-	52,  // 134: agen.v1.HubService.ListRuns:input_type -> agen.v1.ListRunsRequest
-	72,  // 135: agen.v1.HubService.GetTrace:input_type -> agen.v1.GetTraceRequest
-	54,  // 136: agen.v1.HubService.GetTranscript:input_type -> agen.v1.GetTranscriptRequest
-	58,  // 137: agen.v1.HubService.GetMetrics:input_type -> agen.v1.GetMetricsRequest
-	67,  // 138: agen.v1.HubService.GetActivity:input_type -> agen.v1.GetActivityRequest
-	89,  // 139: agen.v1.HubService.GetLogs:input_type -> agen.v1.GetLogsRequest
-	65,  // 140: agen.v1.HubService.ListEvents:input_type -> agen.v1.ListEventsRequest
-	0,   // 141: agen.v1.HubService.ListProviderHolds:input_type -> agen.v1.ListProviderHoldsRequest
-	2,   // 142: agen.v1.HubService.ResumeProvider:input_type -> agen.v1.ResumeProviderRequest
-	99,  // 143: agen.v1.HubService.CreateJoinToken:input_type -> agen.v1.CreateJoinTokenRequest
-	91,  // 144: agen.v1.HubService.CreateApiToken:input_type -> agen.v1.CreateApiTokenRequest
-	93,  // 145: agen.v1.HubService.ListApiTokens:input_type -> agen.v1.ListApiTokensRequest
-	95,  // 146: agen.v1.HubService.RevokeApiToken:input_type -> agen.v1.RevokeApiTokenRequest
-	97,  // 147: agen.v1.HubService.RevokeNest:input_type -> agen.v1.RevokeNestRequest
-	14,  // 148: agen.v1.HubService.WhoAmI:input_type -> agen.v1.WhoAmIRequest
-	16,  // 149: agen.v1.HubService.GetBundleGuide:input_type -> agen.v1.GetBundleGuideRequest
-	4,   // 150: agen.v1.HubService.ListTemplates:input_type -> agen.v1.ListTemplatesRequest
-	8,   // 151: agen.v1.HubService.SetNotificationTarget:input_type -> agen.v1.SetNotificationTargetRequest
-	10,  // 152: agen.v1.HubService.ListNotificationTargets:input_type -> agen.v1.ListNotificationTargetsRequest
-	12,  // 153: agen.v1.HubService.DeleteNotificationTarget:input_type -> agen.v1.DeleteNotificationTargetRequest
-	19,  // 154: agen.v1.HubService.CreateDeployment:output_type -> agen.v1.CreateDeploymentResponse
-	21,  // 155: agen.v1.HubService.UpdateDeployment:output_type -> agen.v1.UpdateDeploymentResponse
-	23,  // 156: agen.v1.HubService.GetDeployment:output_type -> agen.v1.GetDeploymentResponse
-	25,  // 157: agen.v1.HubService.ListDeployments:output_type -> agen.v1.ListDeploymentsResponse
-	27,  // 158: agen.v1.HubService.ScaleDeployment:output_type -> agen.v1.ScaleDeploymentResponse
-	29,  // 159: agen.v1.HubService.DeleteDeployment:output_type -> agen.v1.DeleteDeploymentResponse
-	31,  // 160: agen.v1.HubService.PauseDeployment:output_type -> agen.v1.PauseDeploymentResponse
-	33,  // 161: agen.v1.HubService.ListInstances:output_type -> agen.v1.ListInstancesResponse
-	35,  // 162: agen.v1.HubService.ListNests:output_type -> agen.v1.ListNestsResponse
-	37,  // 163: agen.v1.HubService.SubmitTask:output_type -> agen.v1.SubmitTaskResponse
-	39,  // 164: agen.v1.HubService.GetTask:output_type -> agen.v1.GetTaskResponse
-	41,  // 165: agen.v1.HubService.ListTasks:output_type -> agen.v1.ListTasksResponse
-	43,  // 166: agen.v1.HubService.CancelTask:output_type -> agen.v1.CancelTaskResponse
-	45,  // 167: agen.v1.HubService.Resolve:output_type -> agen.v1.ResolveResponse
-	47,  // 168: agen.v1.HubService.RequestWake:output_type -> agen.v1.RequestWakeResponse
-	49,  // 169: agen.v1.HubService.ListApprovals:output_type -> agen.v1.ListApprovalsResponse
-	51,  // 170: agen.v1.HubService.DecideApproval:output_type -> agen.v1.DecideApprovalResponse
-	75,  // 171: agen.v1.HubService.ListDefinitions:output_type -> agen.v1.ListDefinitionsResponse
-	77,  // 172: agen.v1.HubService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
-	88,  // 173: agen.v1.HubService.ListTriggerEvents:output_type -> agen.v1.ListTriggerEventsResponse
-	86,  // 174: agen.v1.HubService.CreateWebhookSecret:output_type -> agen.v1.CreateWebhookSecretResponse
-	79,  // 175: agen.v1.HubService.SetSecret:output_type -> agen.v1.SetSecretResponse
-	82,  // 176: agen.v1.HubService.ListSecrets:output_type -> agen.v1.ListSecretsResponse
-	84,  // 177: agen.v1.HubService.DeleteSecret:output_type -> agen.v1.DeleteSecretResponse
-	53,  // 178: agen.v1.HubService.ListRuns:output_type -> agen.v1.ListRunsResponse
-	73,  // 179: agen.v1.HubService.GetTrace:output_type -> agen.v1.GetTraceResponse
-	57,  // 180: agen.v1.HubService.GetTranscript:output_type -> agen.v1.GetTranscriptResponse
-	63,  // 181: agen.v1.HubService.GetMetrics:output_type -> agen.v1.GetMetricsResponse
-	71,  // 182: agen.v1.HubService.GetActivity:output_type -> agen.v1.GetActivityResponse
-	90,  // 183: agen.v1.HubService.GetLogs:output_type -> agen.v1.GetLogsResponse
-	66,  // 184: agen.v1.HubService.ListEvents:output_type -> agen.v1.ListEventsResponse
-	1,   // 185: agen.v1.HubService.ListProviderHolds:output_type -> agen.v1.ListProviderHoldsResponse
-	3,   // 186: agen.v1.HubService.ResumeProvider:output_type -> agen.v1.ResumeProviderResponse
-	100, // 187: agen.v1.HubService.CreateJoinToken:output_type -> agen.v1.CreateJoinTokenResponse
-	92,  // 188: agen.v1.HubService.CreateApiToken:output_type -> agen.v1.CreateApiTokenResponse
-	94,  // 189: agen.v1.HubService.ListApiTokens:output_type -> agen.v1.ListApiTokensResponse
-	96,  // 190: agen.v1.HubService.RevokeApiToken:output_type -> agen.v1.RevokeApiTokenResponse
-	98,  // 191: agen.v1.HubService.RevokeNest:output_type -> agen.v1.RevokeNestResponse
-	15,  // 192: agen.v1.HubService.WhoAmI:output_type -> agen.v1.WhoAmIResponse
-	17,  // 193: agen.v1.HubService.GetBundleGuide:output_type -> agen.v1.GetBundleGuideResponse
-	6,   // 194: agen.v1.HubService.ListTemplates:output_type -> agen.v1.ListTemplatesResponse
-	9,   // 195: agen.v1.HubService.SetNotificationTarget:output_type -> agen.v1.SetNotificationTargetResponse
-	11,  // 196: agen.v1.HubService.ListNotificationTargets:output_type -> agen.v1.ListNotificationTargetsResponse
-	13,  // 197: agen.v1.HubService.DeleteNotificationTarget:output_type -> agen.v1.DeleteNotificationTargetResponse
-	154, // [154:198] is the sub-list for method output_type
-	110, // [110:154] is the sub-list for method input_type
-	110, // [110:110] is the sub-list for extension type_name
-	110, // [110:110] is the sub-list for extension extendee
-	0,   // [0:110] is the sub-list for field type_name
+	125, // 44: agen.v1.SubmitTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
+	126, // 45: agen.v1.SubmitTaskResponse.task:type_name -> agen.v1.Task
+	126, // 46: agen.v1.GetTaskResponse.task:type_name -> agen.v1.Task
+	127, // 47: agen.v1.ListTasksRequest.state:type_name -> agen.v1.TaskState
+	126, // 48: agen.v1.ListTasksResponse.tasks:type_name -> agen.v1.Task
+	126, // 49: agen.v1.CancelTaskResponse.task:type_name -> agen.v1.Task
+	122, // 50: agen.v1.ResolveRequest.ref:type_name -> agen.v1.DeploymentRef
+	122, // 51: agen.v1.ResolveRequest.caller:type_name -> agen.v1.DeploymentRef
+	114, // 52: agen.v1.ResolveResponse.token_expires_at:type_name -> google.protobuf.Timestamp
+	122, // 53: agen.v1.RequestWakeRequest.ref:type_name -> agen.v1.DeploymentRef
+	121, // 54: agen.v1.RequestWakeResponse.deployment:type_name -> agen.v1.Deployment
+	128, // 55: agen.v1.ListApprovalsRequest.state:type_name -> agen.v1.ApprovalState
+	129, // 56: agen.v1.ListApprovalsResponse.approvals:type_name -> agen.v1.Approval
+	129, // 57: agen.v1.DecideApprovalResponse.approval:type_name -> agen.v1.Approval
+	110, // 58: agen.v1.ListRunsRequest.labels:type_name -> agen.v1.ListRunsRequest.LabelsEntry
+	114, // 59: agen.v1.ListRunsRequest.since:type_name -> google.protobuf.Timestamp
+	130, // 60: agen.v1.ListRunsResponse.runs:type_name -> agen.v1.Run
+	131, // 61: agen.v1.ToolCallMessage.arguments:type_name -> google.protobuf.Value
+	55,  // 62: agen.v1.TranscriptMessage.tool_calls:type_name -> agen.v1.ToolCallMessage
+	114, // 63: agen.v1.TranscriptMessage.created_at:type_name -> google.protobuf.Timestamp
+	130, // 64: agen.v1.GetTranscriptResponse.run:type_name -> agen.v1.Run
+	56,  // 65: agen.v1.GetTranscriptResponse.messages:type_name -> agen.v1.TranscriptMessage
+	122, // 66: agen.v1.DeploymentMetrics.ref:type_name -> agen.v1.DeploymentRef
+	132, // 67: agen.v1.DeploymentMetrics.usage:type_name -> agen.v1.Usage
+	59,  // 68: agen.v1.DeploymentMetrics.buckets:type_name -> agen.v1.MetricsBucket
+	122, // 69: agen.v1.CallEdge.from:type_name -> agen.v1.DeploymentRef
+	122, // 70: agen.v1.CallEdge.to:type_name -> agen.v1.DeploymentRef
+	132, // 71: agen.v1.ModelMetrics.usage:type_name -> agen.v1.Usage
+	60,  // 72: agen.v1.GetMetricsResponse.deployments:type_name -> agen.v1.DeploymentMetrics
+	61,  // 73: agen.v1.GetMetricsResponse.edges:type_name -> agen.v1.CallEdge
+	114, // 74: agen.v1.GetMetricsResponse.since:type_name -> google.protobuf.Timestamp
+	62,  // 75: agen.v1.GetMetricsResponse.models:type_name -> agen.v1.ModelMetrics
+	64,  // 76: agen.v1.GetMetricsResponse.entries:type_name -> agen.v1.EntryEdge
+	122, // 77: agen.v1.EntryEdge.from:type_name -> agen.v1.DeploymentRef
+	122, // 78: agen.v1.EntryEdge.to:type_name -> agen.v1.DeploymentRef
+	111, // 79: agen.v1.ListEventsRequest.labels:type_name -> agen.v1.ListEventsRequest.LabelsEntry
+	133, // 80: agen.v1.ListEventsResponse.events:type_name -> agen.v1.Event
+	122, // 81: agen.v1.ActiveRun.ref:type_name -> agen.v1.DeploymentRef
+	114, // 82: agen.v1.ActiveRun.started_at:type_name -> google.protobuf.Timestamp
+	132, // 83: agen.v1.ActiveRun.usage:type_name -> agen.v1.Usage
+	114, // 84: agen.v1.ActiveRun.activity_since:type_name -> google.protobuf.Timestamp
+	114, // 85: agen.v1.ActiveRun.last_step_at:type_name -> google.protobuf.Timestamp
+	122, // 86: agen.v1.ActiveRun.caller:type_name -> agen.v1.DeploymentRef
+	122, // 87: agen.v1.QueueStatus.ref:type_name -> agen.v1.DeploymentRef
+	114, // 88: agen.v1.QueueStatus.oldest_queued_at:type_name -> google.protobuf.Timestamp
+	122, // 89: agen.v1.ActivityWarning.ref:type_name -> agen.v1.DeploymentRef
+	68,  // 90: agen.v1.GetActivityResponse.runs:type_name -> agen.v1.ActiveRun
+	69,  // 91: agen.v1.GetActivityResponse.queues:type_name -> agen.v1.QueueStatus
+	70,  // 92: agen.v1.GetActivityResponse.warnings:type_name -> agen.v1.ActivityWarning
+	114, // 93: agen.v1.GetActivityResponse.now:type_name -> google.protobuf.Timestamp
+	134, // 94: agen.v1.GetTraceResponse.spans:type_name -> agen.v1.Span
+	130, // 95: agen.v1.GetTraceResponse.runs:type_name -> agen.v1.Run
+	122, // 96: agen.v1.ListDefinitionsRequest.ref:type_name -> agen.v1.DeploymentRef
+	135, // 97: agen.v1.ListDefinitionsResponse.definitions:type_name -> agen.v1.Definition
+	135, // 98: agen.v1.GetDefinitionResponse.definition:type_name -> agen.v1.Definition
+	112, // 99: agen.v1.GetDefinitionResponse.text_files:type_name -> agen.v1.GetDefinitionResponse.TextFilesEntry
+	114, // 100: agen.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
+	81,  // 101: agen.v1.ListSecretsResponse.secrets:type_name -> agen.v1.SecretInfo
+	122, // 102: agen.v1.CreateWebhookSecretRequest.ref:type_name -> agen.v1.DeploymentRef
+	122, // 103: agen.v1.ListTriggerEventsRequest.ref:type_name -> agen.v1.DeploymentRef
+	136, // 104: agen.v1.ListTriggerEventsRequest.state:type_name -> agen.v1.TriggerEventState
+	137, // 105: agen.v1.ListTriggerEventsResponse.events:type_name -> agen.v1.TriggerEvent
+	122, // 106: agen.v1.GetLogsRequest.ref:type_name -> agen.v1.DeploymentRef
+	114, // 107: agen.v1.GetLogsRequest.since:type_name -> google.protobuf.Timestamp
+	138, // 108: agen.v1.GetLogsResponse.lines:type_name -> agen.v1.LogLine
+	139, // 109: agen.v1.CreateApiTokenResponse.token:type_name -> agen.v1.ApiToken
+	139, // 110: agen.v1.ListApiTokensResponse.tokens:type_name -> agen.v1.ApiToken
+	18,  // 111: agen.v1.HubService.CreateDeployment:input_type -> agen.v1.CreateDeploymentRequest
+	20,  // 112: agen.v1.HubService.UpdateDeployment:input_type -> agen.v1.UpdateDeploymentRequest
+	22,  // 113: agen.v1.HubService.GetDeployment:input_type -> agen.v1.GetDeploymentRequest
+	24,  // 114: agen.v1.HubService.ListDeployments:input_type -> agen.v1.ListDeploymentsRequest
+	26,  // 115: agen.v1.HubService.ScaleDeployment:input_type -> agen.v1.ScaleDeploymentRequest
+	28,  // 116: agen.v1.HubService.DeleteDeployment:input_type -> agen.v1.DeleteDeploymentRequest
+	30,  // 117: agen.v1.HubService.PauseDeployment:input_type -> agen.v1.PauseDeploymentRequest
+	32,  // 118: agen.v1.HubService.ListInstances:input_type -> agen.v1.ListInstancesRequest
+	34,  // 119: agen.v1.HubService.ListNests:input_type -> agen.v1.ListNestsRequest
+	36,  // 120: agen.v1.HubService.SubmitTask:input_type -> agen.v1.SubmitTaskRequest
+	38,  // 121: agen.v1.HubService.GetTask:input_type -> agen.v1.GetTaskRequest
+	40,  // 122: agen.v1.HubService.ListTasks:input_type -> agen.v1.ListTasksRequest
+	42,  // 123: agen.v1.HubService.CancelTask:input_type -> agen.v1.CancelTaskRequest
+	44,  // 124: agen.v1.HubService.Resolve:input_type -> agen.v1.ResolveRequest
+	46,  // 125: agen.v1.HubService.RequestWake:input_type -> agen.v1.RequestWakeRequest
+	48,  // 126: agen.v1.HubService.ListApprovals:input_type -> agen.v1.ListApprovalsRequest
+	50,  // 127: agen.v1.HubService.DecideApproval:input_type -> agen.v1.DecideApprovalRequest
+	74,  // 128: agen.v1.HubService.ListDefinitions:input_type -> agen.v1.ListDefinitionsRequest
+	76,  // 129: agen.v1.HubService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
+	87,  // 130: agen.v1.HubService.ListTriggerEvents:input_type -> agen.v1.ListTriggerEventsRequest
+	85,  // 131: agen.v1.HubService.CreateWebhookSecret:input_type -> agen.v1.CreateWebhookSecretRequest
+	78,  // 132: agen.v1.HubService.SetSecret:input_type -> agen.v1.SetSecretRequest
+	80,  // 133: agen.v1.HubService.ListSecrets:input_type -> agen.v1.ListSecretsRequest
+	83,  // 134: agen.v1.HubService.DeleteSecret:input_type -> agen.v1.DeleteSecretRequest
+	52,  // 135: agen.v1.HubService.ListRuns:input_type -> agen.v1.ListRunsRequest
+	72,  // 136: agen.v1.HubService.GetTrace:input_type -> agen.v1.GetTraceRequest
+	54,  // 137: agen.v1.HubService.GetTranscript:input_type -> agen.v1.GetTranscriptRequest
+	58,  // 138: agen.v1.HubService.GetMetrics:input_type -> agen.v1.GetMetricsRequest
+	67,  // 139: agen.v1.HubService.GetActivity:input_type -> agen.v1.GetActivityRequest
+	89,  // 140: agen.v1.HubService.GetLogs:input_type -> agen.v1.GetLogsRequest
+	65,  // 141: agen.v1.HubService.ListEvents:input_type -> agen.v1.ListEventsRequest
+	0,   // 142: agen.v1.HubService.ListProviderHolds:input_type -> agen.v1.ListProviderHoldsRequest
+	2,   // 143: agen.v1.HubService.ResumeProvider:input_type -> agen.v1.ResumeProviderRequest
+	99,  // 144: agen.v1.HubService.CreateJoinToken:input_type -> agen.v1.CreateJoinTokenRequest
+	91,  // 145: agen.v1.HubService.CreateApiToken:input_type -> agen.v1.CreateApiTokenRequest
+	93,  // 146: agen.v1.HubService.ListApiTokens:input_type -> agen.v1.ListApiTokensRequest
+	95,  // 147: agen.v1.HubService.RevokeApiToken:input_type -> agen.v1.RevokeApiTokenRequest
+	97,  // 148: agen.v1.HubService.RevokeNest:input_type -> agen.v1.RevokeNestRequest
+	14,  // 149: agen.v1.HubService.WhoAmI:input_type -> agen.v1.WhoAmIRequest
+	16,  // 150: agen.v1.HubService.GetBundleGuide:input_type -> agen.v1.GetBundleGuideRequest
+	4,   // 151: agen.v1.HubService.ListTemplates:input_type -> agen.v1.ListTemplatesRequest
+	8,   // 152: agen.v1.HubService.SetNotificationTarget:input_type -> agen.v1.SetNotificationTargetRequest
+	10,  // 153: agen.v1.HubService.ListNotificationTargets:input_type -> agen.v1.ListNotificationTargetsRequest
+	12,  // 154: agen.v1.HubService.DeleteNotificationTarget:input_type -> agen.v1.DeleteNotificationTargetRequest
+	19,  // 155: agen.v1.HubService.CreateDeployment:output_type -> agen.v1.CreateDeploymentResponse
+	21,  // 156: agen.v1.HubService.UpdateDeployment:output_type -> agen.v1.UpdateDeploymentResponse
+	23,  // 157: agen.v1.HubService.GetDeployment:output_type -> agen.v1.GetDeploymentResponse
+	25,  // 158: agen.v1.HubService.ListDeployments:output_type -> agen.v1.ListDeploymentsResponse
+	27,  // 159: agen.v1.HubService.ScaleDeployment:output_type -> agen.v1.ScaleDeploymentResponse
+	29,  // 160: agen.v1.HubService.DeleteDeployment:output_type -> agen.v1.DeleteDeploymentResponse
+	31,  // 161: agen.v1.HubService.PauseDeployment:output_type -> agen.v1.PauseDeploymentResponse
+	33,  // 162: agen.v1.HubService.ListInstances:output_type -> agen.v1.ListInstancesResponse
+	35,  // 163: agen.v1.HubService.ListNests:output_type -> agen.v1.ListNestsResponse
+	37,  // 164: agen.v1.HubService.SubmitTask:output_type -> agen.v1.SubmitTaskResponse
+	39,  // 165: agen.v1.HubService.GetTask:output_type -> agen.v1.GetTaskResponse
+	41,  // 166: agen.v1.HubService.ListTasks:output_type -> agen.v1.ListTasksResponse
+	43,  // 167: agen.v1.HubService.CancelTask:output_type -> agen.v1.CancelTaskResponse
+	45,  // 168: agen.v1.HubService.Resolve:output_type -> agen.v1.ResolveResponse
+	47,  // 169: agen.v1.HubService.RequestWake:output_type -> agen.v1.RequestWakeResponse
+	49,  // 170: agen.v1.HubService.ListApprovals:output_type -> agen.v1.ListApprovalsResponse
+	51,  // 171: agen.v1.HubService.DecideApproval:output_type -> agen.v1.DecideApprovalResponse
+	75,  // 172: agen.v1.HubService.ListDefinitions:output_type -> agen.v1.ListDefinitionsResponse
+	77,  // 173: agen.v1.HubService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
+	88,  // 174: agen.v1.HubService.ListTriggerEvents:output_type -> agen.v1.ListTriggerEventsResponse
+	86,  // 175: agen.v1.HubService.CreateWebhookSecret:output_type -> agen.v1.CreateWebhookSecretResponse
+	79,  // 176: agen.v1.HubService.SetSecret:output_type -> agen.v1.SetSecretResponse
+	82,  // 177: agen.v1.HubService.ListSecrets:output_type -> agen.v1.ListSecretsResponse
+	84,  // 178: agen.v1.HubService.DeleteSecret:output_type -> agen.v1.DeleteSecretResponse
+	53,  // 179: agen.v1.HubService.ListRuns:output_type -> agen.v1.ListRunsResponse
+	73,  // 180: agen.v1.HubService.GetTrace:output_type -> agen.v1.GetTraceResponse
+	57,  // 181: agen.v1.HubService.GetTranscript:output_type -> agen.v1.GetTranscriptResponse
+	63,  // 182: agen.v1.HubService.GetMetrics:output_type -> agen.v1.GetMetricsResponse
+	71,  // 183: agen.v1.HubService.GetActivity:output_type -> agen.v1.GetActivityResponse
+	90,  // 184: agen.v1.HubService.GetLogs:output_type -> agen.v1.GetLogsResponse
+	66,  // 185: agen.v1.HubService.ListEvents:output_type -> agen.v1.ListEventsResponse
+	1,   // 186: agen.v1.HubService.ListProviderHolds:output_type -> agen.v1.ListProviderHoldsResponse
+	3,   // 187: agen.v1.HubService.ResumeProvider:output_type -> agen.v1.ResumeProviderResponse
+	100, // 188: agen.v1.HubService.CreateJoinToken:output_type -> agen.v1.CreateJoinTokenResponse
+	92,  // 189: agen.v1.HubService.CreateApiToken:output_type -> agen.v1.CreateApiTokenResponse
+	94,  // 190: agen.v1.HubService.ListApiTokens:output_type -> agen.v1.ListApiTokensResponse
+	96,  // 191: agen.v1.HubService.RevokeApiToken:output_type -> agen.v1.RevokeApiTokenResponse
+	98,  // 192: agen.v1.HubService.RevokeNest:output_type -> agen.v1.RevokeNestResponse
+	15,  // 193: agen.v1.HubService.WhoAmI:output_type -> agen.v1.WhoAmIResponse
+	17,  // 194: agen.v1.HubService.GetBundleGuide:output_type -> agen.v1.GetBundleGuideResponse
+	6,   // 195: agen.v1.HubService.ListTemplates:output_type -> agen.v1.ListTemplatesResponse
+	9,   // 196: agen.v1.HubService.SetNotificationTarget:output_type -> agen.v1.SetNotificationTargetResponse
+	11,  // 197: agen.v1.HubService.ListNotificationTargets:output_type -> agen.v1.ListNotificationTargetsResponse
+	13,  // 198: agen.v1.HubService.DeleteNotificationTarget:output_type -> agen.v1.DeleteNotificationTargetResponse
+	155, // [155:199] is the sub-list for method output_type
+	111, // [111:155] is the sub-list for method input_type
+	111, // [111:111] is the sub-list for extension type_name
+	111, // [111:111] is the sub-list for extension extendee
+	0,   // [0:111] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_hub_proto_init() }

@@ -6,13 +6,16 @@ use std::sync::{Arc, Mutex};
 use agen_engine::agent::{Agent, AgentConfig, RunOptions};
 use agen_engine::bundle::{Delegate, Limits};
 use agen_engine::delegate::{StartAgent, StartRequest, TaskStarter};
+use agen_engine::overrides::TaskOverrides;
 use agen_engine::provider::fake::{FakeProvider, FakeResponse, ScriptedToolCall};
 use agen_engine::store::{RunStatus, Store};
 use async_trait::async_trait;
 use serde_json::json;
 
+type Recorded = (String, String, String, String, Option<TaskOverrides>, String);
+
 #[derive(Default)]
-struct Recorder(Mutex<Vec<(String, String, String, String)>>);
+struct Recorder(Mutex<Vec<Recorded>>);
 
 #[async_trait]
 impl TaskStarter for Recorder {
@@ -22,6 +25,8 @@ impl TaskStarter for Recorder {
             req.input.to_string(),
             req.reply_conversation_key.to_string(),
             req.idempotency_key.to_string(),
+            req.overrides.cloned(),
+            req.model_tier.to_string(),
         ));
         Ok("task-1".into())
     }
@@ -52,9 +57,7 @@ async fn start_agent_queues_and_returns_at_once() {
     let rec = Arc::new(Recorder::default());
     let delegates = vec![Delegate {
         name: "writer".into(),
-        namespace: None,
-        url: None,
-        description: None,
+        ..Default::default()
     }];
     let limits = Limits {
         max_fan_out: Some(1),
@@ -85,10 +88,12 @@ async fn start_agent_queues_and_returns_at_once() {
     assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
     let calls = rec.0.lock().unwrap().clone();
     assert_eq!(calls.len(), 1);
-    let (name, input, key, idem) = &calls[0];
+    let (name, input, key, idem, overrides, tier) = &calls[0];
     assert_eq!((name.as_str(), input.as_str()), ("writer", "do the long thing"));
     assert!(key.starts_with("async:"), "{key}");
     assert!(idem.starts_with(&format!("start:{}.", r.run_id)), "{idem}");
+    assert_eq!(overrides, &None, "no overrides given, none sent");
+    assert_eq!(tier, "");
     // The key is the session's from now on (a second ensure is the same).
     let again = store.ensure_conversation_key(&r.conversation_id).await.unwrap();
     assert_eq!(&again, key);
@@ -109,4 +114,69 @@ async fn start_agent_queues_and_returns_at_once() {
     let calls = rec.0.lock().unwrap().clone();
     assert_eq!(calls.len(), 2, "the second start in one run is over max_fan_out");
     assert_eq!(calls[1].2, "api:c9");
+}
+
+#[tokio::test]
+async fn start_agent_passes_overrides_only_to_delegates_that_accept_them() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open_sqlite_path(&d.path().join("t.db")).await.unwrap());
+    let rec = Arc::new(Recorder::default());
+    let delegates = vec![
+        Delegate {
+            name: "worker".into(),
+            overrides: true,
+            ..Default::default()
+        },
+        Delegate {
+            name: "writer".into(),
+            ..Default::default()
+        },
+    ];
+    let tool = Arc::new(StartAgent::new(
+        delegates,
+        "default",
+        rec.clone(),
+        Limits::default(),
+        store.clone(),
+    ));
+    let with_overrides = FakeResponse {
+        tool_calls: vec![ScriptedToolCall {
+            name: "start_agent".into(),
+            arguments: json!({
+                "agent": "worker",
+                "message": "count the files",
+                "tools": ["read.*"],
+                "budget": {"maxTokens": 2000, "maxDuration": "5m"},
+                "modelTier": "low"
+            }),
+        }],
+        ..Default::default()
+    };
+    let rejected = FakeResponse {
+        tool_calls: vec![ScriptedToolCall {
+            name: "start_agent".into(),
+            arguments: json!({"agent": "writer", "message": "draft it", "tools": ["read.*"]}),
+        }],
+        ..Default::default()
+    };
+    let p = Arc::new(FakeProvider::new(vec![
+        with_overrides,
+        say("ok", "Started task task-1 on worker"),
+        rejected,
+        say("done", "does not accept overrides"),
+    ]));
+    let agent = Agent::builder(AgentConfig::new("lead", "Lead.", "fake-1"), store.clone())
+        .provider(p)
+        .tool(tool)
+        .build()
+        .unwrap();
+    let r = agent.run("go", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    let calls = rec.0.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1, "writer's call was refused before reaching the starter");
+    let (.., overrides, tier) = &calls[0];
+    let o = overrides.clone().expect("worker accepts overrides");
+    assert_eq!(o.tools, vec!["read.*"]);
+    assert_eq!(o.budget.unwrap().max_tokens, Some(2000));
+    assert_eq!(tier, "low");
 }

@@ -200,6 +200,9 @@ message SubmitChildTaskRequest {
   // When set, the child's result is submitted as a task to the parent's
   // deployment with this conversation key once the child ends.
   string reply_conversation_key = 11;
+  // The child's overrides (combined with the parent's by the Hub).
+  TaskOverrides overrides = 12;
+  string model_tier = 13;
 }
 message SubmitChildTaskResponse {
   Task task = 1;

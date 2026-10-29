@@ -1528,8 +1528,11 @@ type SubmitChildTaskRequest struct {
 	// When set, the child's result is submitted as a task to the parent's
 	// deployment with this conversation key once the child ends.
 	ReplyConversationKey string `protobuf:"bytes,11,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// The child's overrides (combined with the parent's by the Hub).
+	Overrides     *TaskOverrides `protobuf:"bytes,12,opt,name=overrides,proto3" json:"overrides,omitempty"`
+	ModelTier     string         `protobuf:"bytes,13,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SubmitChildTaskRequest) Reset() {
@@ -1635,6 +1638,20 @@ func (x *SubmitChildTaskRequest) GetIdempotencyKey() string {
 func (x *SubmitChildTaskRequest) GetReplyConversationKey() string {
 	if x != nil {
 		return x.ReplyConversationKey
+	}
+	return ""
+}
+
+func (x *SubmitChildTaskRequest) GetOverrides() *TaskOverrides {
+	if x != nil {
+		return x.Overrides
+	}
+	return nil
+}
+
+func (x *SubmitChildTaskRequest) GetModelTier() string {
+	if x != nil {
+		return x.ModelTier
 	}
 	return ""
 }
@@ -1790,7 +1807,7 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\x15ReportActivityRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x1c\n" +
 	"\tsaturated\x18\x02 \x01(\bR\tsaturated\"\x18\n" +
-	"\x16ReportActivityResponse\"\x93\x03\n" +
+	"\x16ReportActivityResponse\"\xe8\x03\n" +
 	"\x16SubmitChildTaskRequest\x12\x17\n" +
 	"\anest_id\x18\x01 \x01(\tR\x06nestId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -1804,7 +1821,10 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\vtraceparent\x18\t \x01(\tR\vtraceparent\x12'\n" +
 	"\x0fidempotency_key\x18\n" +
 	" \x01(\tR\x0eidempotencyKey\x124\n" +
-	"\x16reply_conversation_key\x18\v \x01(\tR\x14replyConversationKey\"<\n" +
+	"\x16reply_conversation_key\x18\v \x01(\tR\x14replyConversationKey\x124\n" +
+	"\toverrides\x18\f \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x12\x1d\n" +
+	"\n" +
+	"model_tier\x18\r \x01(\tR\tmodelTier\"<\n" +
 	"\x17SubmitChildTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task2\xee\t\n" +
 	"\vNestService\x129\n" +
@@ -1876,10 +1896,11 @@ var file_agen_v1_nest_proto_goTypes = []any{
 	(*Task)(nil),                      // 33: agen.v1.Task
 	(*Outcome)(nil),                   // 34: agen.v1.Outcome
 	(*Approval)(nil),                  // 35: agen.v1.Approval
-	(*GetDefinitionRequest)(nil),      // 36: agen.v1.GetDefinitionRequest
-	(*ResolveRequest)(nil),            // 37: agen.v1.ResolveRequest
-	(*GetDefinitionResponse)(nil),     // 38: agen.v1.GetDefinitionResponse
-	(*ResolveResponse)(nil),           // 39: agen.v1.ResolveResponse
+	(*TaskOverrides)(nil),             // 36: agen.v1.TaskOverrides
+	(*GetDefinitionRequest)(nil),      // 37: agen.v1.GetDefinitionRequest
+	(*ResolveRequest)(nil),            // 38: agen.v1.ResolveRequest
+	(*GetDefinitionResponse)(nil),     // 39: agen.v1.GetDefinitionResponse
+	(*ResolveResponse)(nil),           // 40: agen.v1.ResolveResponse
 }
 var file_agen_v1_nest_proto_depIdxs = []int32{
 	30, // 0: agen.v1.GetPlatformSecretRequest.ref:type_name -> agen.v1.DeploymentRef
@@ -1895,44 +1916,45 @@ var file_agen_v1_nest_proto_depIdxs = []int32{
 	35, // 10: agen.v1.GetApprovalResponse.approval:type_name -> agen.v1.Approval
 	30, // 11: agen.v1.ReportActivityRequest.ref:type_name -> agen.v1.DeploymentRef
 	30, // 12: agen.v1.SubmitChildTaskRequest.ref:type_name -> agen.v1.DeploymentRef
-	33, // 13: agen.v1.SubmitChildTaskResponse.task:type_name -> agen.v1.Task
-	7,  // 14: agen.v1.NestService.Enroll:input_type -> agen.v1.EnrollRequest
-	9,  // 15: agen.v1.NestService.WatchAssignments:input_type -> agen.v1.WatchAssignmentsRequest
-	11, // 16: agen.v1.NestService.ReportStatus:input_type -> agen.v1.ReportStatusRequest
-	13, // 17: agen.v1.NestService.LeaseTasks:input_type -> agen.v1.LeaseTasksRequest
-	15, // 18: agen.v1.NestService.ExtendLease:input_type -> agen.v1.ExtendLeaseRequest
-	17, // 19: agen.v1.NestService.CompleteTask:input_type -> agen.v1.CompleteTaskRequest
-	19, // 20: agen.v1.NestService.ReleaseTask:input_type -> agen.v1.ReleaseTaskRequest
-	21, // 21: agen.v1.NestService.CreateApproval:input_type -> agen.v1.CreateApprovalRequest
-	23, // 22: agen.v1.NestService.GetApproval:input_type -> agen.v1.GetApprovalRequest
-	25, // 23: agen.v1.NestService.ReportActivity:input_type -> agen.v1.ReportActivityRequest
-	36, // 24: agen.v1.NestService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
-	27, // 25: agen.v1.NestService.SubmitChildTask:input_type -> agen.v1.SubmitChildTaskRequest
-	37, // 26: agen.v1.NestService.Resolve:input_type -> agen.v1.ResolveRequest
-	4,  // 27: agen.v1.NestService.GetTokenKeys:input_type -> agen.v1.GetTokenKeysRequest
-	2,  // 28: agen.v1.NestService.RenewCertificate:input_type -> agen.v1.RenewCertificateRequest
-	0,  // 29: agen.v1.NestService.GetPlatformSecret:input_type -> agen.v1.GetPlatformSecretRequest
-	8,  // 30: agen.v1.NestService.Enroll:output_type -> agen.v1.EnrollResponse
-	10, // 31: agen.v1.NestService.WatchAssignments:output_type -> agen.v1.WatchAssignmentsResponse
-	12, // 32: agen.v1.NestService.ReportStatus:output_type -> agen.v1.ReportStatusResponse
-	14, // 33: agen.v1.NestService.LeaseTasks:output_type -> agen.v1.LeaseTasksResponse
-	16, // 34: agen.v1.NestService.ExtendLease:output_type -> agen.v1.ExtendLeaseResponse
-	18, // 35: agen.v1.NestService.CompleteTask:output_type -> agen.v1.CompleteTaskResponse
-	20, // 36: agen.v1.NestService.ReleaseTask:output_type -> agen.v1.ReleaseTaskResponse
-	22, // 37: agen.v1.NestService.CreateApproval:output_type -> agen.v1.CreateApprovalResponse
-	24, // 38: agen.v1.NestService.GetApproval:output_type -> agen.v1.GetApprovalResponse
-	26, // 39: agen.v1.NestService.ReportActivity:output_type -> agen.v1.ReportActivityResponse
-	38, // 40: agen.v1.NestService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
-	28, // 41: agen.v1.NestService.SubmitChildTask:output_type -> agen.v1.SubmitChildTaskResponse
-	39, // 42: agen.v1.NestService.Resolve:output_type -> agen.v1.ResolveResponse
-	6,  // 43: agen.v1.NestService.GetTokenKeys:output_type -> agen.v1.GetTokenKeysResponse
-	3,  // 44: agen.v1.NestService.RenewCertificate:output_type -> agen.v1.RenewCertificateResponse
-	1,  // 45: agen.v1.NestService.GetPlatformSecret:output_type -> agen.v1.GetPlatformSecretResponse
-	30, // [30:46] is the sub-list for method output_type
-	14, // [14:30] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	36, // 13: agen.v1.SubmitChildTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
+	33, // 14: agen.v1.SubmitChildTaskResponse.task:type_name -> agen.v1.Task
+	7,  // 15: agen.v1.NestService.Enroll:input_type -> agen.v1.EnrollRequest
+	9,  // 16: agen.v1.NestService.WatchAssignments:input_type -> agen.v1.WatchAssignmentsRequest
+	11, // 17: agen.v1.NestService.ReportStatus:input_type -> agen.v1.ReportStatusRequest
+	13, // 18: agen.v1.NestService.LeaseTasks:input_type -> agen.v1.LeaseTasksRequest
+	15, // 19: agen.v1.NestService.ExtendLease:input_type -> agen.v1.ExtendLeaseRequest
+	17, // 20: agen.v1.NestService.CompleteTask:input_type -> agen.v1.CompleteTaskRequest
+	19, // 21: agen.v1.NestService.ReleaseTask:input_type -> agen.v1.ReleaseTaskRequest
+	21, // 22: agen.v1.NestService.CreateApproval:input_type -> agen.v1.CreateApprovalRequest
+	23, // 23: agen.v1.NestService.GetApproval:input_type -> agen.v1.GetApprovalRequest
+	25, // 24: agen.v1.NestService.ReportActivity:input_type -> agen.v1.ReportActivityRequest
+	37, // 25: agen.v1.NestService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
+	27, // 26: agen.v1.NestService.SubmitChildTask:input_type -> agen.v1.SubmitChildTaskRequest
+	38, // 27: agen.v1.NestService.Resolve:input_type -> agen.v1.ResolveRequest
+	4,  // 28: agen.v1.NestService.GetTokenKeys:input_type -> agen.v1.GetTokenKeysRequest
+	2,  // 29: agen.v1.NestService.RenewCertificate:input_type -> agen.v1.RenewCertificateRequest
+	0,  // 30: agen.v1.NestService.GetPlatformSecret:input_type -> agen.v1.GetPlatformSecretRequest
+	8,  // 31: agen.v1.NestService.Enroll:output_type -> agen.v1.EnrollResponse
+	10, // 32: agen.v1.NestService.WatchAssignments:output_type -> agen.v1.WatchAssignmentsResponse
+	12, // 33: agen.v1.NestService.ReportStatus:output_type -> agen.v1.ReportStatusResponse
+	14, // 34: agen.v1.NestService.LeaseTasks:output_type -> agen.v1.LeaseTasksResponse
+	16, // 35: agen.v1.NestService.ExtendLease:output_type -> agen.v1.ExtendLeaseResponse
+	18, // 36: agen.v1.NestService.CompleteTask:output_type -> agen.v1.CompleteTaskResponse
+	20, // 37: agen.v1.NestService.ReleaseTask:output_type -> agen.v1.ReleaseTaskResponse
+	22, // 38: agen.v1.NestService.CreateApproval:output_type -> agen.v1.CreateApprovalResponse
+	24, // 39: agen.v1.NestService.GetApproval:output_type -> agen.v1.GetApprovalResponse
+	26, // 40: agen.v1.NestService.ReportActivity:output_type -> agen.v1.ReportActivityResponse
+	39, // 41: agen.v1.NestService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
+	28, // 42: agen.v1.NestService.SubmitChildTask:output_type -> agen.v1.SubmitChildTaskResponse
+	40, // 43: agen.v1.NestService.Resolve:output_type -> agen.v1.ResolveResponse
+	6,  // 44: agen.v1.NestService.GetTokenKeys:output_type -> agen.v1.GetTokenKeysResponse
+	3,  // 45: agen.v1.NestService.RenewCertificate:output_type -> agen.v1.RenewCertificateResponse
+	1,  // 46: agen.v1.NestService.GetPlatformSecret:output_type -> agen.v1.GetPlatformSecretResponse
+	31, // [31:47] is the sub-list for method output_type
+	15, // [15:31] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_nest_proto_init() }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -260,10 +262,67 @@ func TaskProto(t store.Task) *agenv1.Task {
 		out.NotBefore = ms(t.NotBeforeMs)
 	}
 	out.Outcome = outcomeProto(t.Outcome, t.State, t.Output, t.Error)
+	out.Overrides = overridesProto(t.Overrides)
 	if tp := t.Traceparent; len(tp) > 35 {
 		out.TraceId = tp[3:35]
 	}
 	return out
+}
+
+// overridesProto converts a task's stored overrides (JSON) to the API
+// message; nil for none or on a parse error (an old row, or "" ).
+func overridesProto(stored string) *agenv1.TaskOverrides {
+	o, err := store.ParseOverrides(stored)
+	if err != nil || o == nil {
+		return nil
+	}
+	out := &agenv1.TaskOverrides{Tools: o.Tools, Skills: o.Skills, SystemAddendum: o.SystemAddendum}
+	for _, r := range o.Permissions {
+		out.Permissions = append(out.Permissions, &agenv1.OverrideRule{Tool: r.Tool, Action: r.Action})
+	}
+	if o.Budget != nil {
+		out.Budget = &agenv1.RunBudget{MaxTokens: o.Budget.MaxTokens, MaxUsd: o.Budget.MaxUsd, MaxTurns: o.Budget.MaxTurns, MaxDuration: o.Budget.MaxDuration}
+	}
+	return out
+}
+
+// overridesFromProto is the inverse of overridesProto, for a request's
+// overrides. nil in, nil out.
+func overridesFromProto(o *agenv1.TaskOverrides) *store.TaskOverrides {
+	if o == nil {
+		return nil
+	}
+	out := &store.TaskOverrides{Tools: o.Tools, Skills: o.Skills, SystemAddendum: o.SystemAddendum}
+	for _, r := range o.Permissions {
+		out.Permissions = append(out.Permissions, store.OverrideRule{Tool: r.Tool, Action: r.Action})
+	}
+	if b := o.Budget; b != nil {
+		out.Budget = &store.RunBudget{MaxTokens: b.MaxTokens, MaxUsd: b.MaxUsd, MaxTurns: b.MaxTurns, MaxDuration: b.MaxDuration}
+	}
+	return out
+}
+
+// validateOverrides checks an override request: rule actions are deny or
+// ask (never allow — overrides can only narrow), and a budget's
+// max_duration, if set, parses.
+func validateOverrides(o *agenv1.TaskOverrides) error {
+	if o == nil {
+		return nil
+	}
+	for _, r := range o.GetPermissions() {
+		if r.Action != "deny" && r.Action != "ask" {
+			return fmt.Errorf("overrides.permissions: action must be deny or ask (an override can only narrow), got %q", r.Action)
+		}
+		if r.Tool == "" {
+			return fmt.Errorf("overrides.permissions: tool is required")
+		}
+	}
+	if d := o.GetBudget().GetMaxDuration(); d != "" {
+		if _, err := time.ParseDuration(d); err != nil {
+			return fmt.Errorf("overrides.budget.maxDuration: %v", err)
+		}
+	}
+	return nil
 }
 
 var approvalStates = map[string]agenv1.ApprovalState{

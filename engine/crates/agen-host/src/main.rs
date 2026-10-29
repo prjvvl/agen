@@ -312,6 +312,7 @@ struct TaskIn {
     attempts: u32,
     model_tier: String,
     budget_pressure: bool,
+    overrides: Option<agen_engine::overrides::TaskOverrides>,
 }
 
 #[derive(Deserialize, Default)]
@@ -551,6 +552,7 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         near_budget: req.task.budget_pressure,
         traceparent: (!traceparent.is_empty()).then_some(traceparent),
         cancel,
+        overrides: req.task.overrides,
         ..Default::default()
     };
     // Run detached from the request: if the caller disconnects, the run

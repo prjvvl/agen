@@ -156,7 +156,7 @@
     },
     "delegates": {
       "type": "array",
-      "description": "Deployments this agent may call over A2A (the call_agent tool)",
+      "description": "Deployments this agent may call over A2A (call_agent) or as a child task (start_agent)",
       "items": {
         "type": "object",
         "required": ["name"],
@@ -164,7 +164,8 @@
           "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
           "namespace": { "type": "string" },
           "url": { "type": "string", "format": "uri" },
-          "description": { "type": "string" }
+          "description": { "type": "string" },
+          "overrides": { "type": "boolean", "description": "Accept narrowing overrides (tools, skills, budget, ...) from the caller's brief (default false: only deployments meant as generic workers should set this)" }
         },
         "additionalProperties": false
       }
