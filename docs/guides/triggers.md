@@ -186,6 +186,21 @@ still applies first.
 agen run reporter "Page the on-call" --priority urgent --no-wait
 ```
 
+`--lock` (repeatable) names a resource the task needs: it waits in the
+queue until it can take every one of its locks at once (recorded as
+`waitReason: "locks"`), then holds them until it ends. Taking them all
+together, never one at a time, is what avoids a deadlock between two
+tasks that each hold one of the locks the other needs.
+
+```sh
+agen run deployer "Deploy service-a" --lock repo:service-a --no-wait
+agen run deployer "Deploy service-a again" --lock repo:service-a --no-wait  # waits for the first to finish
+```
+
+Locks are not yet declarable on the bundle itself (`config.json`'s own
+`locks`, and the `acquire_lock`/`release_lock` tools for one named mid-run)
+— only per task, through `SubmitTask`/`agen run`.
+
 ## The Schedules page
 
 The console's **Schedules** page shows everything that starts work on its

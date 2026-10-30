@@ -2477,7 +2477,11 @@ type SubmitTaskRequest struct {
 	Priority string `protobuf:"bytes,11,opt,name=priority,proto3" json:"priority,omitempty"`
 	// A trust at most this high (3.7): narrows the submitting principal's
 	// own trust, never raises it. Empty: the principal's trust as is.
-	Trust         string `protobuf:"bytes,12,opt,name=trust,proto3" json:"trust,omitempty"`
+	Trust string `protobuf:"bytes,12,opt,name=trust,proto3" json:"trust,omitempty"`
+	// Extra locks this task needs, on top of the deployment's own `locks`
+	// config (3.11, part): it waits in the queue until it can take all of
+	// them at once, then holds them until it ends.
+	Locks         []string `protobuf:"bytes,13,rep,name=locks,proto3" json:"locks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2594,6 +2598,13 @@ func (x *SubmitTaskRequest) GetTrust() string {
 		return x.Trust
 	}
 	return ""
+}
+
+func (x *SubmitTaskRequest) GetLocks() []string {
+	if x != nil {
+		return x.Locks
+	}
+	return nil
 }
 
 type SubmitTaskResponse struct {
@@ -6660,7 +6671,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tinstances\x18\x01 \x03(\v2\x11.agen.v1.InstanceR\tinstances\"\x12\n" +
 	"\x10ListNestsRequest\"8\n" +
 	"\x11ListNestsResponse\x12#\n" +
-	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xc0\x04\n" +
+	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xd6\x04\n" +
 	"\x11SubmitTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12'\n" +
@@ -6676,7 +6687,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\fschedule_key\x18\n" +
 	" \x01(\tR\vscheduleKey\x12\x1a\n" +
 	"\bpriority\x18\v \x01(\tR\bpriority\x12\x14\n" +
-	"\x05trust\x18\f \x01(\tR\x05trust\x1a9\n" +
+	"\x05trust\x18\f \x01(\tR\x05trust\x12\x14\n" +
+	"\x05locks\x18\r \x03(\tR\x05locks\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +

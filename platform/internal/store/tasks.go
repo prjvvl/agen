@@ -75,6 +75,10 @@ type Task struct {
 	// current trust; a top-level one is its principal's, optionally
 	// narrowed.
 	Trust string
+	// Locks (3.11, part): names this task must hold all of at once before
+	// it is leased (the deployment's own `locks` config, plus any named on
+	// submission), released when it ends.
+	Locks []string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -257,16 +261,19 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
-	var labels string
+	var labels, locks string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
+	}
+	if err == nil {
+		err = json.Unmarshal([]byte(locks), &t.Locks)
 	}
 	return t, err
 }
@@ -299,6 +306,13 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 	}
 	if t.Labels == nil {
 		labels = []byte("{}")
+	}
+	locksJSON, err := json.Marshal(t.Locks)
+	if err != nil {
+		return t, err
+	}
+	if t.Locks == nil {
+		locksJSON = []byte("[]")
 	}
 	now := NowMs()
 	maxQueued := t.MaxQueued
@@ -336,16 +350,22 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 			}
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides, not_after_ms, schedule_key, priority, trust) "+
-				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23, $24, $25, $26, $27 "+
+			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks) "+
+				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23, $24, $25, $26, $27, $28 "+
 				"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
 			t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides, t.NotAfterMs, t.ScheduleKey, t.Priority, t.Trust)
+			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides, t.NotAfterMs, t.ScheduleKey, t.Priority, t.Trust, string(locksJSON))
 		if err != nil {
 			return err
 		}
 		if inserted, _ = res.RowsAffected(); inserted == 0 {
 			return nil
+		}
+		for _, name := range t.Locks {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO task_locks (namespace, task_id, name) VALUES ($1, $2, $3) ON CONFLICT (namespace, task_id, name) DO NOTHING",
+				t.Namespace, t.ID, name); err != nil {
+				return err
+			}
 		}
 		data := map[string]any{"source": t.Source}
 		if t.NotBeforeMs > 0 {
@@ -442,6 +462,8 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 			"SELECT 1 FROM tasks o WHERE o.namespace = t.namespace AND o.deployment = t.deployment AND o.conversation_key = t.conversation_key AND o.id <> t.id AND "+
 			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND o.not_before_ms <= $4 AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
 			"AND NOT (source LIKE 'reply:%' AND EXISTS (SELECT 1 FROM tasks c JOIN runs r ON r.id = c.parent_run_id WHERE c.id = t.parent_task_id AND (r.ended_ms IS NULL OR r.ended_ms = 0))) "+
+			"AND NOT EXISTS (SELECT 1 FROM task_locks tl WHERE tl.namespace = t.namespace AND tl.task_id = t.id AND "+
+			"EXISTS (SELECT 1 FROM locks l WHERE l.namespace = tl.namespace AND l.name = tl.name AND l.task_id <> t.id AND l.expires_ms > $4)) "+
 			"ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'background' THEN 3 ELSE 2 END, created_ms, id LIMIT $3"+lock, ns, deployment, max, now)
 		if err != nil {
 			return err
@@ -457,6 +479,19 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 		}
 		rows.Close()
 		for _, id := range ids {
+			// Re-check lock availability right now: an earlier task in this
+			// very batch may have just taken one of this task's locks (the
+			// bulk SELECT above only ruled out locks already held before
+			// this call started).
+			var blocked int
+			if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM task_locks tl WHERE tl.namespace = $1 AND tl.task_id = $2 AND "+
+				"EXISTS (SELECT 1 FROM locks l WHERE l.namespace = tl.namespace AND l.name = tl.name AND l.task_id <> $2 AND l.expires_ms > $3)",
+				ns, id, now).Scan(&blocked); err != nil {
+				return err
+			}
+			if blocked > 0 {
+				continue
+			}
 			t, err := scanTask(tx.QueryRowContext(ctx,
 				"UPDATE tasks SET state = 'leased', lease_id = $1, lease_nest_id = $2, lease_expires_ms = $3, attempts = attempts + 1, updated_ms = $4 "+
 					"WHERE id = $5 AND state = 'queued' RETURNING "+taskCols,
@@ -467,6 +502,15 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 			if err != nil {
 				return err
 			}
+			if len(t.Locks) > 0 {
+				if _, err := tx.ExecContext(ctx,
+					"INSERT INTO locks (namespace, name, task_id, expires_ms) SELECT namespace, name, $1, $2 FROM task_locks WHERE namespace = $3 AND task_id = $1 "+
+						"ON CONFLICT (namespace, name) DO UPDATE SET task_id = excluded.task_id, expires_ms = excluded.expires_ms "+
+						"WHERE locks.task_id = excluded.task_id OR locks.expires_ms <= $4",
+					id, now+leaseMs, ns, now); err != nil {
+					return err
+				}
+			}
 			out = append(out, t)
 		}
 		return nil
@@ -474,12 +518,19 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 	return out, err
 }
 
-// ExtendLease extends a lease the caller still holds.
+// ExtendLease extends a lease the caller still holds, and the expiry of any
+// locks it holds (3.11, part) along with it.
 func (s *Store) ExtendLease(ctx context.Context, taskID, leaseID string, leaseMs int64) error {
 	now := NowMs()
-	res, err := s.db.ExecContext(ctx, "UPDATE tasks SET lease_expires_ms = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
-		now+leaseMs, now, taskID, leaseID)
-	return fenced(res, err)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE tasks SET lease_expires_ms = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
+			now+leaseMs, now, taskID, leaseID)
+		if err := fenced(res, err); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE locks SET expires_ms = $1 WHERE task_id = $2", now+leaseMs, taskID)
+		return err
+	})
 }
 
 // StartTask marks a leased task as running on an instance.
@@ -721,15 +772,16 @@ func endTaskRun(ctx context.Context, tx *sql.Tx, t Task, status, msg string) err
 }
 
 // QueuedBlockers says what in the queue holds a queued task back: an older
-// unfinished task of its conversation, or (an async result) the run that
-// started the work still running.
-func (s *Store) QueuedBlockers(ctx context.Context, t Task) (conversationBusy, callerRunning bool, err error) {
+// unfinished task of its conversation, (an async result) the run that
+// started the work still running, or one of its declared locks (3.11,
+// part) currently held by another task.
+func (s *Store) QueuedBlockers(ctx context.Context, t Task) (conversationBusy, callerRunning, locksHeld bool, err error) {
 	if t.ConversationKey != "" {
 		var n int
 		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks o WHERE o.namespace = $1 AND o.deployment = $2 AND o.conversation_key = $3 AND o.id <> $4 AND "+
 			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND o.not_before_ms <= $6 AND (o.created_ms < $5 OR (o.created_ms = $5 AND o.id < $4))))",
 			t.Namespace, t.Deployment, t.ConversationKey, t.ID, t.CreatedMs, NowMs()).Scan(&n); err != nil {
-			return false, false, err
+			return false, false, false, err
 		}
 		conversationBusy = n > 0
 	}
@@ -737,11 +789,20 @@ func (s *Store) QueuedBlockers(ctx context.Context, t Task) (conversationBusy, c
 		var n int
 		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks c JOIN runs r ON r.id = c.parent_run_id WHERE c.id = $1 AND (r.ended_ms IS NULL OR r.ended_ms = 0)",
 			t.ParentTaskID).Scan(&n); err != nil {
-			return false, false, err
+			return false, false, false, err
 		}
 		callerRunning = n > 0
 	}
-	return conversationBusy, callerRunning, nil
+	if len(t.Locks) > 0 {
+		var n int
+		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM locks l WHERE l.namespace = $1 AND l.task_id <> $2 AND l.expires_ms > $3 AND l.name IN ("+
+			"SELECT name FROM task_locks WHERE namespace = $1 AND task_id = $2)",
+			t.Namespace, t.ID, NowMs()).Scan(&n); err != nil {
+			return false, false, false, err
+		}
+		locksHeld = n > 0
+	}
+	return conversationBusy, callerRunning, locksHeld, nil
 }
 
 // AssignedCount is how many instances of a deployment the scheduler has

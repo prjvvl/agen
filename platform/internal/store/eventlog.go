@@ -104,8 +104,12 @@ func taskEvent(t Task, typ, severity string, data map[string]any) Event {
 }
 
 // taskFinished are the events of a task that just ended: task.finished, and
-// task.needs_input when its outcome asks for an answer.
+// task.needs_input when its outcome asks for an answer. Also releases any
+// locks it held (3.11, part).
 func taskFinished(ctx context.Context, ex execer, t Task) error {
+	if _, err := ex.ExecContext(ctx, "DELETE FROM locks WHERE namespace = $1 AND task_id = $2", t.Namespace, t.ID); err != nil {
+		return err
+	}
 	data := map[string]any{"state": t.State, "source": t.Source}
 	severity := "info"
 	if t.State == "failed" {

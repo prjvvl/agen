@@ -529,6 +529,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `scheduleKey` | string | At most one queued task per (deployment, schedule_key); submitting again with the same key cancels the queued task that already has it. |
 | `priority` | string | Lease order within this deployment's queue: urgent, high, normal or background. Empty: normal. |
 | `trust` | string | A trust at most this high (3.7): narrows the submitting principal's own trust, never raises it. Empty: the principal's trust as is. |
+| `locks` | list of string | Extra locks this task needs, on top of the deployment's own `locks` config (3.11, part): it waits in the queue until it can take all of them at once, then holds them until it ends. |
 
 ## UpdateDeployment
 

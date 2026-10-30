@@ -191,6 +191,12 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		if v := str("trust"); v != "" {
 			c.args = append(c.args, "--trust", v)
 		}
+		if locks, ok := a["locks"].([]any); ok {
+			used["locks"] = true
+			for _, l := range locks {
+				c.args = append(c.args, "--lock", l.(string))
+			}
+		}
 		if v := str("notBefore"); v != "" {
 			c.args = append(c.args, "--at", v)
 		}

@@ -30,7 +30,7 @@ func (h *Hub) waitReason(ctx context.Context, t store.Task, cache map[string]dep
 	case "paused", "budget", "provider_held":
 		return dw.reason
 	}
-	busy, caller, err := h.Store.QueuedBlockers(ctx, t)
+	busy, caller, locked, err := h.Store.QueuedBlockers(ctx, t)
 	switch {
 	case err != nil:
 		return ""
@@ -38,6 +38,8 @@ func (h *Hub) waitReason(ctx context.Context, t store.Task, cache map[string]dep
 		return "conversation_busy"
 	case caller:
 		return "caller_running"
+	case locked:
+		return "locks"
 	}
 	return dw.reason
 }

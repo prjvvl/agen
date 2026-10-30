@@ -370,7 +370,8 @@ message Task {
   // start time is later), paused, budget (the daily budget is used up),
   // provider_held, conversation_busy (an older task of its conversation is
   // queued or running), caller_running (an async result waits for the run
-  // that started the work), asleep (an instance is being woken), capacity
+  // that started the work), locks (one of its declared locks is held by
+  // another task), asleep (an instance is being woken), capacity
   // (no Nest has room for an instance), starting (an instance is starting),
   // busy (every instance is busy). Empty: it is about to be taken.
   string wait_reason = 31;
@@ -393,6 +394,10 @@ message Task {
   // already be lower than the caller's own task, through taint). A caller
   // may ask for a lower trust than its own; never higher.
   string trust = 36;
+  // Declared locks (3.11, part): names this task must hold all of at once
+  // before it is leased (the deployment's own `locks` config, plus any
+  // named on submission), released when it ends.
+  repeated string locks = 37;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

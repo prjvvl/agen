@@ -170,6 +170,25 @@ func narrowTrust(a, b string) string {
 	return b
 }
 
+// checkLocks validates a task's declared locks (3.11, part): at most 16,
+// each a non-empty name of at most 128 characters, no duplicates.
+func checkLocks(locks []string) error {
+	if len(locks) > 16 {
+		return invalid("at most 16 locks per task")
+	}
+	seen := map[string]bool{}
+	for _, name := range locks {
+		if name == "" || len(name) > 128 {
+			return invalid("a lock name must be 1-128 characters")
+		}
+		if seen[name] {
+			return invalid(fmt.Sprintf("lock %q named twice", name))
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
 // bundleFiles merges binary and text bundle files; a path may be given once.
 func bundleFiles(bin map[string][]byte, text map[string]string) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(bin)+len(text))

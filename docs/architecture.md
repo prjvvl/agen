@@ -187,7 +187,15 @@ the queued task of that deployment that already has the key, so at most one
 is ever queued per key. It may carry `priority` (`urgent`, `high`, `normal`,
 `background`; default `normal`): `LeaseTasks` orders a deployment's own
 queue by it before submission order, never across deployments and after a
-conversation's own ordering. It may carry `model_tier`, the cost tier
+conversation's own ordering. It may carry `locks` (3.11, part): names it
+must hold all of at once before `LeaseTasks` leases it (so no deadlock
+from taking them one at a time), granted for as long as its lease and
+refreshed when the lease is extended, released when it ends
+(`task_locks` is what a task declared, `locks` what is currently
+granted, one task per namespace and name); a task waiting on one reports
+`wait_reason: "locks"`. The built-in `acquire_lock`/`release_lock` tools
+for locks named mid-run are not yet implemented. It may carry
+`model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
 the bundle's `router.budgetTier`. When the Hub fails a

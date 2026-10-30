@@ -391,6 +391,10 @@ message SubmitTaskRequest {
   // A trust at most this high (3.7): narrows the submitting principal's
   // own trust, never raises it. Empty: the principal's trust as is.
   string trust = 12;
+  // Extra locks this task needs, on top of the deployment's own `locks`
+  // config (3.11, part): it waits in the queue until it can take all of
+  // them at once, then holds them until it ends.
+  repeated string locks = 13;
 }
 message SubmitTaskResponse {
   Task task = 1;

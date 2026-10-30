@@ -2084,7 +2084,8 @@ type Task struct {
 	// start time is later), paused, budget (the daily budget is used up),
 	// provider_held, conversation_busy (an older task of its conversation is
 	// queued or running), caller_running (an async result waits for the run
-	// that started the work), asleep (an instance is being woken), capacity
+	// that started the work), locks (one of its declared locks is held by
+	// another task), asleep (an instance is being woken), capacity
 	// (no Nest has room for an instance), starting (an instance is starting),
 	// busy (every instance is busy). Empty: it is about to be taken.
 	WaitReason string `protobuf:"bytes,31,opt,name=wait_reason,json=waitReason,proto3" json:"wait_reason,omitempty"`
@@ -2106,7 +2107,11 @@ type Task struct {
 	// child task, its caller's trust at the moment it started it (which may
 	// already be lower than the caller's own task, through taint). A caller
 	// may ask for a lower trust than its own; never higher.
-	Trust         string `protobuf:"bytes,36,opt,name=trust,proto3" json:"trust,omitempty"`
+	Trust string `protobuf:"bytes,36,opt,name=trust,proto3" json:"trust,omitempty"`
+	// Declared locks (3.11, part): names this task must hold all of at once
+	// before it is leased (the deployment's own `locks` config, plus any
+	// named on submission), released when it ends.
+	Locks         []string `protobuf:"bytes,37,rep,name=locks,proto3" json:"locks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2391,6 +2396,13 @@ func (x *Task) GetTrust() string {
 		return x.Trust
 	}
 	return ""
+}
+
+func (x *Task) GetLocks() []string {
+	if x != nil {
+		return x.Locks
+	}
+	return nil
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child
@@ -3944,7 +3956,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x80\v\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x96\v\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -3990,7 +4002,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\tnot_after\x18! \x01(\v2\x1a.google.protobuf.TimestampR\bnotAfter\x12!\n" +
 	"\fschedule_key\x18\" \x01(\tR\vscheduleKey\x12\x1a\n" +
 	"\bpriority\x18# \x01(\tR\bpriority\x12\x14\n" +
-	"\x05trust\x18$ \x01(\tR\x05trust\x1a9\n" +
+	"\x05trust\x18$ \x01(\tR\x05trust\x12\x14\n" +
+	"\x05locks\x18% \x03(\tR\x05locks\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +

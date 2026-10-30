@@ -354,6 +354,8 @@ Usage of run:
     	print the API response as JSON
   -label value
     	label the task, key=value (repeatable)
+  -lock value
+    	wait until this (and every other --lock) is free, then hold it until the task ends (repeatable)
   -n string
     	namespace (default "default")
   -no-wait
