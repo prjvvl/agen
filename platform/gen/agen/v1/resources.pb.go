@@ -262,6 +262,9 @@ const (
 	TaskState_TASK_STATE_SUCCEEDED   TaskState = 4
 	TaskState_TASK_STATE_FAILED      TaskState = 5
 	TaskState_TASK_STATE_CANCELLED   TaskState = 6
+	// Suspended (3.3, part): holds no instance or lease and is not
+	// autoscaler load; wait_for says what it is waiting for. Not terminal.
+	TaskState_TASK_STATE_WAITING TaskState = 7
 )
 
 // Enum value maps for TaskState.
@@ -274,6 +277,7 @@ var (
 		4: "TASK_STATE_SUCCEEDED",
 		5: "TASK_STATE_FAILED",
 		6: "TASK_STATE_CANCELLED",
+		7: "TASK_STATE_WAITING",
 	}
 	TaskState_value = map[string]int32{
 		"TASK_STATE_UNSPECIFIED": 0,
@@ -283,6 +287,7 @@ var (
 		"TASK_STATE_SUCCEEDED":   4,
 		"TASK_STATE_FAILED":      5,
 		"TASK_STATE_CANCELLED":   6,
+		"TASK_STATE_WAITING":     7,
 	}
 )
 
@@ -2111,7 +2116,11 @@ type Task struct {
 	// Declared locks (3.11, part): names this task must hold all of at once
 	// before it is leased (the deployment's own `locks` config, plus any
 	// named on submission), released when it ends.
-	Locks         []string `protobuf:"bytes,37,rep,name=locks,proto3" json:"locks,omitempty"`
+	Locks []string `protobuf:"bytes,37,rep,name=locks,proto3" json:"locks,omitempty"`
+	// What a TASK_STATE_WAITING task is waiting for (3.3, part): "<kind>:<ref>",
+	// e.g. "child:<task id>". Unlike wait_reason (why a queued task has not
+	// started), this is set only while suspended and cleared on resume.
+	WaitFor       string `protobuf:"bytes,38,opt,name=wait_for,json=waitFor,proto3" json:"wait_for,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2403,6 +2412,13 @@ func (x *Task) GetLocks() []string {
 		return x.Locks
 	}
 	return nil
+}
+
+func (x *Task) GetWaitFor() string {
+	if x != nil {
+		return x.WaitFor
+	}
+	return ""
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child
@@ -4068,7 +4084,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x96\v\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xb1\v\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -4115,7 +4131,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\fschedule_key\x18\" \x01(\tR\vscheduleKey\x12\x1a\n" +
 	"\bpriority\x18# \x01(\tR\bpriority\x12\x14\n" +
 	"\x05trust\x18$ \x01(\tR\x05trust\x12\x14\n" +
-	"\x05locks\x18% \x03(\tR\x05locks\x1a9\n" +
+	"\x05locks\x18% \x03(\tR\x05locks\x12\x19\n" +
+	"\bwait_for\x18& \x01(\tR\awaitFor\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +
@@ -4313,7 +4330,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x11NEST_STATE_ACTIVE\x10\x01\x12\x13\n" +
 	"\x0fNEST_STATE_LOST\x10\x02\x12\x17\n" +
 	"\x13NEST_STATE_DRAINING\x10\x03\x12\x16\n" +
-	"\x12NEST_STATE_REVOKED\x10\x04*\xb8\x01\n" +
+	"\x12NEST_STATE_REVOKED\x10\x04*\xd0\x01\n" +
 	"\tTaskState\x12\x1a\n" +
 	"\x16TASK_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11TASK_STATE_QUEUED\x10\x01\x12\x15\n" +
@@ -4321,7 +4338,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x12TASK_STATE_RUNNING\x10\x03\x12\x18\n" +
 	"\x14TASK_STATE_SUCCEEDED\x10\x04\x12\x15\n" +
 	"\x11TASK_STATE_FAILED\x10\x05\x12\x18\n" +
-	"\x14TASK_STATE_CANCELLED\x10\x06*\x9f\x01\n" +
+	"\x14TASK_STATE_CANCELLED\x10\x06\x12\x16\n" +
+	"\x12TASK_STATE_WAITING\x10\a*\x9f\x01\n" +
 	"\rApprovalState\x12\x1e\n" +
 	"\x1aAPPROVAL_STATE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16APPROVAL_STATE_PENDING\x10\x01\x12\x1b\n" +

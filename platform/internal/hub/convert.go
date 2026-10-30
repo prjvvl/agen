@@ -237,6 +237,7 @@ var taskStates = map[string]agenv1.TaskState{
 	"queued": agenv1.TaskState_TASK_STATE_QUEUED, "leased": agenv1.TaskState_TASK_STATE_LEASED,
 	"running": agenv1.TaskState_TASK_STATE_RUNNING, "succeeded": agenv1.TaskState_TASK_STATE_SUCCEEDED,
 	"failed": agenv1.TaskState_TASK_STATE_FAILED, "cancelled": agenv1.TaskState_TASK_STATE_CANCELLED,
+	"waiting": agenv1.TaskState_TASK_STATE_WAITING,
 }
 
 func taskStateName(s agenv1.TaskState) string {
@@ -257,6 +258,7 @@ func TaskProto(t store.Task) *agenv1.Task {
 		ParentTaskId: t.ParentTaskID, ParentRunId: t.ParentRunID, RootRunId: t.RootRunID, Depth: int32(t.Depth), Traceparent: t.Traceparent,
 		ConversationKey: t.ConversationKey, Labels: t.Labels, ModelTier: t.ModelTier,
 		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey, ScheduleKey: t.ScheduleKey, Priority: t.Priority, Trust: t.Trust, Locks: t.Locks,
+		WaitFor: t.WaitFor,
 	}
 	if t.NotBeforeMs > 0 {
 		out.NotBefore = ms(t.NotBeforeMs)

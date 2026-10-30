@@ -79,6 +79,10 @@ type Task struct {
 	// it is leased (the deployment's own `locks` config, plus any named on
 	// submission), released when it ends.
 	Locks []string
+	// WaitFor (3.3, part): "<kind>:<ref>" the task is waiting for while
+	// State is "waiting" (suspended: no instance, no lease, not
+	// autoscaler load). "" otherwise.
+	WaitFor string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -261,14 +265,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels, locks string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -403,7 +407,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 // UnfinishedReplyTasks returns the unfinished tasks of a deployment that
 // report back to the agent that started them (start_agent).
 func (s *Store) UnfinishedReplyTasks(ctx context.Context, ns, deployment string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND reply_deployment <> '' AND state IN ('queued', 'leased', 'running')", ns, deployment)
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND reply_deployment <> '' AND state IN ('queued', 'leased', 'running', 'waiting')", ns, deployment)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +428,7 @@ func (s *Store) UnfinishedReplyTasks(ctx context.Context, ns, deployment string)
 // overlap policy.
 func (s *Store) CountUnfinishedBySource(ctx context.Context, ns, deployment, source string) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE namespace = $1 AND deployment = $2 AND source = $3 AND state IN ('queued', 'leased', 'running')",
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE namespace = $1 AND deployment = $2 AND source = $3 AND state IN ('queued', 'leased', 'running', 'waiting')",
 		ns, deployment, source).Scan(&n)
 	return n, err
 }
@@ -460,7 +464,7 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 		now := NowMs()
 		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks t WHERE namespace = $1 AND deployment = $2 AND state = 'queued' AND not_before_ms <= $4 AND (conversation_key = '' OR NOT EXISTS ("+
 			"SELECT 1 FROM tasks o WHERE o.namespace = t.namespace AND o.deployment = t.deployment AND o.conversation_key = t.conversation_key AND o.id <> t.id AND "+
-			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND o.not_before_ms <= $4 AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
+			"(o.state IN ('leased', 'running', 'waiting') OR (o.state = 'queued' AND o.not_before_ms <= $4 AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
 			"AND NOT (source LIKE 'reply:%' AND EXISTS (SELECT 1 FROM tasks c JOIN runs r ON r.id = c.parent_run_id WHERE c.id = t.parent_task_id AND (r.ended_ms IS NULL OR r.ended_ms = 0))) "+
 			"AND NOT EXISTS (SELECT 1 FROM task_locks tl WHERE tl.namespace = t.namespace AND tl.task_id = t.id AND "+
 			"EXISTS (SELECT 1 FROM locks l WHERE l.namespace = tl.namespace AND l.name = tl.name AND l.task_id <> t.id AND l.expires_ms > $4)) "+
@@ -586,6 +590,67 @@ func (s *Store) CompleteTaskWithOutcome(ctx context.Context, taskID, leaseID str
 		}
 		return taskFinished(ctx, tx, t)
 	})
+}
+
+// SuspendTask moves a leased or running task to "waiting" (3.3, part): it
+// gives up its lease (another nest may now pick up other work, and it is
+// no longer autoscaler load) and records waitFor ("<kind>:<ref>"), the
+// run_inbox row that must arrive before WriteInbox requeues it. Fails
+// with ErrFenced unless leaseID is the task's current lease.
+func (s *Store) SuspendTask(ctx context.Context, taskID, leaseID, waitFor string) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET state = 'waiting', lease_id = '', lease_nest_id = '', lease_expires_ms = 0, wait_for = $1, updated_ms = $2 WHERE id = $3 AND lease_id = $4 AND state IN ('leased', 'running')",
+		waitFor, NowMs(), taskID, leaseID)
+	return fenced(res, err)
+}
+
+// InboxRow is one entry of a suspended task's run_inbox: something that
+// happened while it waited. Draining it into the resumed run (turning it
+// back into a tool result or a message) is engine work, not implemented
+// yet; today only WriteInbox's own requeue-on-match runs.
+type InboxRow struct {
+	ID        string
+	Namespace string
+	TaskID    string
+	RunID     string
+	// Kind: "child" (Ref: the child task's id) so far.
+	Kind    string
+	Ref     string
+	Payload string
+}
+
+// writeInboxRow is WriteInbox's core, run in the caller's transaction (so
+// taskFinished can write a child's result into its parent's inbox as part
+// of the same transaction that ends the child).
+func writeInboxRow(ctx context.Context, ex execer, r InboxRow) (woken bool, err error) {
+	if r.ID == "" {
+		r.ID = NewID()
+	}
+	now := NowMs()
+	if _, err := ex.ExecContext(ctx, "INSERT INTO run_inbox (id, namespace, task_id, run_id, kind, ref, payload, created_ms, consumed_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)",
+		r.ID, r.Namespace, r.TaskID, r.RunID, r.Kind, r.Ref, r.Payload, now); err != nil {
+		return false, err
+	}
+	res, err := ex.ExecContext(ctx,
+		"UPDATE tasks SET state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 WHERE id = $2 AND state = 'waiting' AND wait_for = $3",
+		now, r.TaskID, r.Kind+":"+r.Ref)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// WriteInbox records one run_inbox row for a task; if the task is
+// "waiting" on exactly this kind and ref, it is requeued in the same
+// transaction (priority boosted to urgent; its attempt count is
+// untouched).
+func (s *Store) WriteInbox(ctx context.Context, r InboxRow) (woken bool, err error) {
+	err = s.inTx(ctx, func(tx *sql.Tx) error {
+		woken, err = writeInboxRow(ctx, tx, r)
+		return err
+	})
+	return woken, err
 }
 
 // RequeueExpiredLeases returns tasks whose lease expired to the queue. A task
@@ -721,7 +786,7 @@ func (s *Store) ReleaseTask(ctx context.Context, taskID, leaseID string, notStar
 // CancelTask cancels a task that has not finished.
 func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		t, err := scanTask(tx.QueryRowContext(ctx, "UPDATE tasks SET state = 'cancelled', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running') RETURNING "+taskCols, NowMs(), id))
+		t, err := scanTask(tx.QueryRowContext(ctx, "UPDATE tasks SET state = 'cancelled', wait_for = '', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running', 'waiting') RETURNING "+taskCols, NowMs(), id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -779,7 +844,7 @@ func (s *Store) QueuedBlockers(ctx context.Context, t Task) (conversationBusy, c
 	if t.ConversationKey != "" {
 		var n int
 		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks o WHERE o.namespace = $1 AND o.deployment = $2 AND o.conversation_key = $3 AND o.id <> $4 AND "+
-			"(o.state IN ('leased', 'running') OR (o.state = 'queued' AND o.not_before_ms <= $6 AND (o.created_ms < $5 OR (o.created_ms = $5 AND o.id < $4))))",
+			"(o.state IN ('leased', 'running', 'waiting') OR (o.state = 'queued' AND o.not_before_ms <= $6 AND (o.created_ms < $5 OR (o.created_ms = $5 AND o.id < $4))))",
 			t.Namespace, t.Deployment, t.ConversationKey, t.ID, t.CreatedMs, NowMs()).Scan(&n); err != nil {
 			return false, false, false, err
 		}

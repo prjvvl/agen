@@ -316,6 +316,9 @@ enum TaskState {
   TASK_STATE_SUCCEEDED = 4;
   TASK_STATE_FAILED = 5;
   TASK_STATE_CANCELLED = 6;
+  // Suspended (3.3, part): holds no instance or lease and is not
+  // autoscaler load; wait_for says what it is waiting for. Not terminal.
+  TASK_STATE_WAITING = 7;
 }
 
 message Task {
@@ -398,6 +401,10 @@ message Task {
   // before it is leased (the deployment's own `locks` config, plus any
   // named on submission), released when it ends.
   repeated string locks = 37;
+  // What a TASK_STATE_WAITING task is waiting for (3.3, part): "<kind>:<ref>",
+  // e.g. "child:<task id>". Unlike wait_reason (why a queued task has not
+  // started), this is set only while suspended and cleared on resume.
+  string wait_for = 38;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

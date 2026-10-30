@@ -194,8 +194,23 @@ refreshed when the lease is extended, released when it ends
 (`task_locks` is what a task declared, `locks` what is currently
 granted, one task per namespace and name); a task waiting on one reports
 `wait_reason: "locks"`. The built-in `acquire_lock`/`release_lock` tools
-for locks named mid-run are not yet implemented. It may carry
-`model_tier`, the cost tier
+for locks named mid-run are not yet implemented. A task may be in state
+`waiting` (3.3, part): it holds no instance or lease and is not autoscaler
+load, and carries `wait_for` (`"<kind>:<ref>"`, e.g. `"child:<task id>"`)
+describing what it is waiting for — unlike `wait_reason`, which says why a
+still-queued task has not started, `wait_for` is set only while suspended
+and cleared on resume. `run_inbox` holds what has happened for a waiting
+task while it waits; writing a row whose kind and ref match a waiting
+task's `wait_for` requeues it at `urgent` priority without counting an
+attempt (`Store.WriteInbox`), and a child task finishing always writes its
+outcome into its parent's inbox (`Store.SuspendTask` moves a task into
+`waiting`). This is Go/Hub-side durable-state infrastructure only: nothing
+yet puts a task into `waiting` or drains a `run_inbox` row back into a
+resumed run — that needs the engine to actually suspend a run mid-tool-call
+(a new `Outcome::Suspended`, checkpoint and host RPC changes, and
+`call_agent` using it instead of erroring after its inline wait), which is
+not yet built.
+It may carry `model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
 the bundle's `router.budgetTier`. When the Hub fails a
