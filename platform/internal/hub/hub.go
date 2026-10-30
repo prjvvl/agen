@@ -947,7 +947,8 @@ func (h *Hub) ListTriggerEvents(ctx context.Context, req *connect.Request[agenv1
 		}
 	}
 	states := map[agenv1.TriggerEventState]string{agenv1.TriggerEventState_TRIGGER_EVENT_STATE_FIRED: "fired",
-		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_MISSED: "missed", agenv1.TriggerEventState_TRIGGER_EVENT_STATE_REJECTED: "rejected"}
+		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_MISSED: "missed", agenv1.TriggerEventState_TRIGGER_EVENT_STATE_REJECTED: "rejected",
+		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_SKIPPED: "skipped"}
 	var list []store.TriggerEvent
 	for _, ns := range nss {
 		part, err := h.Store.ListTriggerEvents(ctx, ns, req.Msg.GetRef().GetName(), states[req.Msg.State], int(req.Msg.Limit))

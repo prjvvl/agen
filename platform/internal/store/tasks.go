@@ -394,6 +394,16 @@ func (s *Store) UnfinishedReplyTasks(ctx context.Context, ns, deployment string)
 	return ids, rows.Err()
 }
 
+// CountUnfinishedBySource counts a deployment's queued, leased or running
+// tasks with this exact source (e.g. "cron:<trigger>"), for a trigger's
+// overlap policy.
+func (s *Store) CountUnfinishedBySource(ctx context.Context, ns, deployment, source string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE namespace = $1 AND deployment = $2 AND source = $3 AND state IN ('queued', 'leased', 'running')",
+		ns, deployment, source).Scan(&n)
+	return n, err
+}
+
 func (s *Store) ListTasks(ctx context.Context, ns, deployment, state string, limit int) ([]Task, error) {
 	if limit <= 0 {
 		limit = 100

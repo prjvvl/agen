@@ -236,7 +236,12 @@ Cron schedules are standard 5-field expressions or descriptors (`@hourly`,
 `@every 30s`), evaluated in UTC unless prefixed `CRON_TZ=<zone>`. A window
 fires if the leader evaluates it within a minute of its due time; older
 windows are `missed`, except that a trigger with `catchUp` fires the latest
-missed window once (`redelivered`). Firing is exactly-once: the task's
+missed window once (`redelivered`), unless it is older than `catchUpWindow`.
+`jitter` spreads firing within a duration after the window is due
+(deterministic per window, so re-evaluating it is idempotent). `overlap`
+(`skip`, `buffer_one`, default `allow`) and `minStartSpacing` refuse to fire
+a window while an earlier firing's task is unfinished, or too soon after the
+previous firing; such a window is recorded `skipped`, not `missed`. Firing is exactly-once: the task's
 idempotency key is `cron:<trigger>:<due>` and events are unique per trigger
 and due time. A webhook caller presents the trigger's secret
 (`CreateWebhookSecret`, `agen webhook-secret`; only a hash is stored) as a

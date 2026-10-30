@@ -45,6 +45,14 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t, `[{"type":"cron","name":"bad","schedule":"not a cron"}]`)})); code(err) != connect.CodeInvalidArgument {
 		t.Fatalf("invalid schedule accepted: %v", err)
 	}
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"bad","schedule":"* * * * *","overlap":"whenever"}]`)})); code(err) != connect.CodeInvalidArgument {
+		t.Fatalf("invalid overlap accepted: %v", err)
+	}
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"bad","schedule":"* * * * *","jitter":"not a duration"}]`)})); code(err) != connect.CodeInvalidArgument {
+		t.Fatalf("invalid jitter accepted: %v", err)
+	}
 	d, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t,
 		`[{"type":"cron","name":"tick","schedule":"* * * * *","input":"tick!"}]`)}))
 	if err != nil {
@@ -102,6 +110,137 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	r, _ := c.ListTriggerEvents(ctx, connect.NewRequest(&agenv1.ListTriggerEventsRequest{Ref: ref("", "hourly"), State: agenv1.TriggerEventState_TRIGGER_EVENT_STATE_FIRED}))
 	if len(r.Msg.Events) != 1 || !strings.Contains(r.Msg.Events[0].Message, "redelivered") || r.Msg.Events[0].TaskId == "" {
 		t.Fatalf("redelivered: %v", r.Msg.Events)
+	}
+}
+
+// A cron trigger's jitter delays its firing by a deterministic amount
+// within [0, jitter) after the window is due; re-evaluating before that
+// offset elapses neither fires nor misses it.
+// features: triggers
+func TestCronJitterDelaysFiring(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	defer func(old func() int64) { store.NowMs = old }(store.NowMs)
+
+	d, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "jit", BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"tick","schedule":"* * * * *","jitter":"10s"}]`)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli())
+	first := created.Truncate(time.Minute).Add(time.Minute)
+	offset := jitterOffset("default", "jit", "tick", first, 10*time.Second)
+	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
+	sched := e.scheduler()
+
+	// Before the jittered instant: not fired, not missed either.
+	at(first.Add(offset - time.Second))
+	sched.Step(ctx)
+	if ev := events(t, c, "jit"); len(ev) != 0 {
+		t.Fatalf("before the jittered instant: %v", ev)
+	}
+	// At and after it: fires.
+	at(first.Add(offset + time.Second))
+	sched.Step(ctx)
+	if ev := events(t, c, "jit"); ev["tick:fired"] != 1 || len(ev) != 1 {
+		t.Fatalf("after the jittered instant: %v", ev)
+	}
+}
+
+// overlap "skip" refuses to fire while an earlier firing's task is still
+// unfinished; "buffer_one" allows at most one more on top of one.
+// features: triggers
+func TestCronOverlapPolicies(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	defer func(old func() int64) { store.NowMs = old }(store.NowMs)
+
+	d, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "ov", BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"solo","schedule":"* * * * *","overlap":"skip"},`+
+			`{"type":"cron","name":"pair","schedule":"* * * * *","overlap":"buffer_one"}]`)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Minute).Add(time.Minute)
+	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
+	sched := e.scheduler()
+
+	at(first.Add(5 * time.Second))
+	sched.Step(ctx)
+	at(first.Add(65 * time.Second))
+	sched.Step(ctx)
+	at(first.Add(125 * time.Second))
+	sched.Step(ctx)
+	ev := events(t, c, "ov")
+	if ev["solo:fired"] != 1 || ev["solo:skipped"] != 2 {
+		t.Fatalf("skip: %v", ev)
+	}
+	if ev["pair:fired"] != 2 || ev["pair:skipped"] != 1 {
+		t.Fatalf("buffer_one: %v", ev)
+	}
+}
+
+// min_start_spacing keeps a fired window at least that long after the
+// previous firing's, skipping (not missing) a window that comes sooner.
+// features: triggers
+func TestCronMinStartSpacing(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	defer func(old func() int64) { store.NowMs = old }(store.NowMs)
+
+	d, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "sp", BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"tick","schedule":"* * * * *","minStartSpacing":"2m"}]`)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Minute).Add(time.Minute)
+	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
+	sched := e.scheduler()
+
+	at(first.Add(5 * time.Second)) // window 1: fires, nothing fired before it
+	sched.Step(ctx)
+	at(first.Add(65 * time.Second)) // window 2, 1m after window 1: too soon
+	sched.Step(ctx)
+	at(first.Add(125 * time.Second)) // window 3, 2m after window 1: spaced enough
+	sched.Step(ctx)
+	if ev := events(t, c, "sp"); ev["tick:fired"] != 2 || ev["tick:skipped"] != 1 {
+		t.Fatalf("min_start_spacing: %v", ev)
+	}
+}
+
+// catch_up_window bounds how late the latest missed window may be and
+// still be caught up; beyond it, every window of the backlog is missed.
+// features: triggers
+func TestCronCatchUpWindow(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	defer func(old func() int64) { store.NowMs = old }(store.NowMs)
+
+	d, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "cw", BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"tight","schedule":"0 * * * *","catchUp":true,"catchUpWindow":"5m"},`+
+			`{"type":"cron","name":"loose","schedule":"0 * * * *","catchUp":true,"catchUpWindow":"15m"}]`)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h1 := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Hour).Add(time.Hour)
+	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
+	sched := e.scheduler()
+
+	// The leader comes back 10 minutes after the 4th missed window: beyond
+	// "tight"'s 5m catch-up window (all 4 missed), within "loose"'s 15m
+	// (the latest redelivered, the older 3 missed).
+	at(h1.Add(3*time.Hour + 10*time.Minute))
+	sched.Step(ctx)
+	ev := events(t, c, "cw")
+	if ev["tight:missed"] != 4 || ev["tight:fired"] != 0 {
+		t.Fatalf("tight catch_up_window: %v", ev)
+	}
+	if ev["loose:missed"] != 3 || ev["loose:fired"] != 1 {
+		t.Fatalf("loose catch_up_window: %v", ev)
 	}
 }
 

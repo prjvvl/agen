@@ -96,6 +96,23 @@ message Trigger {
   // {{event.taskId}}, {{event.parentTaskId}}, {{event.deployment}},
   // {{event.type}} or {{event.labels.<key>}}. Empty: a new conversation.
   string conversation = 14;
+  // Cron: spread firing by a random amount in [0, jitter) after the
+  // window is due (a Go duration, e.g. "30s"), so deployments sharing a
+  // schedule don't all fire at once. Empty: no jitter.
+  string jitter = 15;
+  // Cron: bounds how late the latest missed window may still be caught
+  // up (catch_up); beyond it, it is recorded missed instead. Empty: no
+  // bound (always catches up the latest missed window).
+  string catch_up_window = 16;
+  // Cron: what happens when a window is due while an earlier firing's
+  // task of this trigger is still queued, leased or running: "skip"
+  // (don't fire while one is unfinished), "buffer_one" (fire at most one
+  // more on top of one unfinished one), or "" / "allow" (fire regardless).
+  string overlap = 17;
+  // Cron: a fired window is at least this long (a Go duration) after the
+  // previous firing's; a closer window is skipped (recorded, not
+  // "missed"). Empty: no minimum.
+  string min_start_spacing = 18;
 }
 
 // Which events fire an event trigger.
@@ -146,6 +163,10 @@ enum TriggerEventState {
   // The trigger was due but could not fire (for example the Hub was down).
   TRIGGER_EVENT_STATE_MISSED = 2;
   TRIGGER_EVENT_STATE_REJECTED = 3;
+  // The window was due but intentionally not fired: an earlier firing's
+  // task was still unfinished (overlap), or it was too soon after the
+  // previous firing (min_start_spacing).
+  TRIGGER_EVENT_STATE_SKIPPED = 4;
 }
 
 message TriggerEvent {

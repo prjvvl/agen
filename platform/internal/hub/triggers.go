@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"slices"
@@ -49,6 +50,9 @@ func validateTriggers(ts []*agenv1.Trigger) error {
 			if _, err := cron.ParseStandard(t.Schedule); err != nil {
 				return invalid(fmt.Sprintf("trigger %q: invalid cron schedule %q: %v", t.Name, t.Schedule, err))
 			}
+			if err := validateCronOptions(t); err != nil {
+				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
+			}
 		case "webhook":
 			if err := validateWebhook(t); err != nil {
 				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
@@ -67,6 +71,27 @@ func validateTriggers(ts []*agenv1.Trigger) error {
 			return invalid(fmt.Sprintf("trigger name %q is used twice", t.Name))
 		}
 		seen[t.Name] = true
+	}
+	return nil
+}
+
+// validateCronOptions checks a cron trigger's jitter, catch_up_window,
+// overlap and min_start_spacing.
+func validateCronOptions(t *agenv1.Trigger) error {
+	for _, d := range []struct{ name, value string }{
+		{"jitter", t.Jitter}, {"catch_up_window", t.CatchUpWindow}, {"min_start_spacing", t.MinStartSpacing},
+	} {
+		if d.value == "" {
+			continue
+		}
+		if dur, err := time.ParseDuration(d.value); err != nil || dur <= 0 {
+			return fmt.Errorf("%s %q must be a positive duration", d.name, d.value)
+		}
+	}
+	switch t.Overlap {
+	case "", "allow", "skip", "buffer_one":
+	default:
+		return fmt.Errorf("overlap %q: use skip, buffer_one or allow", t.Overlap)
 	}
 	return nil
 }
@@ -193,6 +218,44 @@ func (h *Hub) stampCronTimes(ctx context.Context, d store.Deployment, pd *agenv1
 	}
 }
 
+// jitterOffset deterministically spreads a trigger's firing across
+// [0, jitter) after its window is due, so deployments sharing a schedule
+// don't all fire at the same instant. The same window always gets the same
+// offset, so re-evaluating it on a later tick is idempotent.
+func jitterOffset(ns, deployment, trigger string, at time.Time, jitter time.Duration) time.Duration {
+	if jitter <= 0 {
+		return 0
+	}
+	h := fnv.New64a()
+	fmt.Fprintf(h, "%s/%s/%s@%d", ns, deployment, trigger, at.UnixMilli())
+	return time.Duration(h.Sum64() % uint64(jitter))
+}
+
+// overlapBlocks reports whether a trigger's overlap policy refuses to fire
+// another window right now: "skip" while any earlier firing's task of this
+// trigger is unfinished, "buffer_one" once two already are.
+func (s *Scheduler) overlapBlocks(ctx context.Context, d store.Deployment, t *agenv1.Trigger) (bool, error) {
+	limit := 0
+	switch t.Overlap {
+	case "skip":
+		limit = 1
+	case "buffer_one":
+		limit = 2
+	default:
+		return false, nil
+	}
+	n, err := s.Hub.Store.CountUnfinishedBySource(ctx, d.Namespace, d.Name, "cron:"+t.Name)
+	if err != nil {
+		return false, err
+	}
+	return n >= limit, nil
+}
+
+func cronDuration(s string) time.Duration {
+	d, _ := time.ParseDuration(s)
+	return d
+}
+
 func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.Trigger, now time.Time) error {
 	sched, err := cron.ParseStandard(t.Schedule)
 	if err != nil {
@@ -210,29 +273,58 @@ func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.
 		since = d.CreatedMs
 	}
 	last = max(last, since)
+	lastFired, err := st.LastFiredTriggerDue(ctx, d.Namespace, d.Name, t.Name)
+	if err != nil {
+		return err
+	}
+	jitter, catchUpWindow, minSpacing := cronDuration(t.Jitter), cronDuration(t.CatchUpWindow), cronDuration(t.MinStartSpacing)
 	var due []time.Time
 	for next := sched.Next(time.UnixMilli(last).UTC()); !next.After(now) && len(due) < maxCronBacklog; next = sched.Next(next) {
 		due = append(due, next)
 	}
 	for i, at := range due {
-		latest := i == len(due)-1
-		late := now.Sub(at) > CronGrace
-		switch {
-		case !late:
-			if err := s.fire(ctx, d, t, at, ""); err != nil {
-				return err
-			}
-		case latest && t.CatchUp:
-			if err := s.fire(ctx, d, t, at, fmt.Sprintf("redelivered %s late (catch_up)", now.Sub(at).Round(time.Second))); err != nil {
-				return err
-			}
-		default:
-			if _, err := st.RecordTriggerEvent(ctx, store.TriggerEvent{Namespace: d.Namespace, Deployment: d.Name, Trigger: t.Name,
-				State: "missed", DueMs: at.UnixMilli(), Message: "the Hub was not running at the due time"}); err != nil {
-				return err
-			}
-			s.Log.Warn("cron window missed", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "due", at)
+		effAt := at.Add(jitterOffset(d.Namespace, d.Name, t.Name, at, jitter))
+		if now.Before(effAt) {
+			break // jitter not elapsed yet; re-evaluate this window next tick
 		}
+		latest := i == len(due)-1
+		late := now.Sub(effAt) > CronGrace
+		canCatchUp := latest && t.CatchUp && (catchUpWindow <= 0 || now.Sub(effAt) <= catchUpWindow)
+		if !late || canCatchUp {
+			blocked, err := s.overlapBlocks(ctx, d, t)
+			if err != nil {
+				return err
+			}
+			spacing := minSpacing > 0 && lastFired > 0 && at.Sub(time.UnixMilli(lastFired)) < minSpacing
+			switch {
+			case blocked:
+				if _, err := st.RecordTriggerEvent(ctx, store.TriggerEvent{Namespace: d.Namespace, Deployment: d.Name, Trigger: t.Name,
+					State: "skipped", DueMs: at.UnixMilli(), Message: "an earlier firing's task is still unfinished (overlap: " + t.Overlap + ")"}); err != nil {
+					return err
+				}
+			case spacing:
+				if _, err := st.RecordTriggerEvent(ctx, store.TriggerEvent{Namespace: d.Namespace, Deployment: d.Name, Trigger: t.Name,
+					State: "skipped", DueMs: at.UnixMilli(), Message: fmt.Sprintf("fired %s ago, less than min_start_spacing %s",
+						at.Sub(time.UnixMilli(lastFired)).Round(time.Second), t.MinStartSpacing)}); err != nil {
+					return err
+				}
+			default:
+				note := ""
+				if late {
+					note = fmt.Sprintf("redelivered %s late (catch_up)", now.Sub(effAt).Round(time.Second))
+				}
+				if err := s.fire(ctx, d, t, at, note); err != nil {
+					return err
+				}
+				lastFired = at.UnixMilli()
+			}
+			continue
+		}
+		if _, err := st.RecordTriggerEvent(ctx, store.TriggerEvent{Namespace: d.Namespace, Deployment: d.Name, Trigger: t.Name,
+			State: "missed", DueMs: at.UnixMilli(), Message: "the Hub was not running at the due time"}); err != nil {
+			return err
+		}
+		s.Log.Warn("cron window missed", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "due", at)
 	}
 	return nil
 }

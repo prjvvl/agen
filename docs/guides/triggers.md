@@ -26,8 +26,19 @@ with bad credentials). For one task at a later time, without a trigger, see
   `@every 30s`), in UTC unless it starts with `CRON_TZ=<zone>`.
 - Each window fires exactly once. A window the Hub was not running for is
   recorded as `missed`; with `"catchUp": true` the latest missed window fires
-  once when the Hub is back.
+  once when the Hub is back, unless it is older than `catchUpWindow` (a
+  duration, e.g. `"15m"`), in which case it is recorded missed too.
 - A trigger added later never back-fills windows from before it existed.
+- `jitter` (a duration) spreads firing by a random amount after the window
+  is due, so deployments sharing a schedule don't all fire at the same
+  instant. The same window always gets the same offset.
+- `overlap` controls what happens when a window is due while an earlier
+  firing's task of this trigger is still queued, leased or running:
+  `"skip"` (don't fire while one is unfinished), `"buffer_one"` (fire at
+  most one more on top of one unfinished one), or the default `"allow"`
+  (fire regardless). A skipped window is recorded `skipped`, not `missed`.
+- `minStartSpacing` (a duration) keeps a fired window at least that long
+  after the previous firing's; a closer window is also recorded `skipped`.
 - The API returns each cron trigger with `nextDueAt` and `lastDueAt` (on
   `GetDeployment` and `ListDeployments`), computed the way the scheduler
   fires them.

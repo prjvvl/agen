@@ -419,6 +419,15 @@ func (s *Store) LastTriggerDue(ctx context.Context, ns, deployment, trigger stri
 	return due, err
 }
 
+// LastFiredTriggerDue returns the due time of the last window a trigger
+// actually fired (0 if none), for minStartSpacing.
+func (s *Store) LastFiredTriggerDue(ctx context.Context, ns, deployment, trigger string) (int64, error) {
+	var due int64
+	err := s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(due_ms), 0) FROM trigger_events WHERE namespace = $1 AND deployment = $2 AND trigger_name = $3 AND state = 'fired'",
+		ns, deployment, trigger).Scan(&due)
+	return due, err
+}
+
 // SetWebhookSecret creates or rotates a webhook trigger's secret and returns
 // it (only its hash is stored).
 func (s *Store) SetWebhookSecret(ctx context.Context, ns, deployment, trigger string) (string, error) {

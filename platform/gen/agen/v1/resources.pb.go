@@ -84,6 +84,10 @@ const (
 	// The trigger was due but could not fire (for example the Hub was down).
 	TriggerEventState_TRIGGER_EVENT_STATE_MISSED   TriggerEventState = 2
 	TriggerEventState_TRIGGER_EVENT_STATE_REJECTED TriggerEventState = 3
+	// The window was due but intentionally not fired: an earlier firing's
+	// task was still unfinished (overlap), or it was too soon after the
+	// previous firing (min_start_spacing).
+	TriggerEventState_TRIGGER_EVENT_STATE_SKIPPED TriggerEventState = 4
 )
 
 // Enum value maps for TriggerEventState.
@@ -93,12 +97,14 @@ var (
 		1: "TRIGGER_EVENT_STATE_FIRED",
 		2: "TRIGGER_EVENT_STATE_MISSED",
 		3: "TRIGGER_EVENT_STATE_REJECTED",
+		4: "TRIGGER_EVENT_STATE_SKIPPED",
 	}
 	TriggerEventState_value = map[string]int32{
 		"TRIGGER_EVENT_STATE_UNSPECIFIED": 0,
 		"TRIGGER_EVENT_STATE_FIRED":       1,
 		"TRIGGER_EVENT_STATE_MISSED":      2,
 		"TRIGGER_EVENT_STATE_REJECTED":    3,
+		"TRIGGER_EVENT_STATE_SKIPPED":     4,
 	}
 )
 
@@ -735,9 +741,26 @@ type Trigger struct {
 	// Event triggers: the task's conversation key, from the event:
 	// {{event.taskId}}, {{event.parentTaskId}}, {{event.deployment}},
 	// {{event.type}} or {{event.labels.<key>}}. Empty: a new conversation.
-	Conversation  string `protobuf:"bytes,14,opt,name=conversation,proto3" json:"conversation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Conversation string `protobuf:"bytes,14,opt,name=conversation,proto3" json:"conversation,omitempty"`
+	// Cron: spread firing by a random amount in [0, jitter) after the
+	// window is due (a Go duration, e.g. "30s"), so deployments sharing a
+	// schedule don't all fire at once. Empty: no jitter.
+	Jitter string `protobuf:"bytes,15,opt,name=jitter,proto3" json:"jitter,omitempty"`
+	// Cron: bounds how late the latest missed window may still be caught
+	// up (catch_up); beyond it, it is recorded missed instead. Empty: no
+	// bound (always catches up the latest missed window).
+	CatchUpWindow string `protobuf:"bytes,16,opt,name=catch_up_window,json=catchUpWindow,proto3" json:"catch_up_window,omitempty"`
+	// Cron: what happens when a window is due while an earlier firing's
+	// task of this trigger is still queued, leased or running: "skip"
+	// (don't fire while one is unfinished), "buffer_one" (fire at most one
+	// more on top of one unfinished one), or "" / "allow" (fire regardless).
+	Overlap string `protobuf:"bytes,17,opt,name=overlap,proto3" json:"overlap,omitempty"`
+	// Cron: a fired window is at least this long (a Go duration) after the
+	// previous firing's; a closer window is skipped (recorded, not
+	// "missed"). Empty: no minimum.
+	MinStartSpacing string `protobuf:"bytes,18,opt,name=min_start_spacing,json=minStartSpacing,proto3" json:"min_start_spacing,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Trigger) Reset() {
@@ -864,6 +887,34 @@ func (x *Trigger) GetOn() *EventMatch {
 func (x *Trigger) GetConversation() string {
 	if x != nil {
 		return x.Conversation
+	}
+	return ""
+}
+
+func (x *Trigger) GetJitter() string {
+	if x != nil {
+		return x.Jitter
+	}
+	return ""
+}
+
+func (x *Trigger) GetCatchUpWindow() string {
+	if x != nil {
+		return x.CatchUpWindow
+	}
+	return ""
+}
+
+func (x *Trigger) GetOverlap() string {
+	if x != nil {
+		return x.Overlap
+	}
+	return ""
+}
+
+func (x *Trigger) GetMinStartSpacing() string {
+	if x != nil {
+		return x.MinStartSpacing
 	}
 	return ""
 }
@@ -3603,7 +3654,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x14max_delegation_depth\x18\x01 \x01(\x05R\x12maxDelegationDepth\x12\x1e\n" +
 	"\vmax_fan_out\x18\x02 \x01(\x05R\tmaxFanOut\x122\n" +
 	"\x15max_total_delegations\x18\x03 \x01(\x05R\x13maxTotalDelegations\x12(\n" +
-	"\x10max_queued_tasks\x18\x04 \x01(\x05R\x0emaxQueuedTasks\"\xfe\x04\n" +
+	"\x10max_queued_tasks\x18\x04 \x01(\x05R\x0emaxQueuedTasks\"\x84\x06\n" +
 	"\aTrigger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -3619,7 +3670,11 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\vnext_due_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tnextDueAt\x12:\n" +
 	"\vlast_due_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tlastDueAt\x12#\n" +
 	"\x02on\x18\r \x01(\v2\x13.agen.v1.EventMatchR\x02on\x12\"\n" +
-	"\fconversation\x18\x0e \x01(\tR\fconversation\x1a9\n" +
+	"\fconversation\x18\x0e \x01(\tR\fconversation\x12\x16\n" +
+	"\x06jitter\x18\x0f \x01(\tR\x06jitter\x12&\n" +
+	"\x0fcatch_up_window\x18\x10 \x01(\tR\rcatchUpWindow\x12\x18\n" +
+	"\aoverlap\x18\x11 \x01(\tR\aoverlap\x12*\n" +
+	"\x11min_start_spacing\x18\x12 \x01(\tR\x0fminStartSpacing\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x02\n" +
@@ -3949,12 +4004,13 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x1bDEPLOYMENT_KIND_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19DEPLOYMENT_KIND_SINGLETON\x10\x01\x12\x18\n" +
 	"\x14DEPLOYMENT_KIND_POOL\x10\x02\x12\x18\n" +
-	"\x14DEPLOYMENT_KIND_TASK\x10\x03*\x99\x01\n" +
+	"\x14DEPLOYMENT_KIND_TASK\x10\x03*\xba\x01\n" +
 	"\x11TriggerEventState\x12#\n" +
 	"\x1fTRIGGER_EVENT_STATE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19TRIGGER_EVENT_STATE_FIRED\x10\x01\x12\x1e\n" +
 	"\x1aTRIGGER_EVENT_STATE_MISSED\x10\x02\x12 \n" +
-	"\x1cTRIGGER_EVENT_STATE_REJECTED\x10\x03*\xd3\x01\n" +
+	"\x1cTRIGGER_EVENT_STATE_REJECTED\x10\x03\x12\x1f\n" +
+	"\x1bTRIGGER_EVENT_STATE_SKIPPED\x10\x04*\xd3\x01\n" +
 	"\rInstanceState\x12\x1e\n" +
 	"\x1aINSTANCE_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17INSTANCE_STATE_STARTING\x10\x01\x12\x18\n" +

@@ -95,6 +95,10 @@
               "schedule": { "type": "string" },
               "input": { "type": "string" },
               "catchUp": { "type": "boolean" },
+              "catchUpWindow": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "Bounds how late the latest missed window may still be caught up; beyond it, it is recorded missed instead" },
+              "jitter": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "Spread firing by a random amount within this, so deployments sharing a schedule don't all fire at once" },
+              "overlap": { "enum": ["skip", "buffer_one", "allow"], "description": "What to do when a window is due while an earlier firing's task is still unfinished (default allow)" },
+              "minStartSpacing": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "A fired window is at least this long after the previous firing's; a closer one is skipped" },
               "labels": { "$ref": "#/$defs/labels" }
             },
             "required": ["schedule"],
