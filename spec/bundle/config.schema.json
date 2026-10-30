@@ -82,6 +82,15 @@
       },
       "additionalProperties": false
     },
+    "conversations": {
+      "type": "object",
+      "description": "How a conversation's queue behaves when a new task arrives while an earlier one of the same conversation is still unfinished",
+      "properties": {
+        "queueMode": { "enum": ["followup", "collect"], "description": "followup (default): queue it, run after the earlier one. collect: merge it into the still-queued one if there is one, waiting debounce after the last merge before it is finally queued for real" },
+        "debounce": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "collect only: how long to wait after the last merge before queueing the merged task for real (default 2s)" }
+      },
+      "additionalProperties": false
+    },
     "alerts": {
       "type": "object",
       "description": "When the Hub warns about this deployment (activity warnings, activity.warning and task.stuck events)",

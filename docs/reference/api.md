@@ -55,6 +55,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/CreateDeployment` · MCP to
 | `budget` | Budget |  |
 | `limits` | Limits |  |
 | `triggers` | list of Trigger |  |
+| `conversations` | ConversationPolicy |  |
 
 ## CreateJoinToken
 
@@ -592,6 +593,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/UpdateDeployment` · MCP to
 | `placement` | Placement |  |
 | `bundleText` | map&lt;string, string&gt; |  |
 | `validateOnly` | bool |  |
+| `conversations` | ConversationPolicy |  |
 
 ## WhoAmI
 

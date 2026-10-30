@@ -311,6 +311,7 @@ message CreateDeploymentRequest {
   Budget budget = 7;
   Limits limits = 8;
   repeated Trigger triggers = 9;
+  ConversationPolicy conversations = 12;
 }
 message CreateDeploymentResponse {
   // Unset when validate_only.
@@ -332,6 +333,7 @@ message UpdateDeploymentRequest {
   Placement placement = 7;
   map<string, string> bundle_text = 9;
   bool validate_only = 8;
+  ConversationPolicy conversations = 10;
 }
 message UpdateDeploymentResponse {
   Deployment deployment = 1;

@@ -60,6 +60,17 @@ message Limits {
   int32 max_queued_tasks = 4;
 }
 
+// How a conversation's queue behaves when a new task arrives while an
+// earlier one of the same conversation is still unfinished (3.9, part).
+message ConversationPolicy {
+  // "followup" (default, also empty): queue it, run after the earlier
+  // one. "collect": merge it into the still-queued one if there is one,
+  // waiting debounce after the last merge before queueing it for real.
+  string queue_mode = 1;
+  // collect only: default 2s.
+  string debounce = 2;
+}
+
 message Trigger {
   // "cron", "webhook" or "event".
   string type = 1;
@@ -219,6 +230,7 @@ message Deployment {
   // Set while the deployment's provider account is held after an account
   // error (invalid key, no credit): it takes no new work until it recovers.
   ProviderHold provider_hold = 19;
+  ConversationPolicy conversations = 20;
 }
 
 // A provider account (provider + API key) held after an account error.

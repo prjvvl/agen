@@ -419,6 +419,47 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 	return t, err
 }
 
+// MergeIntoQueuedConversationTask merges t's input into the most recently
+// created still-queued task of its conversation (3.9, part: "collect" queue
+// mode), extending its not_before by debounceMs from now, instead of
+// queuing t as a separate task. The caller queues t normally when this
+// returns false (nothing to merge into, or it lost the race to a lease
+// that took the row it would have merged into).
+func (s *Store) MergeIntoQueuedConversationTask(ctx context.Context, t Task, debounceMs int64) (Task, bool, error) {
+	if t.ConversationKey == "" {
+		return Task{}, false, nil
+	}
+	now := NowMs()
+	var merged Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		var id string
+		err := tx.QueryRowContext(ctx,
+			"SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND conversation_key = $3 AND state = 'queued' ORDER BY created_ms DESC LIMIT 1",
+			t.Namespace, t.Deployment, t.ConversationKey).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		m, err := scanTask(tx.QueryRowContext(ctx,
+			"UPDATE tasks SET input = input || $1, not_before_ms = $2, updated_ms = $2 WHERE id = $3 AND state = 'queued' RETURNING "+taskCols,
+			"\n\n"+t.Input, now+debounceMs, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		merged = m
+		return nil
+	})
+	if err != nil {
+		return Task{}, false, err
+	}
+	return merged, merged.ID != "", nil
+}
+
 // ListTaskTree returns every task of the tree rooted at rootTaskID, oldest
 // first (the root itself included, since it is its own root_task_id).
 func (s *Store) ListTaskTree(ctx context.Context, namespace, rootTaskID string) ([]Task, error) {

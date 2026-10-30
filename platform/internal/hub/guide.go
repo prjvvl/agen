@@ -159,6 +159,25 @@ func checkOnParentEnd(v string) error {
 	return invalid(fmt.Sprintf("on_parent_end %q: use cancel or abandon", v))
 }
 
+// checkConversationPolicy validates a deployment's conversations policy
+// (3.9, part): queue_mode and debounce (collect only).
+func checkConversationPolicy(p *agenv1.ConversationPolicy) error {
+	if p == nil {
+		return nil
+	}
+	switch p.QueueMode {
+	case "", "followup", "collect":
+	default:
+		return invalid(fmt.Sprintf("conversations.queueMode %q: use followup or collect", p.QueueMode))
+	}
+	if p.Debounce != "" {
+		if _, err := time.ParseDuration(p.Debounce); err != nil {
+			return invalid(fmt.Sprintf("conversations.debounce %q: %s", p.Debounce, err))
+		}
+	}
+	return nil
+}
+
 // trustRank orders trust for narrowing: higher is more trusted. "" (unset)
 // is trusted.
 func trustRank(t string) int {

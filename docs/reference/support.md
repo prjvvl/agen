@@ -54,6 +54,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Artifacts (save_artifact / read_artifact; a long result need not stay in context) | ✓ | ✓ | ✓ | –[^14] |  |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
 | Every task of the tree a task belongs to (its root and descendants) | ✓ | ✓ | ✓ |  |  |
+| How a busy conversation's queue behaves (collect merges messages instead of running them one at a time; followup is today's default) | ✓ | ✓ | ✓ |  |  |
 | An agent reports its own progress; query a task's progress, activity and outcome without waiting on it | ✓ | ✓ | ✓ |  |  |
 | Cancel a task or run | ✓ | ✓ | ✓ | ✓ |  |
 | Stream output while a run is in progress | –[^15] |  |  |  |  |

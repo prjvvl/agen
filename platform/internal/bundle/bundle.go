@@ -118,14 +118,15 @@ type Notify struct {
 
 // Bundle is a validated upload.
 type Bundle struct {
-	Name     string
-	Digest   string
-	Kind     string
-	Scale    Scale
-	Budget   json.RawMessage
-	Limits   json.RawMessage
-	Triggers []Trigger
-	Files    map[string][]byte
+	Name          string
+	Digest        string
+	Kind          string
+	Scale         Scale
+	Budget        json.RawMessage
+	Limits        json.RawMessage
+	Conversations json.RawMessage
+	Triggers      []Trigger
+	Files         map[string][]byte
 
 	// What the agent can use, for warnings about likely mistakes.
 	Provider string
@@ -210,7 +211,7 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 	config := check("x-agen/config.json", "config", false)
 	check("x-agen/secrets.json", "secrets", false)
 
-	b := &Bundle{Files: clean, Kind: "pool", Scale: Scale{Min: 0, Max: 1}, Budget: json.RawMessage("{}"), Limits: json.RawMessage("{}")}
+	b := &Bundle{Files: clean, Kind: "pool", Scale: Scale{Min: 0, Max: 1}, Budget: json.RawMessage("{}"), Limits: json.RawMessage("{}"), Conversations: json.RawMessage("{}")}
 	b.Provider, _ = harness["provider"].(string)
 	b.Model, _ = harness["model"].(string)
 	for _, msg := range checkHarness(harness) {
@@ -273,12 +274,13 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 	if config != nil {
 		raw, _ := json.Marshal(config)
 		var c struct {
-			Kind        string            `json:"kind"`
-			Scale       *Scale            `json:"scale"`
-			Budget      json.RawMessage   `json:"budget"`
-			Limits      json.RawMessage   `json:"limits"`
-			Triggers    []json.RawMessage `json:"triggers"`
-			Permissions struct {
+			Kind          string            `json:"kind"`
+			Scale         *Scale            `json:"scale"`
+			Budget        json.RawMessage   `json:"budget"`
+			Limits        json.RawMessage   `json:"limits"`
+			Conversations json.RawMessage   `json:"conversations"`
+			Triggers      []json.RawMessage `json:"triggers"`
+			Permissions   struct {
 				Rules []struct {
 					Tool string `json:"tool"`
 				} `json:"rules"`
@@ -321,6 +323,9 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 		}
 		if len(c.Limits) > 0 {
 			b.Limits = c.Limits
+		}
+		if len(c.Conversations) > 0 {
+			b.Conversations = c.Conversations
 		}
 		seen := map[string]bool{}
 		for i, t := range b.Triggers {

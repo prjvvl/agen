@@ -130,7 +130,13 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if len(m.Triggers) > 0 {
 		p.Triggers = m.Triggers
 	}
+	if m.Conversations != nil {
+		p.Conversations = m.Conversations
+	}
 	if err := validateScale(kind, p.Scale); err != nil {
+		return nil, err
+	}
+	if err := checkConversationPolicy(p.Conversations); err != nil {
 		return nil, err
 	}
 	if err := validateTriggers(p.Triggers); err != nil {
@@ -207,7 +213,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		kind := cur.Kind
 		if nb != nil {
 			bp := policyFromBundle(nb)
-			kind, p.Scale, p.Triggers = nb.Kind, bp.Scale, bp.Triggers
+			kind, p.Scale, p.Triggers, p.Conversations = nb.Kind, bp.Scale, bp.Triggers, bp.Conversations
 		}
 		if m.Scale != nil {
 			p.Scale = m.Scale
@@ -215,7 +221,13 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		if len(m.Triggers) > 0 {
 			p.Triggers = m.Triggers
 		}
+		if m.Conversations != nil {
+			p.Conversations = m.Conversations
+		}
 		if err := validateScale(kind, p.Scale); err != nil {
+			return nil, err
+		}
+		if err := checkConversationPolicy(p.Conversations); err != nil {
 			return nil, err
 		}
 		if err := validateTriggers(p.Triggers); err != nil {
@@ -231,7 +243,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 			// kept. Explicit request fields below still override.
 			bp := policyFromBundle(nb)
 			d.DefinitionDigest, d.Kind = nb.Digest, nb.Kind
-			p.Scale, p.Budget, p.Limits, p.Triggers = bp.Scale, bp.Budget, bp.Limits, bp.Triggers
+			p.Scale, p.Budget, p.Limits, p.Triggers, p.Conversations = bp.Scale, bp.Budget, bp.Limits, bp.Triggers, bp.Conversations
 		}
 		if m.Scale != nil {
 			p.Scale = m.Scale
@@ -248,7 +260,13 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		if len(m.Triggers) > 0 {
 			p.Triggers = m.Triggers
 		}
+		if m.Conversations != nil {
+			p.Conversations = m.Conversations
+		}
 		if err := validateScale(d.Kind, p.Scale); err != nil {
+			return err
+		}
+		if err := checkConversationPolicy(p.Conversations); err != nil {
 			return err
 		}
 		if err := validateTriggers(p.Triggers); err != nil {
@@ -482,12 +500,37 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
 		return nil, err
 	}
+	// "collect" queue mode (3.9, part): merge into the conversation's still-
+	// queued task instead of queuing a separate one. Not idempotency-key
+	// aware yet: a merged submission's own idempotency_key is not recorded
+	// anywhere, so retrying it with the same key merges again rather than
+	// returning the earlier result. Submissions that rely on idempotency
+	// should not also use collect mode until this is addressed.
+	if cp := PolicyOf(d).Conversations; cp.QueueMode == "collect" && task.ConversationKey != "" {
+		merged, ok, err := h.Store.MergeIntoQueuedConversationTask(ctx, task, conversationDebounce(cp.Debounce).Milliseconds())
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		if ok {
+			_ = h.Store.TouchActivity(ctx, ns, name)
+			return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(merged)}), nil
+		}
+	}
 	t, err := h.Store.SubmitTask(ctx, task)
 	if err != nil {
 		return nil, connectErr(err)
 	}
 	_ = h.Store.TouchActivity(ctx, ns, name)
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// conversationDebounce parses ConversationPolicy.debounce ("" or
+// unparseable: the default).
+func conversationDebounce(s string) time.Duration {
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d
+	}
+	return 2 * time.Second
 }
 
 // GetTaskTree returns every task of the tree a given task belongs to,

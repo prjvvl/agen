@@ -166,6 +166,10 @@ features:
     title: Every task of the tree a task belongs to (its root and descendants)
     contract: [rpc:GetTaskTree, field:GetTaskTree.task_id, cli:tree]
     on: [api, mcp, cli]
+  - id: tasks.queue-modes
+    title: How a busy conversation's queue behaves (collect merges messages instead of running them one at a time; followup is today's default)
+    contract: [config:conversations, field:CreateDeployment.conversations, field:UpdateDeployment.conversations]
+    on: [api, mcp, cli]
   - id: tasks.progress
     title: An agent reports its own progress; query a task's progress, activity and outcome without waiting on it
     contract: [rpc:QueryTask, field:QueryTask.id, cli:query]

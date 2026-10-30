@@ -100,6 +100,7 @@ type Deployment struct {
 	Scale            json.RawMessage
 	Budget           json.RawMessage
 	Limits           json.RawMessage
+	Conversations    json.RawMessage
 	Triggers         json.RawMessage
 	Placement        json.RawMessage
 	Desired          int
@@ -117,26 +118,27 @@ func orEmpty(j json.RawMessage, def string) string {
 	return string(j)
 }
 
-const deploymentCols = "namespace, name, definition_digest, kind, scale, budget, limits, triggers, placement, desired, generation, last_activity_ms, created_ms, updated_ms, paused"
+const deploymentCols = "namespace, name, definition_digest, kind, scale, budget, limits, triggers, placement, desired, generation, last_activity_ms, created_ms, updated_ms, paused, conversations"
 
 func scanDeployment(r interface{ Scan(...any) error }) (Deployment, error) {
 	var d Deployment
-	var scale, budget, limits, triggers, placement string
+	var scale, budget, limits, triggers, placement, conversations string
 	var paused int
 	err := r.Scan(&d.Namespace, &d.Name, &d.DefinitionDigest, &d.Kind, &scale, &budget, &limits, &triggers, &placement,
-		&d.Desired, &d.Generation, &d.LastActivityMs, &d.CreatedMs, &d.UpdatedMs, &paused)
+		&d.Desired, &d.Generation, &d.LastActivityMs, &d.CreatedMs, &d.UpdatedMs, &paused, &conversations)
 	d.Paused = paused != 0
 	d.Scale, d.Budget, d.Limits, d.Triggers, d.Placement = json.RawMessage(scale), json.RawMessage(budget),
 		json.RawMessage(limits), json.RawMessage(triggers), json.RawMessage(placement)
+	d.Conversations = json.RawMessage(conversations)
 	return d, err
 }
 
 // CreateDeployment inserts a deployment; ErrConflict if it exists.
 func (s *Store) CreateDeployment(ctx context.Context, d Deployment) (Deployment, error) {
 	now := NowMs()
-	_, err := s.db.ExecContext(ctx, "INSERT INTO deployments ("+deploymentCols+") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, 0)",
+	_, err := s.db.ExecContext(ctx, "INSERT INTO deployments ("+deploymentCols+") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, 0, $14)",
 		d.Namespace, d.Name, d.DefinitionDigest, d.Kind, orEmpty(d.Scale, "{}"), orEmpty(d.Budget, "{}"),
-		orEmpty(d.Limits, "{}"), orEmpty(d.Triggers, "[]"), orEmpty(d.Placement, "{}"), d.Desired, now, now, now)
+		orEmpty(d.Limits, "{}"), orEmpty(d.Triggers, "[]"), orEmpty(d.Placement, "{}"), d.Desired, now, now, now, orEmpty(d.Conversations, "{}"))
 	if isUnique(err) {
 		return d, ErrConflict
 	}
@@ -212,9 +214,9 @@ func (s *Store) updateDeployment(ctx context.Context, leaderEpoch int64, ns, nam
 			}
 			res, err := tx.ExecContext(ctx,
 				"UPDATE deployments SET definition_digest = $1, kind = $2, scale = $3, budget = $4, limits = $5, triggers = $6, placement = $7, desired = $8, "+
-					"paused = $9, last_activity_ms = $10, generation = generation + 1, updated_ms = $11 WHERE namespace = $12 AND name = $13 AND generation = $14",
+					"paused = $9, last_activity_ms = $10, generation = generation + 1, updated_ms = $11, conversations = $15 WHERE namespace = $12 AND name = $13 AND generation = $14",
 				d.DefinitionDigest, d.Kind, orEmpty(d.Scale, "{}"), orEmpty(d.Budget, "{}"), orEmpty(d.Limits, "{}"),
-				orEmpty(d.Triggers, "[]"), orEmpty(d.Placement, "{}"), d.Desired, paused, d.LastActivityMs, NowMs(), ns, name, gen)
+				orEmpty(d.Triggers, "[]"), orEmpty(d.Placement, "{}"), d.Desired, paused, d.LastActivityMs, NowMs(), ns, name, gen, orEmpty(d.Conversations, "{}"))
 			if err != nil {
 				return err
 			}

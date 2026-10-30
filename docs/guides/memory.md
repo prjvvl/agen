@@ -35,6 +35,32 @@ or body field (see [Triggers](triggers.md#conversations)).
 - A run that is still unfinished blocks its conversation. If its task is
   cancelled or fails, the run is closed so the next task can start.
 
+### Queue modes for a busy conversation
+
+"One at a time, in order" (above) is `followup`, a deployment's default.
+`x-agen/config.json`'s `conversations.queueMode` changes it:
+
+```json
+{ "conversations": { "queueMode": "collect", "debounce": "2s" } }
+```
+
+- `collect`: a task submitted while an earlier one of the same
+  conversation is still queued (not yet leased) is merged into it instead
+  of queuing separately — its input is appended, and the merged task's
+  `not_before` moves `debounce` (default 2s) further out, so a burst of
+  quick messages (someone typing, a flaky webhook retried) becomes one
+  run instead of several back-to-back ones. `SubmitTask`'s response is
+  the task it merged into, not a new one; keep using that id.
+  `debounce` only resets while the task is still queued — once it is
+  leased, the next submission starts a fresh one.
+- Not yet implemented: `steer` (delivered into an already-running run's
+  inbox, picked up before its next model call) and `interrupt` (the
+  running run gets a last report turn, then the new task runs);
+  `SubmitTask.delivery` to ask for a mode per task rather than per
+  deployment; and `collect` is not idempotency-key aware — a merged
+  submission's own key is not recorded, so retrying it with the same key
+  merges again rather than returning the earlier result.
+
 ## Labels
 
 Labels are not memory, but they group work the same way you might use a

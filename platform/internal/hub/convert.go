@@ -76,20 +76,23 @@ func kindString(k agenv1.DeploymentKind) string {
 
 // Policy is a deployment's decoded policy.
 type Policy struct {
-	Scale     *agenv1.ScalePolicy
-	Budget    *agenv1.Budget
-	Limits    *agenv1.Limits
-	Placement *agenv1.Placement
-	Triggers  []*agenv1.Trigger
+	Scale         *agenv1.ScalePolicy
+	Budget        *agenv1.Budget
+	Limits        *agenv1.Limits
+	Placement     *agenv1.Placement
+	Triggers      []*agenv1.Trigger
+	Conversations *agenv1.ConversationPolicy
 }
 
 // PolicyOf decodes the stored policy of a deployment.
 func PolicyOf(d store.Deployment) Policy {
-	p := Policy{Scale: &agenv1.ScalePolicy{}, Budget: &agenv1.Budget{}, Limits: &agenv1.Limits{}, Placement: &agenv1.Placement{}}
+	p := Policy{Scale: &agenv1.ScalePolicy{}, Budget: &agenv1.Budget{}, Limits: &agenv1.Limits{}, Placement: &agenv1.Placement{},
+		Conversations: &agenv1.ConversationPolicy{}}
 	fromJSON(d.Scale, p.Scale)
 	fromJSON(d.Budget, p.Budget)
 	fromJSON(d.Limits, p.Limits)
 	fromJSON(d.Placement, p.Placement)
+	fromJSON(d.Conversations, p.Conversations)
 	p.Triggers = triggersFrom(d.Triggers)
 	return p
 }
@@ -104,10 +107,12 @@ func policyFromBundle(b *bundle.Bundle) Policy {
 			IdleTimeoutSeconds:     int32(b.Scale.IdleSeconds()),
 			MaxConcurrency:         int32(b.Scale.MaxConcurrency),
 		},
-		Budget:    &agenv1.Budget{},
-		Limits:    &agenv1.Limits{},
-		Placement: &agenv1.Placement{},
+		Budget:        &agenv1.Budget{},
+		Limits:        &agenv1.Limits{},
+		Placement:     &agenv1.Placement{},
+		Conversations: &agenv1.ConversationPolicy{},
 	}
+	fromJSON(b.Conversations, p.Conversations)
 	var budget struct {
 		MaxTokensPerRun int64   `json:"maxTokensPerRun"`
 		MaxUsdPerRun    float64 `json:"maxUsdPerRun"`
@@ -164,6 +169,7 @@ func mergeLimits(base, override *agenv1.Limits) *agenv1.Limits {
 func (p Policy) apply(d *store.Deployment) {
 	d.Scale, d.Budget, d.Limits, d.Placement = toJSON(p.Scale), toJSON(p.Budget), toJSON(p.Limits), toJSON(p.Placement)
 	d.Triggers = triggersJSON(p.Triggers)
+	d.Conversations = toJSON(p.Conversations)
 }
 
 func ms(t int64) *timestamppb.Timestamp {
@@ -185,6 +191,7 @@ func deploymentProto(d store.Deployment, ready int) *agenv1.Deployment {
 		Limits:           p.Limits,
 		Placement:        p.Placement,
 		Triggers:         p.Triggers,
+		Conversations:    p.Conversations,
 		Paused:           d.Paused,
 		Desired:          int32(d.Desired),
 		Ready:            int32(ready),

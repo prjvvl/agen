@@ -248,6 +248,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0040_task_progress.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0040_task_progress.sql"),
     },
+    Migration {
+        version: 41,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0041_conversation_queue_mode.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0041_conversation_queue_mode.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
