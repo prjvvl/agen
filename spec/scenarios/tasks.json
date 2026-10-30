@@ -1,7 +1,7 @@
 {
   "name": "tasks",
   "description": "Deploy an agent, run a task with a cost tier, conversation and labels, schedule one for later, list scheduled tasks, cancel it, and read the logs.",
-  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "observe.logs", "tasks.tree", "tasks.progress"],
+  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "tasks.hold", "observe.logs", "tasks.tree", "tasks.progress"],
   "bundles": {
     "hello": { "from": "examples/bundles/hello" }
   },
@@ -53,6 +53,27 @@
       "call": "ListTasks",
       "args": { "namespace": "$ns", "deployment": "greeter", "state": "TASK_STATE_SUCCEEDED" },
       "expect": { "tasks": { "has": { "id": "$t1" } } }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hold me", "notBefore": "$in:1h" },
+      "expect": { "task.state": "TASK_STATE_QUEUED" },
+      "save": { "t3": "task.id" }
+    },
+    {
+      "call": "PauseTask",
+      "args": { "id": "$t3", "reason": "testing" },
+      "expect": { "task.held": true, "task.holdReason": "testing" }
+    },
+    {
+      "call": "ResumeTask",
+      "args": { "id": "$t3" },
+      "expect": { "task.held": { "exists": false } }
+    },
+    {
+      "call": "CancelTask",
+      "args": { "id": "$t3" },
+      "expect": { "task.state": "TASK_STATE_CANCELLED" }
     },
     {
       "call": "SubmitTask",

@@ -374,6 +374,56 @@ func TestStartAgentJoinsAndSuspendsUntilTheChildFinishes(t *testing.T) {
 	}
 }
 
+// PauseTask holds a running task: the engine notices at its next turn
+// boundary (before calling the model again) and suspends with wait_for
+// "resume", instead of the Hub reaching in to stop it mid-turn. ResumeTask
+// wakes it directly, since nothing else would (3.4, part: hold).
+// features: tasks.hold
+func TestPauseTaskSuspendsARunningTaskAndResumeTaskRevivesIt(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// A long delay on the first turn's response gives PauseTask (called
+	// right after submit) a comfortable window to land before the second
+	// turn's hold check, which is what actually suspends the run.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":3000},
+		{"text":"worker done"}]}`)
+	k.deploy(t, "worker", worker, 1)
+	k.waitReady(t, 1)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pause only once the task is actually running its first (slow) turn:
+	// PauseTask on a still-queued task would just make LeaseTasks skip it
+	// forever, never exercising the engine's own mid-run suspend at all.
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	if _, err := k.c.PauseTask(ctx, connect.NewRequest(&agenv1.PauseTaskRequest{Id: sub.Msg.Task.Id, Reason: "testing"})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task waiting on its hold", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_WAITING && got.Msg.Task.WaitFor == "resume" && got.Msg.Task.Held
+	})
+
+	if _, err := k.c.ResumeTask(ctx, connect.NewRequest(&agenv1.ResumeTaskRequest{Id: sub.Msg.Task.Id})); err != nil {
+		t.Fatal(err)
+	}
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "worker done" {
+		t.Fatalf("worker task: %v %v", got, err)
+	}
+	if got.Msg.Task.Held || got.Msg.Task.WaitFor != "" {
+		t.Fatalf("held and wait_for must clear on resume: held=%v waitFor=%q", got.Msg.Task.Held, got.Msg.Task.WaitFor)
+	}
+}
+
 // An "ask" tool call in a managed agent becomes a durable approval at the
 // Hub; the person who submitted the task cannot approve it; approve lets
 // the call run, deny stops it, and an unanswered ask expires.

@@ -1129,6 +1129,23 @@ impl Agent {
                     }
                 }
             }
+            // Hold (3.4, part): a task PauseTask has held suspends here
+            // instead of calling the model again, with wait_for "resume".
+            // A deadline (if any) is the Hub's job to wake it by, lazily
+            // for a queued task and actively for this waiting one
+            // (WakeExpiredHolds); the engine only needs the bool.
+            if !live.rec.task_id.is_empty() {
+                if let Some(starter) = &self.task_starter {
+                    match starter.is_held(&live.rec.task_id).await {
+                        Ok(true) => return Ok(Outcome::Suspended("resume".into())),
+                        Ok(false) => {}
+                        Err(e) => {
+                            self.log("warn", &format!("run {}: could not check if held: {e}", live.rec.id))
+                                .await;
+                        }
+                    }
+                }
+            }
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
                 system: self.redactor.redact(&self.system_prompt(opts).await?),

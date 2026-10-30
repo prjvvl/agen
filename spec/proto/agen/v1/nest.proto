@@ -52,6 +52,10 @@ service NestService {
   // children (3.4, part: "join"). Low-stakes like ReportProgress:
   // requireNest only, no lease fencing.
   rpc UnfinishedChildren(NestUnfinishedChildrenRequest) returns (NestUnfinishedChildrenResponse);
+  // Whether a task this Nest currently leases is effectively held right
+  // now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
+  // only, no lease fencing.
+  rpc IsHeld(NestIsHeldRequest) returns (NestIsHeldResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -236,6 +240,14 @@ message NestUnfinishedChildrenRequest {
 }
 message NestUnfinishedChildrenResponse {
   int64 count = 1;
+}
+
+message NestIsHeldRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestIsHeldResponse {
+  bool held = 1;
 }
 
 message CreateApprovalRequest {

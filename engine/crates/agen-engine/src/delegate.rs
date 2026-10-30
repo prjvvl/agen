@@ -127,6 +127,12 @@ pub trait TaskStarter: Send + Sync {
     /// `wait_for: "children"` instead of calling the model again while
     /// this is positive).
     async fn unfinished_children(&self, task_id: &str) -> Result<i64, String>;
+    /// Whether the current task is effectively held right now (3.4, part:
+    /// hold, from `PauseTask`). Checked by the engine's own turn loop,
+    /// which suspends with `wait_for: "resume"` instead of calling the
+    /// model again while held; a deadline (if any) is the Hub's job to
+    /// act on, not the engine's, so this is just a bool.
+    async fn is_held(&self, task_id: &str) -> Result<bool, String>;
 }
 
 /// What waiting for a task found.
@@ -341,6 +347,27 @@ impl TaskStarter for ManagerResolver {
         Ok(v.get("count")
             .and_then(|c| c.as_i64().or_else(|| c.as_str()?.parse().ok()))
             .unwrap_or(0))
+    }
+
+    async fn is_held(&self, task_id: &str) -> Result<bool, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/IsHeld", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "is held for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v.get("held").and_then(Value::as_bool).unwrap_or(false))
     }
 }
 

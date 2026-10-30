@@ -160,7 +160,7 @@ func procedureScope(procedure string) string {
 		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide",
 		"GetTranscript", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds", "ListEvents", "ListFeedback", "ListMemoryBlocks", "GetArtifact", "ListArtifacts":
 		return ScopeViewer
-	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "RequestWake",
+	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "PauseTask", "ResumeTask", "RequestWake",
 		"CreateWebhookSecret", "ResumeProvider", "RecordFeedback", "SetMemoryBlock":
 		return ScopeOperator
 	case "ListApprovals", "DecideApproval":

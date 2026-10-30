@@ -626,6 +626,24 @@ func (n *NestAPI) UnfinishedChildren(ctx context.Context, req *connect.Request[a
 	return connect.NewResponse(&agenv1.NestUnfinishedChildrenResponse{Count: n2}), nil
 }
 
+// IsHeld reports whether a task this Nest currently leases is effectively
+// held right now (3.4, part: hold). Low-stakes like ReportProgress:
+// requireNest only, no lease fencing.
+func (n *NestAPI) IsHeld(ctx context.Context, req *connect.Request[agenv1.NestIsHeldRequest]) (*connect.Response[agenv1.NestIsHeldResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	held, err := n.hub.Store.IsHeld(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestIsHeldResponse{Held: held}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

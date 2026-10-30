@@ -2199,7 +2199,17 @@ type Task struct {
 	RootTaskId string `protobuf:"bytes,40,opt,name=root_task_id,json=rootTaskId,proto3" json:"root_task_id,omitempty"`
 	// The latest report_progress call (3.4, part); unset if the agent never
 	// called it.
-	Progress      *TaskProgress `protobuf:"bytes,41,opt,name=progress,proto3" json:"progress,omitempty"`
+	Progress *TaskProgress `protobuf:"bytes,41,opt,name=progress,proto3" json:"progress,omitempty"`
+	// Hold (3.4, part): a queued task is skipped by leasing and a running run
+	// suspends with wait_for "resume" at its next model call, until ResumeTask
+	// or held_until passes. Held is independent of state: it only gates
+	// queued/waiting, it does not itself change state.
+	Held bool `protobuf:"varint,42,opt,name=held,proto3" json:"held,omitempty"`
+	// Unset: held indefinitely, until ResumeTask. Set: the scheduler clears
+	// the hold itself once this passes (lazily for a queued task, actively
+	// woken for a waiting one).
+	HeldUntil     *timestamppb.Timestamp `protobuf:"bytes,43,opt,name=held_until,json=heldUntil,proto3" json:"held_until,omitempty"`
+	HoldReason    string                 `protobuf:"bytes,44,opt,name=hold_reason,json=holdReason,proto3" json:"hold_reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2519,6 +2529,27 @@ func (x *Task) GetProgress() *TaskProgress {
 		return x.Progress
 	}
 	return nil
+}
+
+func (x *Task) GetHeld() bool {
+	if x != nil {
+		return x.Held
+	}
+	return false
+}
+
+func (x *Task) GetHeldUntil() *timestamppb.Timestamp {
+	if x != nil {
+		return x.HeldUntil
+	}
+	return nil
+}
+
+func (x *Task) GetHoldReason() string {
+	if x != nil {
+		return x.HoldReason
+	}
+	return ""
 }
 
 // A task's self-reported progress (3.4, part), from the built-in
@@ -4341,7 +4372,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xaa\f\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x9a\r\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -4393,7 +4424,12 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\ron_parent_end\x18' \x01(\tR\vonParentEnd\x12 \n" +
 	"\froot_task_id\x18( \x01(\tR\n" +
 	"rootTaskId\x121\n" +
-	"\bprogress\x18) \x01(\v2\x15.agen.v1.TaskProgressR\bprogress\x1a9\n" +
+	"\bprogress\x18) \x01(\v2\x15.agen.v1.TaskProgressR\bprogress\x12\x12\n" +
+	"\x04held\x18* \x01(\bR\x04held\x129\n" +
+	"\n" +
+	"held_until\x18+ \x01(\v2\x1a.google.protobuf.TimestampR\theldUntil\x12\x1f\n" +
+	"\vhold_reason\x18, \x01(\tR\n" +
+	"holdReason\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"~\n" +
@@ -4734,39 +4770,40 @@ var file_agen_v1_resources_proto_depIdxs = []int32{
 	27, // 40: agen.v1.Task.overrides:type_name -> agen.v1.TaskOverrides
 	50, // 41: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
 	25, // 42: agen.v1.Task.progress:type_name -> agen.v1.TaskProgress
-	50, // 43: agen.v1.InboxEntry.created_at:type_name -> google.protobuf.Timestamp
-	28, // 44: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
-	29, // 45: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
-	47, // 46: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
-	51, // 47: agen.v1.Event.data:type_name -> google.protobuf.Struct
-	50, // 48: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
-	52, // 49: agen.v1.Outcome.data:type_name -> google.protobuf.Value
-	51, // 50: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
-	5,  // 51: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
-	50, // 52: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
-	50, // 53: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
-	50, // 54: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
-	50, // 55: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
-	50, // 56: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
-	51, // 57: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
-	50, // 58: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	50, // 59: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
-	50, // 60: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
-	48, // 61: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
-	50, // 62: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
-	50, // 63: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
-	50, // 64: agen.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
-	33, // 65: agen.v1.Run.usage:type_name -> agen.v1.Usage
-	50, // 66: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	50, // 67: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
-	49, // 68: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	33, // 69: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
-	31, // 70: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
-	71, // [71:71] is the sub-list for method output_type
-	71, // [71:71] is the sub-list for method input_type
-	71, // [71:71] is the sub-list for extension type_name
-	71, // [71:71] is the sub-list for extension extendee
-	0,  // [0:71] is the sub-list for field type_name
+	50, // 43: agen.v1.Task.held_until:type_name -> google.protobuf.Timestamp
+	50, // 44: agen.v1.InboxEntry.created_at:type_name -> google.protobuf.Timestamp
+	28, // 45: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
+	29, // 46: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
+	47, // 47: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
+	51, // 48: agen.v1.Event.data:type_name -> google.protobuf.Struct
+	50, // 49: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
+	52, // 50: agen.v1.Outcome.data:type_name -> google.protobuf.Value
+	51, // 51: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
+	5,  // 52: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
+	50, // 53: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
+	50, // 54: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
+	50, // 55: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
+	50, // 56: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
+	50, // 57: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
+	51, // 58: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
+	50, // 59: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
+	50, // 60: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
+	50, // 61: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
+	48, // 62: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
+	50, // 63: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
+	50, // 64: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
+	50, // 65: agen.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
+	33, // 66: agen.v1.Run.usage:type_name -> agen.v1.Usage
+	50, // 67: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	50, // 68: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
+	49, // 69: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
+	33, // 70: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	31, // 71: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
+	72, // [72:72] is the sub-list for method output_type
+	72, // [72:72] is the sub-list for method input_type
+	72, // [72:72] is the sub-list for extension type_name
+	72, // [72:72] is the sub-list for extension extendee
+	0,  // [0:72] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }

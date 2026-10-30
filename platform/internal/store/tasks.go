@@ -94,6 +94,13 @@ type Task struct {
 	// Progress (3.4, part): the latest report_progress call, a JSON object
 	// ({step, done, total, note, artifacts}); "" if never called.
 	Progress string
+	// Held, HeldUntilMs, HoldReason (3.4, part): set by PauseTask. Held
+	// gates leasing (queued) and the next model call (running/waiting);
+	// it does not itself move the task out of its current state.
+	// HeldUntilMs is 0 for no deadline.
+	Held        bool
+	HeldUntilMs int64
+	HoldReason  string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -276,14 +283,16 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for, on_parent_end, root_task_id, progress"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for, on_parent_end, root_task_id, progress, held, held_until_ms, hold_reason"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels, locks string
+	var held int
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor, &t.OnParentEnd, &t.RootTaskID, &t.Progress)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor, &t.OnParentEnd, &t.RootTaskID, &t.Progress, &held, &t.HeldUntilMs, &t.HoldReason)
+	t.Held = held != 0
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -540,7 +549,8 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 	var out []Task
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		now := NowMs()
-		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks t WHERE namespace = $1 AND deployment = $2 AND state = 'queued' AND not_before_ms <= $4 AND (conversation_key = '' OR NOT EXISTS ("+
+		rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks t WHERE namespace = $1 AND deployment = $2 AND state = 'queued' AND not_before_ms <= $4 AND "+
+			"(t.held = 0 OR (t.held_until_ms > 0 AND t.held_until_ms <= $4)) AND (conversation_key = '' OR NOT EXISTS ("+
 			"SELECT 1 FROM tasks o WHERE o.namespace = t.namespace AND o.deployment = t.deployment AND o.conversation_key = t.conversation_key AND o.id <> t.id AND "+
 			"(o.state IN ('leased', 'running', 'waiting') OR (o.state = 'queued' AND o.not_before_ms <= $4 AND (o.created_ms < t.created_ms OR (o.created_ms = t.created_ms AND o.id < t.id)))))) "+
 			"AND NOT (source LIKE 'reply:%' AND EXISTS (SELECT 1 FROM tasks c JOIN runs r ON r.id = c.parent_run_id WHERE c.id = t.parent_task_id AND (r.ended_ms IS NULL OR r.ended_ms = 0))) "+
@@ -1000,6 +1010,199 @@ func (s *Store) CancelTree(ctx context.Context, rootTaskID string) ([]Task, erro
 		return nil
 	})
 	return cancelled, err
+}
+
+// PauseTask holds id: a queued task is skipped by LeaseTasks, a
+// leased/running one suspends at its next model call once the engine
+// notices (IsHeld), and a task already waiting on something else (a
+// child, a reply) keeps waiting on that, with the hold layered on top.
+// untilMs is 0 for no deadline; reason is free text. A task not currently
+// in a holdable state (already terminal, or not found) is left alone.
+func (s *Store) PauseTask(ctx context.Context, id string, untilMs int64, reason string) (Task, error) {
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			"UPDATE tasks SET held = 1, held_until_ms = $1, hold_reason = $2, updated_ms = $3 WHERE id = $4 AND state IN ('queued', 'leased', 'running', 'waiting')",
+			untilMs, reason, NowMs(), id)
+		return err
+	})
+	if err != nil {
+		return Task{}, err
+	}
+	return s.GetTask(ctx, id)
+}
+
+// PauseTree holds every unfinished task of the tree rooted at rootTaskID
+// (found through root_task_id), and returns the ones it actually held,
+// oldest first. Like CancelTree, this touches every task of the tree,
+// including an async one: an explicit hold is not the automatic
+// on_parent_end cascade.
+func (s *Store) PauseTree(ctx context.Context, rootTaskID string, untilMs int64, reason string) ([]Task, error) {
+	var held []Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id FROM tasks WHERE root_task_id = $1 AND state IN ('queued', 'leased', 'running', 'waiting') ORDER BY created_ms", rootTaskID)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		now := NowMs()
+		for _, id := range ids {
+			t, err := scanTask(tx.QueryRowContext(ctx,
+				"UPDATE tasks SET held = 1, held_until_ms = $1, hold_reason = $2, updated_ms = $3 WHERE id = $4 AND state IN ('queued', 'leased', 'running', 'waiting') RETURNING "+taskCols,
+				untilMs, reason, now, id))
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // ended between the select above and here
+			}
+			if err != nil {
+				return err
+			}
+			held = append(held, t)
+		}
+		return nil
+	})
+	return held, err
+}
+
+// ResumeTask ends a hold PauseTask started. A task waiting specifically for
+// the hold (wait_for "resume", set by the engine's own suspend once it
+// noticed IsHeld) is woken directly here, since nothing else will; a held
+// task waiting for something else (a child, a reply) only has its hold
+// lifted, it still waits for that other thing.
+func (s *Store) ResumeTask(ctx context.Context, id string) (Task, error) {
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		now := NowMs()
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE tasks SET held = 0, held_until_ms = 0, hold_reason = '', updated_ms = $1 WHERE id = $2",
+			now, id); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			"UPDATE tasks SET state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 WHERE id = $2 AND state = 'waiting' AND wait_for = 'resume'",
+			now, id)
+		return err
+	})
+	if err != nil {
+		return Task{}, err
+	}
+	return s.GetTask(ctx, id)
+}
+
+// ResumeTree ends the hold on every held task of the tree rooted at
+// rootTaskID, and returns the ones it actually resumed, oldest first.
+func (s *Store) ResumeTree(ctx context.Context, rootTaskID string) ([]Task, error) {
+	var resumed []Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id FROM tasks WHERE root_task_id = $1 AND held = 1 ORDER BY created_ms", rootTaskID)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		now := NowMs()
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE tasks SET held = 0, held_until_ms = 0, hold_reason = '', updated_ms = $1 WHERE id = $2",
+				now, id); err != nil {
+				return err
+			}
+			t, err := scanTask(tx.QueryRowContext(ctx,
+				"UPDATE tasks SET state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 WHERE id = $2 AND state = 'waiting' AND wait_for = 'resume' RETURNING "+taskCols,
+				now, id))
+			if errors.Is(err, sql.ErrNoRows) {
+				t, err = scanTask(tx.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE id = $1", id))
+			}
+			if err != nil {
+				return err
+			}
+			resumed = append(resumed, t)
+		}
+		return nil
+	})
+	return resumed, err
+}
+
+// IsHeld reports whether task id is effectively held right now: held, and
+// either with no deadline or one still in the future. A past deadline
+// reports false without clearing the stored hold (lazy expiry: LeaseTasks
+// and WakeExpiredHolds are what actually move the task on).
+func (s *Store) IsHeld(ctx context.Context, taskID string) (bool, error) {
+	var held int
+	var heldUntilMs int64
+	err := s.db.QueryRowContext(ctx, "SELECT held, held_until_ms FROM tasks WHERE id = $1", taskID).Scan(&held, &heldUntilMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return held != 0 && (heldUntilMs == 0 || heldUntilMs > NowMs()), nil
+}
+
+// WakeExpiredHolds wakes every task waiting specifically on a hold
+// (wait_for "resume") whose held_until deadline has passed, returning the
+// ids woken. Mirrors ExpireOverdueTasks for the same reason: a waiting
+// task holds no lease, so nothing else will notice its deadline passed.
+func (s *Store) WakeExpiredHolds(ctx context.Context) ([]string, error) {
+	var woken []string
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		now := NowMs()
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id FROM tasks WHERE state = 'waiting' AND wait_for = 'resume' AND held = 1 AND held_until_ms > 0 AND held_until_ms <= $1", now)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		for _, id := range ids {
+			res, err := tx.ExecContext(ctx,
+				"UPDATE tasks SET held = 0, held_until_ms = 0, hold_reason = '', state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 "+
+					"WHERE id = $2 AND state = 'waiting' AND wait_for = 'resume'",
+				now, id)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 1 {
+				woken = append(woken, id)
+			}
+		}
+		return nil
+	})
+	return woken, err
 }
 
 // endTaskRun ends the unfinished run of a task the Hub has finished, and

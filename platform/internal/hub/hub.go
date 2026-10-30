@@ -835,6 +835,73 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t)}), nil
 }
 
+// PauseTask holds a task (3.4, part): a queued task is skipped by leasing,
+// a running one suspends at its next model call once the engine notices.
+func (h *Hub) PauseTask(ctx context.Context, req *connect.Request[agenv1.PauseTaskRequest]) (*connect.Response[agenv1.PauseTaskResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	var untilMs int64
+	if u := req.Msg.GetUntil(); u != nil {
+		untilMs = u.AsTime().UnixMilli()
+	}
+	if req.Msg.Tree {
+		held, err := h.Store.PauseTree(ctx, t.RootTaskID, untilMs, req.Msg.Reason)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		out := make([]*agenv1.Task, len(held))
+		for i, ht := range held {
+			out[i] = TaskProto(ht)
+		}
+		t, err = h.Store.GetTask(ctx, req.Msg.Id)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		return connect.NewResponse(&agenv1.PauseTaskResponse{Task: TaskProto(t), Held: out}), nil
+	}
+	t, err = h.Store.PauseTask(ctx, req.Msg.Id, untilMs, req.Msg.Reason)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.PauseTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// ResumeTask ends a hold PauseTask started (3.4, part).
+func (h *Hub) ResumeTask(ctx context.Context, req *connect.Request[agenv1.ResumeTaskRequest]) (*connect.Response[agenv1.ResumeTaskResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	if req.Msg.Tree {
+		resumed, err := h.Store.ResumeTree(ctx, t.RootTaskID)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		out := make([]*agenv1.Task, len(resumed))
+		for i, rt := range resumed {
+			out[i] = TaskProto(rt)
+		}
+		t, err = h.Store.GetTask(ctx, req.Msg.Id)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		return connect.NewResponse(&agenv1.ResumeTaskResponse{Task: TaskProto(t), Resumed: out}), nil
+	}
+	t, err = h.Store.ResumeTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.ResumeTaskResponse{Task: TaskProto(t)}), nil
+}
+
 // ---- addressing ----
 
 func (h *Hub) Resolve(ctx context.Context, req *connect.Request[agenv1.ResolveRequest]) (*connect.Response[agenv1.ResolveResponse], error) {

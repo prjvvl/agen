@@ -55,6 +55,9 @@ impl TaskStarter for JoinChildren {
     async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
         Ok(self.count.load(Ordering::SeqCst))
     }
+    async fn is_held(&self, _task_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 fn start(agent: &str) -> FakeResponse {

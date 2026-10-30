@@ -71,6 +71,10 @@ const (
 	HubServiceGetTaskTreeProcedure = "/agen.v1.HubService/GetTaskTree"
 	// HubServiceQueryTaskProcedure is the fully-qualified name of the HubService's QueryTask RPC.
 	HubServiceQueryTaskProcedure = "/agen.v1.HubService/QueryTask"
+	// HubServicePauseTaskProcedure is the fully-qualified name of the HubService's PauseTask RPC.
+	HubServicePauseTaskProcedure = "/agen.v1.HubService/PauseTask"
+	// HubServiceResumeTaskProcedure is the fully-qualified name of the HubService's ResumeTask RPC.
+	HubServiceResumeTaskProcedure = "/agen.v1.HubService/ResumeTask"
 	// HubServiceResolveProcedure is the fully-qualified name of the HubService's Resolve RPC.
 	HubServiceResolveProcedure = "/agen.v1.HubService/Resolve"
 	// HubServiceRequestWakeProcedure is the fully-qualified name of the HubService's RequestWake RPC.
@@ -203,6 +207,11 @@ type HubServiceClient interface {
 	// A task's progress, current activity and outcome, without waiting on it
 	// like GetTask's wait_seconds does (3.4, part).
 	QueryTask(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Hold a task: a queued one is skipped by leasing, a running one suspends
+	// at its next model call (3.4, part).
+	PauseTask(context.Context, *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error)
+	// End a hold started by PauseTask, now or early.
+	ResumeTask(context.Context, *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error)
 	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
 	// Start a sleeping deployment (scale it to at least 1).
@@ -382,6 +391,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+HubServiceQueryTaskProcedure,
 			connect.WithSchema(hubServiceMethods.ByName("QueryTask")),
+			connect.WithClientOptions(opts...),
+		),
+		pauseTask: connect.NewClient[v1.PauseTaskRequest, v1.PauseTaskResponse](
+			httpClient,
+			baseURL+HubServicePauseTaskProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("PauseTask")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeTask: connect.NewClient[v1.ResumeTaskRequest, v1.ResumeTaskResponse](
+			httpClient,
+			baseURL+HubServiceResumeTaskProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ResumeTask")),
 			connect.WithClientOptions(opts...),
 		),
 		resolve: connect.NewClient[v1.ResolveRequest, v1.ResolveResponse](
@@ -626,6 +647,8 @@ type hubServiceClient struct {
 	cancelTask               *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
 	getTaskTree              *connect.Client[v1.GetTaskTreeRequest, v1.GetTaskTreeResponse]
 	queryTask                *connect.Client[v1.QueryTaskRequest, v1.QueryTaskResponse]
+	pauseTask                *connect.Client[v1.PauseTaskRequest, v1.PauseTaskResponse]
+	resumeTask               *connect.Client[v1.ResumeTaskRequest, v1.ResumeTaskResponse]
 	resolve                  *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
 	requestWake              *connect.Client[v1.RequestWakeRequest, v1.RequestWakeResponse]
 	listApprovals            *connect.Client[v1.ListApprovalsRequest, v1.ListApprovalsResponse]
@@ -738,6 +761,16 @@ func (c *hubServiceClient) GetTaskTree(ctx context.Context, req *connect.Request
 // QueryTask calls agen.v1.HubService.QueryTask.
 func (c *hubServiceClient) QueryTask(ctx context.Context, req *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
 	return c.queryTask.CallUnary(ctx, req)
+}
+
+// PauseTask calls agen.v1.HubService.PauseTask.
+func (c *hubServiceClient) PauseTask(ctx context.Context, req *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error) {
+	return c.pauseTask.CallUnary(ctx, req)
+}
+
+// ResumeTask calls agen.v1.HubService.ResumeTask.
+func (c *hubServiceClient) ResumeTask(ctx context.Context, req *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error) {
+	return c.resumeTask.CallUnary(ctx, req)
 }
 
 // Resolve calls agen.v1.HubService.Resolve.
@@ -959,6 +992,11 @@ type HubServiceHandler interface {
 	// A task's progress, current activity and outcome, without waiting on it
 	// like GetTask's wait_seconds does (3.4, part).
 	QueryTask(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Hold a task: a queued one is skipped by leasing, a running one suspends
+	// at its next model call (3.4, part).
+	PauseTask(context.Context, *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error)
+	// End a hold started by PauseTask, now or early.
+	ResumeTask(context.Context, *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error)
 	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
 	// Start a sleeping deployment (scale it to at least 1).
@@ -1134,6 +1172,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		HubServiceQueryTaskProcedure,
 		svc.QueryTask,
 		connect.WithSchema(hubServiceMethods.ByName("QueryTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServicePauseTaskHandler := connect.NewUnaryHandler(
+		HubServicePauseTaskProcedure,
+		svc.PauseTask,
+		connect.WithSchema(hubServiceMethods.ByName("PauseTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceResumeTaskHandler := connect.NewUnaryHandler(
+		HubServiceResumeTaskProcedure,
+		svc.ResumeTask,
+		connect.WithSchema(hubServiceMethods.ByName("ResumeTask")),
 		connect.WithHandlerOptions(opts...),
 	)
 	hubServiceResolveHandler := connect.NewUnaryHandler(
@@ -1390,6 +1440,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetTaskTreeHandler.ServeHTTP(w, r)
 		case HubServiceQueryTaskProcedure:
 			hubServiceQueryTaskHandler.ServeHTTP(w, r)
+		case HubServicePauseTaskProcedure:
+			hubServicePauseTaskHandler.ServeHTTP(w, r)
+		case HubServiceResumeTaskProcedure:
+			hubServiceResumeTaskHandler.ServeHTTP(w, r)
 		case HubServiceResolveProcedure:
 			hubServiceResolveHandler.ServeHTTP(w, r)
 		case HubServiceRequestWakeProcedure:
@@ -1531,6 +1585,14 @@ func (UnimplementedHubServiceHandler) GetTaskTree(context.Context, *connect.Requ
 
 func (UnimplementedHubServiceHandler) QueryTask(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.QueryTask is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) PauseTask(context.Context, *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.PauseTask is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ResumeTask(context.Context, *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ResumeTask is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error) {

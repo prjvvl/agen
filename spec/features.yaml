@@ -178,6 +178,11 @@ features:
     title: Cancel a task or run
     contract: [rpc:CancelTask, cli:cancel, field:CancelTask.tree]
     on: [rust, python, node, go, api, mcp, cli, console]
+  - id: tasks.hold
+    title: Hold a task, and resume it; a queued one is skipped by leasing, a running one suspends at its next model call
+    contract: [rpc:PauseTask, rpc:ResumeTask, field:PauseTask.tree, field:PauseTask.until, field:PauseTask.reason,
+      field:ResumeTask.tree, cli:pause, cli:resume]
+    on: [api, mcp, cli]
   - id: tasks.streaming
     title: Stream output while a run is in progress
     contract: []

@@ -54,6 +54,10 @@ impl TaskStarter for ScriptedInbox {
     async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
         Ok(0)
     }
+
+    async fn is_held(&self, _task_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 fn say(text: &str) -> FakeResponse {
@@ -145,6 +149,9 @@ async fn a_drain_error_does_not_fail_the_turn() {
         }
         async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
             Ok(0)
+        }
+        async fn is_held(&self, _task_id: &str) -> Result<bool, String> {
+            Ok(false)
         }
     }
     let d = tempfile::tempdir().unwrap();

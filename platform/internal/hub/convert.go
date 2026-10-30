@@ -266,12 +266,16 @@ func TaskProto(t store.Task) *agenv1.Task {
 		ConversationKey: t.ConversationKey, Labels: t.Labels, ModelTier: t.ModelTier,
 		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey, ScheduleKey: t.ScheduleKey, Priority: t.Priority, Trust: t.Trust, Locks: t.Locks,
 		WaitFor: t.WaitFor, OnParentEnd: t.OnParentEnd, RootTaskId: t.RootTaskID, Progress: taskProgressProto(t.Progress),
+		Held: t.Held, HoldReason: t.HoldReason,
 	}
 	if t.NotBeforeMs > 0 {
 		out.NotBefore = ms(t.NotBeforeMs)
 	}
 	if t.NotAfterMs > 0 {
 		out.NotAfter = ms(t.NotAfterMs)
+	}
+	if t.HeldUntilMs > 0 {
+		out.HeldUntil = ms(t.HeldUntilMs)
 	}
 	out.Outcome = outcomeProto(t.Outcome, t.State, t.Output, t.Error)
 	out.Overrides = overridesProto(t.Overrides)

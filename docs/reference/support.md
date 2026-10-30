@@ -57,6 +57,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | How a busy conversation's queue behaves (collect merges messages instead of running them one at a time; followup is today's default) | ✓ | ✓ | ✓ |  |  |
 | An agent reports its own progress; query a task's progress, activity and outcome without waiting on it | ✓ | ✓ | ✓ |  |  |
 | Cancel a task or run | ✓ | ✓ | ✓ | ✓ |  |
+| Hold a task, and resume it; a queued one is skipped by leasing, a running one suspends at its next model call | ✓ | ✓ | ✓ |  |  |
 | Stream output while a run is in progress | –[^15] |  |  |  |  |
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |
 | Per-task cost tier | ✓ | ✓ | ✓ | ✓ |  |

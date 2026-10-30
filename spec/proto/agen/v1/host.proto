@@ -57,6 +57,10 @@ service ManagerService {
   // engine's turn loop (suspends instead of asking the model while
   // positive).
   rpc UnfinishedChildren(UnfinishedChildrenRequest) returns (UnfinishedChildrenResponse);
+  // Whether the calling task is effectively held right now (3.4, part:
+  // hold), checked by the engine's turn loop (suspends with wait_for
+  // "resume" instead of asking the model while held).
+  rpc IsHeld(IsHeldRequest) returns (IsHeldResponse);
 }
 
 message StartTaskRequest {
@@ -118,6 +122,13 @@ message UnfinishedChildrenRequest {
 }
 message UnfinishedChildrenResponse {
   int64 count = 1;
+}
+
+message IsHeldRequest {
+  string task_id = 1;
+}
+message IsHeldResponse {
+  bool held = 1;
 }
 
 message RequestApprovalRequest {

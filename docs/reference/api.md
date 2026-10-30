@@ -430,6 +430,19 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/PauseDeployment` · MCP too
 | `ref` | DeploymentRef |  |
 | `paused` | bool | false resumes. |
 
+## PauseTask
+
+Hold a task: a queued one is skipped by leasing, a running one suspends at its next model call (3.4, part).
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/PauseTask` · MCP tool: `pause_task`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string |  |
+| `tree` | bool | Hold every unfinished task of id's whole tree (its root and every descendant, found through root_task_id), not just id itself. Mirrors CancelTask's tree, including async/detached children. |
+| `until` | Timestamp | Unset: held until ResumeTask, with no deadline. |
+| `reason` | string |  |
+
 ## QueryTask
 
 A task's progress, current activity and outcome, without waiting on it like GetTask's wait_seconds does (3.4, part).
@@ -483,6 +496,17 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/ResumeProvider` · MCP tool
 | Field | Type | Description |
 |---|---|---|
 | `account` | string |  |
+
+## ResumeTask
+
+End a hold started by PauseTask, now or early.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/ResumeTask` · MCP tool: `resume_task`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string |  |
+| `tree` | bool | End the hold on every task of id's whole tree, not just id itself. |
 
 ## RevokeApiToken
 

@@ -27,7 +27,7 @@ var expectedScope = map[string]string{
 	"GetDefinition": ScopeViewer, "ListTriggerEvents": ScopeViewer, "ListRuns": ScopeViewer, "GetTrace": ScopeViewer, "GetLogs": ScopeViewer,
 	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer, "ListProviderHolds": ScopeViewer, "GetActivity": ScopeViewer, "ListEvents": ScopeViewer, "ListFeedback": ScopeViewer, "ListMemoryBlocks": ScopeViewer, "GetArtifact": ScopeViewer, "ListArtifacts": ScopeViewer, "ResumeProvider": ScopeOperator,
 	"CreateDeployment": ScopeOperator, "UpdateDeployment": ScopeOperator, "ScaleDeployment": ScopeOperator, "DeleteDeployment": ScopeOperator,
-	"PauseDeployment": ScopeOperator, "SubmitTask": ScopeOperator, "CancelTask": ScopeOperator, "RequestWake": ScopeOperator, "RecordFeedback": ScopeOperator, "SetMemoryBlock": ScopeOperator,
+	"PauseDeployment": ScopeOperator, "SubmitTask": ScopeOperator, "CancelTask": ScopeOperator, "PauseTask": ScopeOperator, "ResumeTask": ScopeOperator, "RequestWake": ScopeOperator, "RecordFeedback": ScopeOperator, "SetMemoryBlock": ScopeOperator,
 	"CreateWebhookSecret": ScopeOperator,
 	"ListApprovals":       ScopeApprover, "DecideApproval": ScopeApprover,
 	"SetSecret": ScopeAdmin, "ListSecrets": ScopeAdmin, "DeleteSecret": ScopeAdmin, "CreateJoinToken": ScopeAdmin,

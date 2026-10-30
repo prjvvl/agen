@@ -45,6 +45,11 @@ service HubService {
   // A task's progress, current activity and outcome, without waiting on it
   // like GetTask's wait_seconds does (3.4, part).
   rpc QueryTask(QueryTaskRequest) returns (QueryTaskResponse);
+  // Hold a task: a queued one is skipped by leasing, a running one suspends
+  // at its next model call (3.4, part).
+  rpc PauseTask(PauseTaskRequest) returns (PauseTaskResponse);
+  // End a hold started by PauseTask, now or early.
+  rpc ResumeTask(ResumeTaskRequest) returns (ResumeTaskResponse);
 
   // A2A endpoints of a deployment and a short-lived call token for them.
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
@@ -493,6 +498,34 @@ message CancelTaskResponse {
   // Set only when tree was asked for: every task it actually cancelled
   // (already-finished tasks of the tree are left out).
   repeated Task cancelled = 2;
+}
+
+message PauseTaskRequest {
+  string id = 1;
+  // Hold every unfinished task of id's whole tree (its root and every
+  // descendant, found through root_task_id), not just id itself. Mirrors
+  // CancelTask's tree, including async/detached children.
+  bool tree = 2;
+  // Unset: held until ResumeTask, with no deadline.
+  google.protobuf.Timestamp until = 3;
+  string reason = 4;
+}
+message PauseTaskResponse {
+  Task task = 1;
+  // Set only when tree was asked for: every task it actually held
+  // (already-finished tasks of the tree are left out).
+  repeated Task held = 2;
+}
+
+message ResumeTaskRequest {
+  string id = 1;
+  // End the hold on every task of id's whole tree, not just id itself.
+  bool tree = 2;
+}
+message ResumeTaskResponse {
+  Task task = 1;
+  // Set only when tree was asked for: every task it actually resumed.
+  repeated Task resumed = 2;
 }
 
 message ResolveRequest {

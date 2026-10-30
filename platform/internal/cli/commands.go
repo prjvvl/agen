@@ -522,6 +522,83 @@ func (e *env) cmdCancel(ctx context.Context, args []string) error {
 	return nil
 }
 
+// cmdPause holds a task: a queued one is skipped by leasing, a running
+// one suspends at its next model call.
+func (e *env) cmdPause(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("pause", &cf)
+	tree := fs.Bool("tree", false, "hold every unfinished task of its whole tree (its root and every descendant), not just this one")
+	at := fs.String("at", "", "end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for `agen resume`")
+	in := fs.Duration("in", 0, "end the hold this long from now (e.g. 30m)")
+	reason := fs.String("reason", "", "why, for anyone who looks at the task later")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen pause <task-id> [--tree] [--at TIME | --in D] [--reason TEXT]")
+	}
+	var until *timestamppb.Timestamp
+	switch {
+	case *at != "" && *in != 0:
+		return usageErr("use --at or --in, not both")
+	case *at != "":
+		ts, err := time.Parse(time.RFC3339, *at)
+		if err != nil {
+			return usageErr("--at: " + err.Error())
+		}
+		until = timestamppb.New(ts)
+	case *in > 0:
+		until = timestamppb.New(time.Now().Add(*in))
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.PauseTask(ctx, connect.NewRequest(&agenv1.PauseTaskRequest{Id: pos[0], Tree: *tree, Until: until, Reason: *reason}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s held\n", r.Msg.Task.Id)
+	if *tree {
+		fmt.Fprintf(e.stdout, "%d task(s) held across its tree\n", len(r.Msg.Held))
+	}
+	return nil
+}
+
+// cmdResume ends a hold started by agen pause.
+func (e *env) cmdResume(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("resume", &cf)
+	tree := fs.Bool("tree", false, "end the hold on every task of its whole tree, not just this one")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen resume <task-id> [--tree]")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.ResumeTask(ctx, connect.NewRequest(&agenv1.ResumeTaskRequest{Id: pos[0], Tree: *tree}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Task.Id, stateName(r.Msg.Task.State, "TASK_STATE_"))
+	if *tree {
+		fmt.Fprintf(e.stdout, "%d task(s) resumed across its tree\n", len(r.Msg.Resumed))
+	}
+	return nil
+}
+
 func (e *env) cmdTree(ctx context.Context, args []string) error {
 	var cf clientFlags
 	pos, err := parse(e.flags("tree", &cf), args)

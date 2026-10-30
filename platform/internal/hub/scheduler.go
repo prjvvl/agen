@@ -113,6 +113,9 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	if _, err := st.ExpireApprovals(ctx); err != nil {
 		return epoch, err
 	}
+	if _, err := st.WakeExpiredHolds(ctx); err != nil {
+		return epoch, err
+	}
 	if time.Since(s.eventsPruned) > time.Hour {
 		s.eventsPruned = time.Now()
 		s.Hub.pruneEvents(ctx)

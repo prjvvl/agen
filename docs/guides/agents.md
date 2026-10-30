@@ -145,7 +145,8 @@ started yourself — directly, or one it in turn started — without the
 delegation bookkeeping `call_agent`/`start_agent` do. Use `query_agent`
 after `start_agent` to check in on long work instead of polling with
 `call_agent`; use `signal_agent` to tell it something while it runs
-(cancelling is still `agen cancel` or `CancelTask`, not a signal).
+(cancelling is still `agen cancel` or `CancelTask`, and holding a task is
+`agen pause`/`agen resume` or `PauseTask`/`ResumeTask`, not a signal).
 
 - `query_agent` returns the task's state, its current activity
   (`model`/`tool`/`idle`/`approval`), its latest `report_progress` call if

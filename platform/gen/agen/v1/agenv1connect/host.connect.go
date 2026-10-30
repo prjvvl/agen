@@ -71,6 +71,8 @@ const (
 	// ManagerServiceUnfinishedChildrenProcedure is the fully-qualified name of the ManagerService's
 	// UnfinishedChildren RPC.
 	ManagerServiceUnfinishedChildrenProcedure = "/agen.v1.ManagerService/UnfinishedChildren"
+	// ManagerServiceIsHeldProcedure is the fully-qualified name of the ManagerService's IsHeld RPC.
+	ManagerServiceIsHeldProcedure = "/agen.v1.ManagerService/IsHeld"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -262,6 +264,10 @@ type ManagerServiceClient interface {
 	// engine's turn loop (suspends instead of asking the model while
 	// positive).
 	UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error)
+	// Whether the calling task is effectively held right now (3.4, part:
+	// hold), checked by the engine's turn loop (suspends with wait_for
+	// "resume" instead of asking the model while held).
+	IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -335,6 +341,12 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("UnfinishedChildren")),
 			connect.WithClientOptions(opts...),
 		),
+		isHeld: connect.NewClient[v1.IsHeldRequest, v1.IsHeldResponse](
+			httpClient,
+			baseURL+ManagerServiceIsHeldProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("IsHeld")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -350,6 +362,7 @@ type managerServiceClient struct {
 	signalChildTask    *connect.Client[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse]
 	drainInbox         *connect.Client[v1.DrainInboxRequest, v1.DrainInboxResponse]
 	unfinishedChildren *connect.Client[v1.UnfinishedChildrenRequest, v1.UnfinishedChildrenResponse]
+	isHeld             *connect.Client[v1.IsHeldRequest, v1.IsHeldResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -402,6 +415,11 @@ func (c *managerServiceClient) UnfinishedChildren(ctx context.Context, req *conn
 	return c.unfinishedChildren.CallUnary(ctx, req)
 }
 
+// IsHeld calls agen.v1.ManagerService.IsHeld.
+func (c *managerServiceClient) IsHeld(ctx context.Context, req *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error) {
+	return c.isHeld.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -439,6 +457,10 @@ type ManagerServiceHandler interface {
 	// engine's turn loop (suspends instead of asking the model while
 	// positive).
 	UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error)
+	// Whether the calling task is effectively held right now (3.4, part:
+	// hold), checked by the engine's turn loop (suspends with wait_for
+	// "resume" instead of asking the model while held).
+	IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -508,6 +530,12 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("UnfinishedChildren")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceIsHeldHandler := connect.NewUnaryHandler(
+		ManagerServiceIsHeldProcedure,
+		svc.IsHeld,
+		connect.WithSchema(managerServiceMethods.ByName("IsHeld")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -530,6 +558,8 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceDrainInboxHandler.ServeHTTP(w, r)
 		case ManagerServiceUnfinishedChildrenProcedure:
 			managerServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
+		case ManagerServiceIsHeldProcedure:
+			managerServiceIsHeldHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -577,4 +607,8 @@ func (UnimplementedManagerServiceHandler) DrainInbox(context.Context, *connect.R
 
 func (UnimplementedManagerServiceHandler) UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.UnfinishedChildren is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.IsHeld is not implemented"))
 }

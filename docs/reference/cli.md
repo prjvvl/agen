@@ -28,6 +28,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
   agen cancel <task-id>           cancel a task (a running one stops)
+  agen pause <task-id>             hold a task (a running one suspends at its next model call)
+  agen resume <task-id>            end a hold started by agen pause
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks (--scheduled: waiting for their start time)
   agen providers [resume ACCT]    provider accounts held after an account error
@@ -414,6 +416,48 @@ Usage of cancel:
     	API token
   -tree
     	cancel every unfinished task of its whole tree (its root and every descendant), not just this one
+```
+
+## agen pause
+
+```text
+Usage of pause:
+  -at agen resume
+    	end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for agen resume
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -in duration
+    	end the hold this long from now (e.g. 30m)
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -reason string
+    	why, for anyone who looks at the task later
+  -token string
+    	API token
+  -tree
+    	hold every unfinished task of its whole tree (its root and every descendant), not just this one
+```
+
+## agen resume
+
+```text
+Usage of resume:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+  -tree
+    	end the hold on every task of its whole tree, not just this one
 ```
 
 ## agen call

@@ -237,6 +237,24 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 			used["tree"] = true
 			c.args = append(c.args, "--tree")
 		}
+	case "PauseTask":
+		c.args = []string{"pause", str("id"), "--json"}
+		if v, _ := a["tree"].(bool); v {
+			used["tree"] = true
+			c.args = append(c.args, "--tree")
+		}
+		if v := str("until"); v != "" {
+			c.args = append(c.args, "--at", v)
+		}
+		if v := str("reason"); v != "" {
+			c.args = append(c.args, "--reason", v)
+		}
+	case "ResumeTask":
+		c.args = []string{"resume", str("id"), "--json"}
+		if v, _ := a["tree"].(bool); v {
+			used["tree"] = true
+			c.args = append(c.args, "--tree")
+		}
 	case "GetTaskTree":
 		c.args = []string{"tree", str("taskId"), "--json"}
 	case "QueryTask":

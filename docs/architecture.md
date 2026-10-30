@@ -573,11 +573,41 @@ A positive count was never once detected outside of unit tests using a
 mock that skipped real JSON entirely. Fixed by accepting either a JSON
 number or a numeric string.
 
-The rest of the "Tree" design (hold) is not built yet; 3.9's
-`steer`/`interrupt` queue modes are not built either, though the piece
-they were both blocked on (drain) now exists. These six (parent-close,
-`GetTaskTree`, tree-wide cancel, progress/query, signals/queries, join)
-are 3.4's pieces so far.
+**Hold** (3.4, part): `PauseTask(id, tree=false, until?, reason?)` /
+`ResumeTask(id, tree=false)` reuse join's own suspend mechanism rather than
+adding a new one. `Task` gains `held`, `held_until` and `hold_reason`;
+`LeaseTasks` skips a held, still-`queued` task lazily (its own `WHERE`
+clause, `held = 0 OR held_until_ms <= now`, needs no active sweep since
+the leasing query itself already looks at every queued task each tick).
+A `leased`/`running` task is not touched at hold time — the engine notices
+at its own next turn boundary, the same place it checks
+`unfinished_children`: `TaskStarter::is_held(task_id)` →
+`ManagerService.IsHeld` → `NestService.IsHeld` → `Store.IsHeld` (effective
+held: `held && (held_until_ms == 0 || held_until_ms > now)`, so a passed
+deadline reads as not-held without anything having to clear the stored
+flag first) and, if held, `drive_inner` returns `Outcome::Suspended("resume")`
+instead of calling the model again. `ResumeTask` is the only thing that
+wakes a task waiting specifically on `wait_for: "resume"` — unlike join's
+wait, nothing else would, since a hold is not an event anything else
+writes to `run_inbox` for. A `waiting` task's own deadline (if any) is
+woken by a new scheduler-tick sweep, `Store.WakeExpiredHolds`, mirroring
+`ExpireOverdueTasks`'s reason for existing: a waiting task holds no lease,
+so nothing else would notice its deadline passed. `PauseTree`/`ResumeTree`
+(like `CancelTree`) touch every task of the whole tree by `root_task_id`,
+including async ones — an explicit hold is not the automatic
+`on_parent_end` cascade. `is_held` returns a bare bool rather than the
+deadline itself: a deadline is the Hub's job to act on (lazily or via the
+sweep), not the engine's, and a bool sidesteps the int64/protojson string
+pitfall `unfinished_children` hit entirely. The deployment-wide
+`PauseDeployment(hold_runs=true)` extension from the plan's wording is not
+built — scoped down to the per-task case, which is what `agen pause`/
+`agen resume` and the `PauseTask`/`ResumeTask` RPCs expose today.
+
+The rest of the "Tree" design is otherwise done; 3.9's `steer`/`interrupt`
+queue modes are not built yet, though the piece they were both blocked on
+(drain) now exists. These seven (parent-close, `GetTaskTree`, tree-wide
+cancel, progress/query, signals/queries, join, hold) are 3.4's pieces so
+far.
 
 ## 7. Engine model
 

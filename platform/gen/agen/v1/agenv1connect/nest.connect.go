@@ -68,6 +68,8 @@ const (
 	// NestServiceUnfinishedChildrenProcedure is the fully-qualified name of the NestService's
 	// UnfinishedChildren RPC.
 	NestServiceUnfinishedChildrenProcedure = "/agen.v1.NestService/UnfinishedChildren"
+	// NestServiceIsHeldProcedure is the fully-qualified name of the NestService's IsHeld RPC.
+	NestServiceIsHeldProcedure = "/agen.v1.NestService/IsHeld"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -139,6 +141,10 @@ type NestServiceClient interface {
 	// children (3.4, part: "join"). Low-stakes like ReportProgress:
 	// requireNest only, no lease fencing.
 	UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error)
+	// Whether a task this Nest currently leases is effectively held right
+	// now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
+	// only, no lease fencing.
+	IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -256,6 +262,12 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("UnfinishedChildren")),
 			connect.WithClientOptions(opts...),
 		),
+		isHeld: connect.NewClient[v1.NestIsHeldRequest, v1.NestIsHeldResponse](
+			httpClient,
+			baseURL+NestServiceIsHeldProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("IsHeld")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -329,6 +341,7 @@ type nestServiceClient struct {
 	signalChildTask    *connect.Client[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse]
 	drainInbox         *connect.Client[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse]
 	unfinishedChildren *connect.Client[v1.NestUnfinishedChildrenRequest, v1.NestUnfinishedChildrenResponse]
+	isHeld             *connect.Client[v1.NestIsHeldRequest, v1.NestIsHeldResponse]
 	createApproval     *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval        *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity     *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -408,6 +421,11 @@ func (c *nestServiceClient) DrainInbox(ctx context.Context, req *connect.Request
 // UnfinishedChildren calls agen.v1.NestService.UnfinishedChildren.
 func (c *nestServiceClient) UnfinishedChildren(ctx context.Context, req *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error) {
 	return c.unfinishedChildren.CallUnary(ctx, req)
+}
+
+// IsHeld calls agen.v1.NestService.IsHeld.
+func (c *nestServiceClient) IsHeld(ctx context.Context, req *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error) {
+	return c.isHeld.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -499,6 +517,10 @@ type NestServiceHandler interface {
 	// children (3.4, part: "join"). Low-stakes like ReportProgress:
 	// requireNest only, no lease fencing.
 	UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error)
+	// Whether a task this Nest currently leases is effectively held right
+	// now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
+	// only, no lease fencing.
+	IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -612,6 +634,12 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("UnfinishedChildren")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceIsHeldHandler := connect.NewUnaryHandler(
+		NestServiceIsHeldProcedure,
+		svc.IsHeld,
+		connect.WithSchema(nestServiceMethods.ByName("IsHeld")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -696,6 +724,8 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceDrainInboxHandler.ServeHTTP(w, r)
 		case NestServiceUnfinishedChildrenProcedure:
 			nestServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
+		case NestServiceIsHeldProcedure:
+			nestServiceIsHeldHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -777,6 +807,10 @@ func (UnimplementedNestServiceHandler) DrainInbox(context.Context, *connect.Requ
 
 func (UnimplementedNestServiceHandler) UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.UnfinishedChildren is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.IsHeld is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {
