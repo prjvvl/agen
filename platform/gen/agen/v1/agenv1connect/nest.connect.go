@@ -65,6 +65,9 @@ const (
 	NestServiceSignalChildTaskProcedure = "/agen.v1.NestService/SignalChildTask"
 	// NestServiceDrainInboxProcedure is the fully-qualified name of the NestService's DrainInbox RPC.
 	NestServiceDrainInboxProcedure = "/agen.v1.NestService/DrainInbox"
+	// NestServiceUnfinishedChildrenProcedure is the fully-qualified name of the NestService's
+	// UnfinishedChildren RPC.
+	NestServiceUnfinishedChildrenProcedure = "/agen.v1.NestService/UnfinishedChildren"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -132,6 +135,10 @@ type NestServiceClient interface {
 	// entries other than "child" rows (3.4/3.9, part). Low-stakes like
 	// ReportProgress: requireNest only, no lease fencing.
 	DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error)
+	// Counts a task this Nest currently leases' own unfinished joined
+	// children (3.4, part: "join"). Low-stakes like ReportProgress:
+	// requireNest only, no lease fencing.
+	UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -243,6 +250,12 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("DrainInbox")),
 			connect.WithClientOptions(opts...),
 		),
+		unfinishedChildren: connect.NewClient[v1.NestUnfinishedChildrenRequest, v1.NestUnfinishedChildrenResponse](
+			httpClient,
+			baseURL+NestServiceUnfinishedChildrenProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("UnfinishedChildren")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -302,28 +315,29 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // nestServiceClient implements NestServiceClient.
 type nestServiceClient struct {
-	enroll            *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
-	watchAssignments  *connect.Client[v1.WatchAssignmentsRequest, v1.WatchAssignmentsResponse]
-	reportStatus      *connect.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
-	leaseTasks        *connect.Client[v1.LeaseTasksRequest, v1.LeaseTasksResponse]
-	extendLease       *connect.Client[v1.ExtendLeaseRequest, v1.ExtendLeaseResponse]
-	completeTask      *connect.Client[v1.CompleteTaskRequest, v1.CompleteTaskResponse]
-	releaseTask       *connect.Client[v1.ReleaseTaskRequest, v1.ReleaseTaskResponse]
-	suspendTask       *connect.Client[v1.SuspendTaskRequest, v1.SuspendTaskResponse]
-	waitTask          *connect.Client[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse]
-	reportProgress    *connect.Client[v1.NestReportProgressRequest, v1.NestReportProgressResponse]
-	queryChildTask    *connect.Client[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse]
-	signalChildTask   *connect.Client[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse]
-	drainInbox        *connect.Client[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse]
-	createApproval    *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
-	getApproval       *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
-	reportActivity    *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
-	getDefinition     *connect.Client[v1.GetDefinitionRequest, v1.GetDefinitionResponse]
-	submitChildTask   *connect.Client[v1.SubmitChildTaskRequest, v1.SubmitChildTaskResponse]
-	resolve           *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
-	getTokenKeys      *connect.Client[v1.GetTokenKeysRequest, v1.GetTokenKeysResponse]
-	renewCertificate  *connect.Client[v1.RenewCertificateRequest, v1.RenewCertificateResponse]
-	getPlatformSecret *connect.Client[v1.GetPlatformSecretRequest, v1.GetPlatformSecretResponse]
+	enroll             *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
+	watchAssignments   *connect.Client[v1.WatchAssignmentsRequest, v1.WatchAssignmentsResponse]
+	reportStatus       *connect.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
+	leaseTasks         *connect.Client[v1.LeaseTasksRequest, v1.LeaseTasksResponse]
+	extendLease        *connect.Client[v1.ExtendLeaseRequest, v1.ExtendLeaseResponse]
+	completeTask       *connect.Client[v1.CompleteTaskRequest, v1.CompleteTaskResponse]
+	releaseTask        *connect.Client[v1.ReleaseTaskRequest, v1.ReleaseTaskResponse]
+	suspendTask        *connect.Client[v1.SuspendTaskRequest, v1.SuspendTaskResponse]
+	waitTask           *connect.Client[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse]
+	reportProgress     *connect.Client[v1.NestReportProgressRequest, v1.NestReportProgressResponse]
+	queryChildTask     *connect.Client[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse]
+	signalChildTask    *connect.Client[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse]
+	drainInbox         *connect.Client[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse]
+	unfinishedChildren *connect.Client[v1.NestUnfinishedChildrenRequest, v1.NestUnfinishedChildrenResponse]
+	createApproval     *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
+	getApproval        *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
+	reportActivity     *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
+	getDefinition      *connect.Client[v1.GetDefinitionRequest, v1.GetDefinitionResponse]
+	submitChildTask    *connect.Client[v1.SubmitChildTaskRequest, v1.SubmitChildTaskResponse]
+	resolve            *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
+	getTokenKeys       *connect.Client[v1.GetTokenKeysRequest, v1.GetTokenKeysResponse]
+	renewCertificate   *connect.Client[v1.RenewCertificateRequest, v1.RenewCertificateResponse]
+	getPlatformSecret  *connect.Client[v1.GetPlatformSecretRequest, v1.GetPlatformSecretResponse]
 }
 
 // Enroll calls agen.v1.NestService.Enroll.
@@ -389,6 +403,11 @@ func (c *nestServiceClient) SignalChildTask(ctx context.Context, req *connect.Re
 // DrainInbox calls agen.v1.NestService.DrainInbox.
 func (c *nestServiceClient) DrainInbox(ctx context.Context, req *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error) {
 	return c.drainInbox.CallUnary(ctx, req)
+}
+
+// UnfinishedChildren calls agen.v1.NestService.UnfinishedChildren.
+func (c *nestServiceClient) UnfinishedChildren(ctx context.Context, req *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error) {
+	return c.unfinishedChildren.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -476,6 +495,10 @@ type NestServiceHandler interface {
 	// entries other than "child" rows (3.4/3.9, part). Low-stakes like
 	// ReportProgress: requireNest only, no lease fencing.
 	DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error)
+	// Counts a task this Nest currently leases' own unfinished joined
+	// children (3.4, part: "join"). Low-stakes like ReportProgress:
+	// requireNest only, no lease fencing.
+	UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -583,6 +606,12 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("DrainInbox")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceUnfinishedChildrenHandler := connect.NewUnaryHandler(
+		NestServiceUnfinishedChildrenProcedure,
+		svc.UnfinishedChildren,
+		connect.WithSchema(nestServiceMethods.ByName("UnfinishedChildren")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -665,6 +694,8 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceSignalChildTaskHandler.ServeHTTP(w, r)
 		case NestServiceDrainInboxProcedure:
 			nestServiceDrainInboxHandler.ServeHTTP(w, r)
+		case NestServiceUnfinishedChildrenProcedure:
+			nestServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -742,6 +773,10 @@ func (UnimplementedNestServiceHandler) SignalChildTask(context.Context, *connect
 
 func (UnimplementedNestServiceHandler) DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.DrainInbox is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.UnfinishedChildren is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

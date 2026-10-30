@@ -89,6 +89,10 @@ impl TaskStarter for ScriptedStarter {
     async fn drain_inbox(&self, _task_id: &str) -> Result<Vec<serde_json::Value>, String> {
         Ok(vec![])
     }
+
+    async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
+        Ok(0)
+    }
 }
 
 fn call_agent(message: &str) -> FakeResponse {

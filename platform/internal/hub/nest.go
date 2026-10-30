@@ -608,6 +608,24 @@ func (n *NestAPI) DrainInbox(ctx context.Context, req *connect.Request[agenv1.Ne
 	return connect.NewResponse(&agenv1.NestDrainInboxResponse{Entries: out}), nil
 }
 
+// UnfinishedChildren counts a task this Nest currently leases' own
+// unfinished joined children (3.4, part: "join"). Low-stakes like
+// ReportProgress: requireNest only, no lease fencing.
+func (n *NestAPI) UnfinishedChildren(ctx context.Context, req *connect.Request[agenv1.NestUnfinishedChildrenRequest]) (*connect.Response[agenv1.NestUnfinishedChildrenResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	n2, err := n.hub.Store.CountUnfinishedChildren(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestUnfinishedChildrenResponse{Count: n2}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

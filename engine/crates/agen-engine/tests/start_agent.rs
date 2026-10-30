@@ -52,6 +52,10 @@ impl TaskStarter for Recorder {
     async fn drain_inbox(&self, _task_id: &str) -> Result<Vec<serde_json::Value>, String> {
         Ok(vec![])
     }
+
+    async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
+        Ok(0)
+    }
 }
 
 fn start(agent: &str) -> FakeResponse {
@@ -59,6 +63,16 @@ fn start(agent: &str) -> FakeResponse {
         tool_calls: vec![ScriptedToolCall {
             name: "start_agent".into(),
             arguments: json!({"agent": agent, "message": "do the long thing"}),
+        }],
+        ..Default::default()
+    }
+}
+
+fn start_detached(agent: &str) -> FakeResponse {
+    FakeResponse {
+        tool_calls: vec![ScriptedToolCall {
+            name: "start_agent".into(),
+            arguments: json!({"agent": agent, "message": "do the long thing", "detach": true}),
         }],
         ..Default::default()
     }
@@ -72,8 +86,10 @@ fn say(text: &str, expect: &str) -> FakeResponse {
     }
 }
 
+// detach: true (3.4, part) keeps start_agent's old behaviour: the child's
+// result comes back as a reply task, addressed by a conversation key.
 #[tokio::test]
-async fn start_agent_queues_and_returns_at_once() {
+async fn start_agent_detach_true_queues_and_replies_into_the_conversation() {
     let d = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open_sqlite_path(&d.path().join("t.db")).await.unwrap());
     let rec = Arc::new(Recorder::default());
@@ -93,10 +109,10 @@ async fn start_agent_queues_and_returns_at_once() {
         store.clone(),
     ));
     let p = Arc::new(FakeProvider::new(vec![
-        start("writer"),
+        start_detached("writer"),
         say("started", "Started task task-1 on writer"),
-        start("writer"),
-        start("writer"),
+        start_detached("writer"),
+        start_detached("writer"),
         say("one only", "max_fan_out 1"),
     ]));
     let agent = Agent::builder(AgentConfig::new("lead", "Lead.", "fake-1"), store.clone())
@@ -137,6 +153,41 @@ async fn start_agent_queues_and_returns_at_once() {
     let calls = rec.0.lock().unwrap().clone();
     assert_eq!(calls.len(), 2, "the second start in one run is over max_fan_out");
     assert_eq!(calls[1].2, "api:c9");
+}
+
+// Without detach (3.4, part: the new default, "join"), the child has no
+// reply_conversation_key at all: it is this task's own child, not a reply
+// address lookup.
+#[tokio::test]
+async fn start_agent_joins_by_default_with_no_reply_key() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open_sqlite_path(&d.path().join("t.db")).await.unwrap());
+    let rec = Arc::new(Recorder::default());
+    let delegates = vec![Delegate {
+        name: "writer".into(),
+        ..Default::default()
+    }];
+    let tool = Arc::new(StartAgent::new(
+        delegates,
+        "default",
+        rec.clone(),
+        Limits::default(),
+        store.clone(),
+    ));
+    let p = Arc::new(FakeProvider::new(vec![start("writer"), say("ok", "joined")]));
+    let agent = Agent::builder(AgentConfig::new("lead", "Lead.", "fake-1"), store.clone())
+        .provider(p)
+        .tool(tool)
+        .build()
+        .unwrap();
+    let r = agent.run("go", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    let calls = rec.0.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0].2, "",
+        "no reply key: this is a joined child, not a reply-task delivery"
+    );
 }
 
 #[tokio::test]

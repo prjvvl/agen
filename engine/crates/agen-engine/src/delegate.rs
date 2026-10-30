@@ -120,6 +120,13 @@ pub trait TaskStarter: Send + Sync {
     /// a retried call after a transport error never redelivers one already
     /// claimed.
     async fn drain_inbox(&self, task_id: &str) -> Result<Vec<Value>, String>;
+    /// Counts the current task's own direct, unfinished *joined* children
+    /// (3.4, part: "join" — a child started by `start_agent` without
+    /// `detach: true`). Used by `finish` (refuses to end `done` while this
+    /// is positive) and by the engine's own turn loop (suspends with
+    /// `wait_for: "children"` instead of calling the model again while
+    /// this is positive).
+    async fn unfinished_children(&self, task_id: &str) -> Result<i64, String>;
 }
 
 /// What waiting for a task found.
@@ -310,6 +317,31 @@ impl TaskStarter for ManagerResolver {
         }
         Ok(v.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
     }
+
+    async fn unfinished_children(&self, task_id: &str) -> Result<i64, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/UnfinishedChildren", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "unfinished children of task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        // protojson renders int64 as a JSON string (to avoid precision
+        // loss in JS), not a number: accept either.
+        Ok(v.get("count")
+            .and_then(|c| c.as_i64().or_else(|| c.as_str()?.parse().ok()))
+            .unwrap_or(0))
+    }
 }
 
 /// Name of the tool [`CallAgent`] provides.
@@ -373,15 +405,19 @@ impl Tool for StartAgent {
         ToolSpec {
             name: START_AGENT.into(),
             description: format!(
-                "Start another agent on a task without waiting for it (for long work). The tool returns at once; \
-                 the agent's answer arrives later in this conversation as a new message that begins with \
-                 \"[Result of the task you started on ...]\". After starting, finish your current turn; do not poll.{overrides_note}"
+                "Start another agent on a task without waiting for it (for long work). The tool returns at once. \
+                 By default the task joins this one: you cannot finish done while it (or any other you started \
+                 this way) is still running — check on it with query_agent, or wait for it to wake you. Pass \
+                 detach: true for the old behaviour instead: its answer arrives later in this conversation as a \
+                 new message that begins with \"[Result of the task you started on ...]\", and finishing does not \
+                 wait for it. Either way, after starting, finish your current turn; do not poll.{overrides_note}"
             ),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "agent": {"type": "string", "enum": names},
                     "message": {"type": "string", "description": "What the agent should do"},
+                    "detach": {"type": "boolean", "description": "true: its result comes back as a new message in this conversation instead of joining this task (default false)"},
                     "tools": {"type": "array", "items": {"type": "string"}, "description": "Only let it call these of its tools (narrows; only for delegates that accept overrides)"},
                     "skills": {"type": "array", "items": {"type": "string"}, "description": "Skills of its bundle to preload"},
                     "budget": {
@@ -459,8 +495,14 @@ impl Tool for StartAgent {
                 return Err(ToolError::new(msg));
             }
         }
-        // The result needs a conversation to come back to.
-        let reply_key = if ctx.conversation_key.is_empty() {
+        // detach: true keeps the old behaviour (a reply task back into this
+        // conversation). Without it (the default, 3.4's "join"), the child
+        // has no reply_conversation_key: it is this task's own, tracked by
+        // its parent_task_id, not the conversation.
+        let detach = args.get("detach").and_then(Value::as_bool).unwrap_or(false);
+        let reply_key = if !detach {
+            String::new()
+        } else if ctx.conversation_key.is_empty() {
             self.store
                 .ensure_conversation_key(&ctx.conversation_id)
                 .await
@@ -485,9 +527,15 @@ impl Tool for StartAgent {
             })
             .await
             .map_err(ToolError::new)?;
+        if detach {
+            return Ok(format!(
+                "Started task {id} on {agent}. Its result will arrive in this conversation as a new message when it finishes; \
+                 finish your current turn now."
+            ));
+        }
         Ok(format!(
-            "Started task {id} on {agent}. Its result will arrive in this conversation as a new message when it finishes; \
-             finish your current turn now."
+            "Started task {id} on {agent} (joined: you cannot finish done until it ends; check on it with query_agent). \
+             Finish your current turn now."
         ))
     }
 }

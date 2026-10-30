@@ -68,6 +68,9 @@ const (
 	// ManagerServiceDrainInboxProcedure is the fully-qualified name of the ManagerService's DrainInbox
 	// RPC.
 	ManagerServiceDrainInboxProcedure = "/agen.v1.ManagerService/DrainInbox"
+	// ManagerServiceUnfinishedChildrenProcedure is the fully-qualified name of the ManagerService's
+	// UnfinishedChildren RPC.
+	ManagerServiceUnfinishedChildrenProcedure = "/agen.v1.ManagerService/UnfinishedChildren"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -254,6 +257,11 @@ type ManagerServiceClient interface {
 	// TaskStarter is configured; claiming is atomic, so a retried call never
 	// redelivers an entry already claimed.
 	DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error)
+	// Counts the calling task's own unfinished joined children (3.4, part:
+	// "join"), checked by finish (refuses done while positive) and the
+	// engine's turn loop (suspends instead of asking the model while
+	// positive).
+	UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -321,20 +329,27 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("DrainInbox")),
 			connect.WithClientOptions(opts...),
 		),
+		unfinishedChildren: connect.NewClient[v1.UnfinishedChildrenRequest, v1.UnfinishedChildrenResponse](
+			httpClient,
+			baseURL+ManagerServiceUnfinishedChildrenProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("UnfinishedChildren")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // managerServiceClient implements ManagerServiceClient.
 type managerServiceClient struct {
-	requestApproval *connect.Client[v1.RequestApprovalRequest, v1.RequestApprovalResponse]
-	resolveSecret   *connect.Client[v1.ResolveSecretRequest, v1.ResolveSecretResponse]
-	resolve         *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
-	startTask       *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
-	waitTask        *connect.Client[v1.WaitTaskRequest, v1.WaitTaskResponse]
-	reportProgress  *connect.Client[v1.ReportProgressRequest, v1.ReportProgressResponse]
-	queryChildTask  *connect.Client[v1.QueryChildTaskRequest, v1.QueryTaskResponse]
-	signalChildTask *connect.Client[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse]
-	drainInbox      *connect.Client[v1.DrainInboxRequest, v1.DrainInboxResponse]
+	requestApproval    *connect.Client[v1.RequestApprovalRequest, v1.RequestApprovalResponse]
+	resolveSecret      *connect.Client[v1.ResolveSecretRequest, v1.ResolveSecretResponse]
+	resolve            *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
+	startTask          *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
+	waitTask           *connect.Client[v1.WaitTaskRequest, v1.WaitTaskResponse]
+	reportProgress     *connect.Client[v1.ReportProgressRequest, v1.ReportProgressResponse]
+	queryChildTask     *connect.Client[v1.QueryChildTaskRequest, v1.QueryTaskResponse]
+	signalChildTask    *connect.Client[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse]
+	drainInbox         *connect.Client[v1.DrainInboxRequest, v1.DrainInboxResponse]
+	unfinishedChildren *connect.Client[v1.UnfinishedChildrenRequest, v1.UnfinishedChildrenResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -382,6 +397,11 @@ func (c *managerServiceClient) DrainInbox(ctx context.Context, req *connect.Requ
 	return c.drainInbox.CallUnary(ctx, req)
 }
 
+// UnfinishedChildren calls agen.v1.ManagerService.UnfinishedChildren.
+func (c *managerServiceClient) UnfinishedChildren(ctx context.Context, req *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error) {
+	return c.unfinishedChildren.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -414,6 +434,11 @@ type ManagerServiceHandler interface {
 	// TaskStarter is configured; claiming is atomic, so a retried call never
 	// redelivers an entry already claimed.
 	DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error)
+	// Counts the calling task's own unfinished joined children (3.4, part:
+	// "join"), checked by finish (refuses done while positive) and the
+	// engine's turn loop (suspends instead of asking the model while
+	// positive).
+	UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -477,6 +502,12 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("DrainInbox")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceUnfinishedChildrenHandler := connect.NewUnaryHandler(
+		ManagerServiceUnfinishedChildrenProcedure,
+		svc.UnfinishedChildren,
+		connect.WithSchema(managerServiceMethods.ByName("UnfinishedChildren")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -497,6 +528,8 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceSignalChildTaskHandler.ServeHTTP(w, r)
 		case ManagerServiceDrainInboxProcedure:
 			managerServiceDrainInboxHandler.ServeHTTP(w, r)
+		case ManagerServiceUnfinishedChildrenProcedure:
+			managerServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -540,4 +573,8 @@ func (UnimplementedManagerServiceHandler) SignalChildTask(context.Context, *conn
 
 func (UnimplementedManagerServiceHandler) DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.DrainInbox is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.UnfinishedChildren is not implemented"))
 }

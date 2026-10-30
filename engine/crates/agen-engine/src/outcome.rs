@@ -154,11 +154,18 @@ pub fn from_finish(args: &Value, schema: Option<&ResultSchema>) -> Result<RunOut
 /// The built-in `finish` tool: ends the run with a status and report.
 pub struct Finish {
     schema: Option<ResultSchema>,
+    /// Checked before a `done` finish (3.4, part: "join"): a task cannot
+    /// end done while it has unfinished joined children. None (standalone/
+    /// embedded, or the check itself failing) never blocks finish.
+    starter: Option<std::sync::Arc<dyn crate::delegate::TaskStarter>>,
 }
 
 impl Finish {
-    pub fn new(schema: Option<ResultSchema>) -> Self {
-        Self { schema }
+    pub fn new(
+        schema: Option<ResultSchema>,
+        starter: Option<std::sync::Arc<dyn crate::delegate::TaskStarter>>,
+    ) -> Self {
+        Self { schema, starter }
     }
 }
 
@@ -192,10 +199,23 @@ impl Tool for Finish {
     fn side_effect(&self) -> bool {
         false
     }
-    async fn call(&self, args: Value, _ctx: ToolContext) -> Result<String, ToolError> {
-        from_finish(&args, self.schema.as_ref())
-            .map(|_| FINISHED.to_string())
-            .map_err(|e| ToolError::new(format!("{e}; call finish again with corrected arguments")))
+    async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError> {
+        let outcome = from_finish(&args, self.schema.as_ref())
+            .map_err(|e| ToolError::new(format!("{e}; call finish again with corrected arguments")))?;
+        if outcome.status == "done" && !ctx.task_id.is_empty() {
+            if let Some(starter) = &self.starter {
+                // A failed check (e.g. the Hub is unreachable) never blocks
+                // finish on its own; only a confirmed positive count does.
+                if let Ok(n) = starter.unfinished_children(&ctx.task_id).await {
+                    if n > 0 {
+                        return Err(ToolError::new(format!(
+                            "{n} child task(s) you started are still running; wait for them (query_agent) or cancel them, then call finish again"
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(FINISHED.to_string())
     }
 }
 

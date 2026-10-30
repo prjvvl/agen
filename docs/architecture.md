@@ -537,11 +537,46 @@ row. A failed drain (the Hub unreachable, say) is logged and the turn
 goes on without it — this must never be the reason a run stalls, the
 same invariant the direct-Store write path protects for runs/spans.
 
-The rest of the "Tree" design (join/suspend-on-children, `detach` and
-hold) is not built yet; 3.9's `steer`/`interrupt` queue modes are not
-built either, though the piece they were both blocked on (this section)
-now exists. These five (parent-close, `GetTaskTree`, tree-wide cancel,
-progress/query, signals/queries — the last two now including the drain)
+**Join** (3.4, part): `start_agent` without `detach: true` (the default,
+decided by the user 2026-10-23, §9 item 2 of the implementation plan — a
+deliberate behaviour change from every earlier version) ties the child to
+the caller's own task instead of replying into the conversation: no
+`reply_conversation_key` is sent, so `Task.reply_deployment` stays unset,
+the same signal the parent-close policy already uses to mean "joined."
+Two checks share one `TaskStarter::unfinished_children(task_id)` →
+`ManagerService.UnfinishedChildren` → `NestService.UnfinishedChildren` →
+`Store.CountUnfinishedChildren` round trip (counts only direct, unfinished,
+joined children — async ones and grandchildren never count): the built-in
+`finish` tool refuses a `done` call while it is positive (`"N child
+task(s) you started are still running; wait for them (query_agent) or
+cancel them, then call finish again"`, a normal tool error, not a run
+failure), and `Agent::drive_inner` checks it unconditionally at the same
+point it drains the inbox — before every model call, not only after
+`finish` is attempted — suspending with `wait_for: "children"` instead of
+asking the model again. Unlike `call_agent`'s inline-wait suspend, this
+one does not wait for the child to be slow at all: a run that starts a
+joined child and has nothing else pending suspends immediately. Waking
+reuses 3.3's own `run_inbox`/`taskFinished` wake-on-match, extended
+(`writeInboxRow`'s matching SQL) to also satisfy a `"children"` wait on
+*any* `"child"` kind row, not only an exact `"child:<id>"` — so whichever
+child finishes first wakes it, the model decides whether to keep working
+or try `finish` again. Neither check ever blocks or suspends on a failed
+RPC (the Hub unreachable, say) — only a confirmed positive count does,
+the same fail-open posture as every other platform-only check. Found by
+the real end-to-end test that was written specifically because this
+change was considered the riskiest of the session so far, not caught by
+any mock: `UnfinishedChildrenResponse.count` is an `int64`, which protojson
+renders as a JSON *string* (to avoid precision loss in JS) — the Rust
+client's first version read it with `Value::as_i64()`, which returns
+`None` for a JSON string, silently defaulting to 0 and never suspending.
+A positive count was never once detected outside of unit tests using a
+mock that skipped real JSON entirely. Fixed by accepting either a JSON
+number or a numeric string.
+
+The rest of the "Tree" design (hold) is not built yet; 3.9's
+`steer`/`interrupt` queue modes are not built either, though the piece
+they were both blocked on (drain) now exists. These six (parent-close,
+`GetTaskTree`, tree-wide cancel, progress/query, signals/queries, join)
 are 3.4's pieces so far.
 
 ## 7. Engine model

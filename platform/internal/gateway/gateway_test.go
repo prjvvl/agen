@@ -330,6 +330,50 @@ func TestCallAgentSuspendsWhenTheChildOutlastsInlineWait(t *testing.T) {
 	}
 }
 
+// start_agent without detach: true (3.4, part: "join") ties the child to
+// the caller's own task: the caller's run suspends with wait_for
+// "children" right after starting it (not waiting for it to be slow, the
+// way call_agent's inline-wait suspend does), and resumes once the child
+// ends, however it ends.
+func TestStartAgentJoinsAndSuspendsUntilTheChildFinishes(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	boss := testutil.BundleFiles(t, "hello")
+	boss["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},
+		"delegates":[{"name":"writer","description":"Writes drafts"}],
+		"permissions":{"default":"allow"}}`)
+	boss["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"start_agent","arguments":{"agent":"writer","message":"draft it"}}]},
+		{"text":"Boss: got it","expect":"Started task"}]}`)
+	writer := testutil.BundleFiles(t, "hello")
+	// Long enough that boss's suspend (unlike call_agent's, not contingent
+	// on the child being slow at all) is reliably observed before it ends,
+	// not missed between polls.
+	writer["x-agen/fake-script.json"] = []byte(`{"responses":[{"text":"Draft ready.","delayMs":4000}]}`)
+	k.deploy(t, "writer", writer, 1)
+	k.deploy(t, "boss", boss, 1)
+	k.waitReady(t, 2)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "boss"}, Input: "get me a draft"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unlike call_agent's suspend, this one does not wait for the child to
+	// be slow: boss suspends right after starting it, well before the
+	// child's own 500ms delay finishes.
+	waitFor(t, "boss task waiting on its children", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_WAITING && got.Msg.Task.WaitFor == "children"
+	})
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "Boss: got it" {
+		t.Fatalf("boss task: %v %v", got, err)
+	}
+	if got.Msg.Task.WaitFor != "" {
+		t.Fatalf("wait_for must clear on resume: %q", got.Msg.Task.WaitFor)
+	}
+}
+
 // An "ask" tool call in a managed agent becomes a durable approval at the
 // Hub; the person who submitted the task cannot approve it; approve lets
 // the call run, deny stops it, and an unanswered ask expires.

@@ -48,6 +48,10 @@ service NestService {
   // entries other than "child" rows (3.4/3.9, part). Low-stakes like
   // ReportProgress: requireNest only, no lease fencing.
   rpc DrainInbox(NestDrainInboxRequest) returns (NestDrainInboxResponse);
+  // Counts a task this Nest currently leases' own unfinished joined
+  // children (3.4, part: "join"). Low-stakes like ReportProgress:
+  // requireNest only, no lease fencing.
+  rpc UnfinishedChildren(NestUnfinishedChildrenRequest) returns (NestUnfinishedChildrenResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -224,6 +228,14 @@ message NestDrainInboxRequest {
 }
 message NestDrainInboxResponse {
   repeated InboxEntry entries = 1;
+}
+
+message NestUnfinishedChildrenRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestUnfinishedChildrenResponse {
+  int64 count = 1;
 }
 
 message CreateApprovalRequest {

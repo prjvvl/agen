@@ -52,6 +52,11 @@ service ManagerService {
   // TaskStarter is configured; claiming is atomic, so a retried call never
   // redelivers an entry already claimed.
   rpc DrainInbox(DrainInboxRequest) returns (DrainInboxResponse);
+  // Counts the calling task's own unfinished joined children (3.4, part:
+  // "join"), checked by finish (refuses done while positive) and the
+  // engine's turn loop (suspends instead of asking the model while
+  // positive).
+  rpc UnfinishedChildren(UnfinishedChildrenRequest) returns (UnfinishedChildrenResponse);
 }
 
 message StartTaskRequest {
@@ -106,6 +111,13 @@ message DrainInboxRequest {
 }
 message DrainInboxResponse {
   repeated InboxEntry entries = 1;
+}
+
+message UnfinishedChildrenRequest {
+  string task_id = 1;
+}
+message UnfinishedChildrenResponse {
+  int64 count = 1;
 }
 
 message RequestApprovalRequest {

@@ -319,8 +319,10 @@ impl AgentBuilder {
         }
         let finish = !self.tools.iter().any(|t| t.spec().name == crate::outcome::FINISH);
         if finish {
-            self.tools
-                .push(Arc::new(crate::outcome::Finish::new(self.cfg.result_schema.clone())));
+            self.tools.push(Arc::new(crate::outcome::Finish::new(
+                self.cfg.result_schema.clone(),
+                self.task_starter.clone(),
+            )));
         }
         if !self
             .tools
@@ -1104,6 +1106,29 @@ impl Agent {
                 return self.report(live, tracer, ctx, opts, "budget", e).await;
             }
             self.drain_inbox(live).await;
+            // "join" (3.4, part): a turn that ends with unfinished joined
+            // children (start_agent without detach: true) suspends instead
+            // of asking the model again — freeing the instance, same as
+            // call_agent's own inline-wait-then-suspend. Each child
+            // finishing wakes it (any one, not a specific one: the Hub
+            // matches wait_for "children" against every "child" row, not
+            // just an exact "child:<id>"). A failed check never suspends
+            // on its own, same as `finish`'s.
+            if !live.rec.task_id.is_empty() {
+                if let Some(starter) = &self.task_starter {
+                    match starter.unfinished_children(&live.rec.task_id).await {
+                        Ok(n) if n > 0 => return Ok(Outcome::Suspended("children".into())),
+                        Ok(_) => {}
+                        Err(e) => {
+                            self.log(
+                                "warn",
+                                &format!("run {}: could not check for unfinished children: {e}", live.rec.id),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
                 system: self.redactor.redact(&self.system_prompt(opts).await?),

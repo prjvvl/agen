@@ -94,30 +94,45 @@ the researcher about all of them in the same turn."
 `call_agent` waits for the delegate's answer (see above: it may pause the
 caller's run while it does, but the model still sees one ordinary tool
 call). For work the caller does not need an answer to before going on,
-`start_agent` queues a task on the delegate and returns at once with the
-task's id; the caller finishes its turn. When the task ends (succeeded,
-failed or cancelled), the Hub sends its result back into the caller's
-conversation as a new task, with input that starts
-`[Result of the task you started on <agent> (task <id>, <state>)]`, and the
-caller continues that conversation with it.
+`start_agent` queues a task on the delegate and returns at once with its
+id; the caller finishes its turn.
 
-| | `call_agent` | `start_agent` |
-|---|---|---|
-| The caller's run | waits for the answer | goes on and can finish |
-| The answer | the tool result | a new task in the caller's conversation (source `reply:<agent>`) |
-| The delegate's work | a queued task it waits on (or an A2A call if `url`/`via: "a2a"`) | a queued task it never waits on |
-| Which delegates | all | in a fleet, those without a fixed `url` |
+By default the task **joins** the caller's: the caller cannot finish
+`done` while it (or any other task started this way) is still running —
+calling `finish` then is refused with how many are still going, and the
+caller's run suspends right after starting one if it has nothing else to
+do, freeing its instance until one of them ends (whichever finishes
+first wakes it; it does not wait for all of them). There is no separate
+reply message — check on a joined task with `query_agent`, or just try
+`finish` again once woken.
 
-- The result goes to the conversation the call came from. If that
-  conversation has no key (for example a task without `--conversation`), it
-  gets one (`async:<session>`) so the result can find it.
+Pass `detach: true` for the old behaviour instead: the task does **not**
+join the caller's, finishing does not wait for it, and when it ends
+(succeeded, failed or cancelled) the Hub sends its result back into the
+caller's conversation as a new task, with input that starts
+`[Result of the task you started on <agent> (task <id>, <state>)]`, which
+the caller continues.
+
+| | `call_agent` | `start_agent` (joined, default) | `start_agent detach: true` |
+|---|---|---|---|
+| The caller's run | waits for the answer | goes on; suspends once it has nothing else to do while any are unfinished | goes on and can finish |
+| The answer | the tool result | check with `query_agent`; `finish` is refused meanwhile | a new task in the caller's conversation (source `reply:<agent>`) |
+| The delegate's work | a queued task it waits on (or an A2A call if `url`/`via: "a2a"`) | a queued task tied to the caller | a queued task the caller never waits on |
+| Which delegates | all | in a fleet, those without a fixed `url` | in a fleet, those without a fixed `url` |
+
+- `detach: true`'s result goes to the conversation the call came from. If
+  that conversation has no key (for example a task without
+  `--conversation`), it gets one (`async:<session>`) so the result can
+  find it.
 - Repeating a call is safe: a retried or resumed call returns the same task.
 - `start_agent` counts against the same limits as `call_agent`.
-- The started task joins the caller's trace; the result starts a trace of its
-  own. The console's fleet map draws started work as a dashed line and
-  results going back as a dotted one.
-- A failed or cancelled task's result says so, so tell the caller in its
-  system prompt what to do then.
+- The started task joins the caller's trace; a `detach: true` result
+  starts a trace of its own. The console's fleet map draws started work
+  as a dashed line and `detach: true` results going back as a dotted one.
+- A failed or cancelled task still counts as "finished" for joining — it
+  does not block the caller's `finish`; a `detach: true` result's failure
+  or cancellation says so in its input, so tell the caller in its system
+  prompt what to do then.
 
 A run started over A2A (no task of its own) can start tasks too: the Hub
 accepts its unfinished run as the parent and derives the depth from its

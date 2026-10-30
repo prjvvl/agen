@@ -50,6 +50,10 @@ impl TaskStarter for ScriptedInbox {
         *self.calls.lock().unwrap() += 1;
         Ok(self.entries.lock().unwrap().take().unwrap_or_default())
     }
+
+    async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
+        Ok(0)
+    }
 }
 
 fn say(text: &str) -> FakeResponse {
@@ -138,6 +142,9 @@ async fn a_drain_error_does_not_fail_the_turn() {
         }
         async fn drain_inbox(&self, _task_id: &str) -> Result<Vec<Value>, String> {
             Err("manager unreachable".into())
+        }
+        async fn unfinished_children(&self, _task_id: &str) -> Result<i64, String> {
+            Ok(0)
         }
     }
     let d = tempfile::tempdir().unwrap();

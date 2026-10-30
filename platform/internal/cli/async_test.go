@@ -9,10 +9,12 @@ import (
 	"time"
 )
 
-// Async delegation: a run starts another agent with start_agent and ends
-// its turn; when the started task ends, its result arrives as a new task in
-// the caller's conversation, which continues with it. Without a
-// conversation key the caller's session gets one for the reply.
+// Async delegation: a run starts another agent with start_agent and
+// detach: true (3.4, part: without it the child joins the caller's task
+// instead of replying) and ends its turn; when the started task ends, its
+// result arrives as a new task in the caller's conversation, which
+// continues with it. Without a conversation key the caller's session gets
+// one for the reply.
 // features[a2a]: delegation.async
 func TestAsyncDelegationRepliesIntoTheConversation(t *testing.T) {
 	bin := hostBin(t)
@@ -30,7 +32,7 @@ func TestAsyncDelegationRepliesIntoTheConversation(t *testing.T) {
 		{"lead", `{"kind":"pool","scale":{"min":0,"max":1,"idleTimeout":"10m"},"delegates":[{"name":"writer"}],` +
 			`"permissions":{"default":"deny","rules":[{"tool":"start_agent","action":"allow"}]}}`,
 			`{"cycle":true,"responses":[` +
-				`{"toolCalls":[{"name":"start_agent","arguments":{"agent":"writer","message":"fix the bugs"}}]},` +
+				`{"toolCalls":[{"name":"start_agent","arguments":{"agent":"writer","message":"fix the bugs","detach":true}}]},` +
 				`{"text":"Started; I will report back.","expect":"Started task"},` +
 				`{"text":"Final: 42 bugs fixed.","expect":"[Result of the task you started on writer"}]}`},
 	}

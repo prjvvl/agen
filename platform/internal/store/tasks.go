@@ -711,9 +711,12 @@ func writeInboxRow(ctx context.Context, ex execer, r InboxRow) (woken bool, err 
 		r.ID, r.Namespace, r.TaskID, r.RunID, r.Kind, r.Ref, r.Payload, now); err != nil {
 		return false, err
 	}
+	// A "children" wait (3.4, part: "join") is woken by any "child" row,
+	// not one matching a specific ref like the exact "child:<id>" wait
+	// call_agent's own suspend uses.
 	res, err := ex.ExecContext(ctx,
-		"UPDATE tasks SET state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 WHERE id = $2 AND state = 'waiting' AND wait_for = $3",
-		now, r.TaskID, r.Kind+":"+r.Ref)
+		"UPDATE tasks SET state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 WHERE id = $2 AND state = 'waiting' AND (wait_for = $3 OR (wait_for = 'children' AND $4 = 'child'))",
+		now, r.TaskID, r.Kind+":"+r.Ref, r.Kind)
 	if err != nil {
 		return false, err
 	}
@@ -773,6 +776,21 @@ func (s *Store) DrainInbox(ctx context.Context, taskID string) ([]InboxRow, erro
 		return err
 	})
 	return out, err
+}
+
+// CountUnfinishedChildren counts taskID's own direct, unfinished *joined*
+// children (3.4, part: "join" — reply_deployment unset, same scope
+// cancelChildrenOnParentEnd uses; an async, start_agent-with-detach:true
+// child is never counted, since outliving its starter is its whole
+// point). Used by finish (refuses to end done while this is positive) and
+// by the engine's own turn loop (suspends instead of calling the model
+// again while this is positive).
+func (s *Store) CountUnfinishedChildren(ctx context.Context, taskID string) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM tasks WHERE parent_task_id = $1 AND reply_deployment = '' AND state IN ('queued', 'leased', 'running', 'waiting')",
+		taskID).Scan(&n)
+	return n, err
 }
 
 // RequeueExpiredLeases returns tasks whose lease expired to the queue. A task
