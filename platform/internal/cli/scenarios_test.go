@@ -233,6 +233,10 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		}
 	case "CancelTask":
 		c.args = []string{"cancel", str("id"), "--json"}
+		if v, _ := a["tree"].(bool); v {
+			used["tree"] = true
+			c.args = append(c.args, "--tree")
+		}
 	case "GetTaskTree":
 		c.args = []string{"tree", str("taskId"), "--json"}
 	case "ListRuns":

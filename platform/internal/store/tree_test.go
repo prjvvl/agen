@@ -174,3 +174,59 @@ func TestParentFinishingLeavesAlreadyFinishedChildrenAlone(t *testing.T) {
 		}
 	})
 }
+
+// CancelTree cancels every unfinished task of a tree, including an async
+// (reply_deployment set) child, unlike the automatic parent-close policy
+// which leaves those running; it leaves an unrelated tree and already
+// finished tasks alone.
+func TestCancelTreeCancelsEveryUnfinishedTaskIncludingAsyncChildren(t *testing.T) {
+	each(t, func(t *testing.T, s *Store) {
+		ctx := context.Background()
+		ns := uniq("tr")
+		root, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "root"})
+		must(t, err)
+		asyncChild, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "async", ParentTaskID: root.ID, RootTaskID: root.ID,
+			ReplyDeployment: "d", ReplyConversationKey: "async:s1"})
+		must(t, err)
+		joinedChild, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "joined", ParentTaskID: root.ID, RootTaskID: root.ID})
+		must(t, err)
+		grandchild, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "grandchild", ParentTaskID: joinedChild.ID, RootTaskID: root.ID})
+		must(t, err)
+		alreadyDone, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "done", ParentTaskID: root.ID, RootTaskID: root.ID})
+		must(t, err)
+		other, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "unrelated"})
+		must(t, err)
+
+		leased, err := s.LeaseTasks(ctx, "n1", ns, "d", 10, 60_000)
+		must(t, err)
+		leaseOf := map[string]string{}
+		for _, lt := range leased {
+			leaseOf[lt.ID] = lt.LeaseID
+		}
+		must(t, s.CompleteTask(ctx, alreadyDone.ID, leaseOf[alreadyDone.ID], true, "already done", "", "r1", "i1"))
+
+		cancelled, err := s.CancelTree(ctx, root.ID)
+		must(t, err)
+		if len(cancelled) != 4 {
+			t.Fatalf("cancelled %d tasks, want 4 (root, async child, joined child, grandchild): %v", len(cancelled), cancelled)
+		}
+
+		for name, id := range map[string]string{"root": root.ID, "async child": asyncChild.ID, "joined child": joinedChild.ID, "grandchild": grandchild.ID} {
+			got, err := s.GetTask(ctx, id)
+			must(t, err)
+			if got.State != "cancelled" {
+				t.Fatalf("%s (%s) state=%q, want cancelled", name, id, got.State)
+			}
+		}
+		gotDone, err := s.GetTask(ctx, alreadyDone.ID)
+		must(t, err)
+		if gotDone.State != "succeeded" {
+			t.Fatalf("already-finished task state=%q, want left as succeeded", gotDone.State)
+		}
+		gotOther, err := s.GetTask(ctx, other.ID)
+		must(t, err)
+		if gotOther.State == "cancelled" {
+			t.Fatal("unrelated tree's task was cancelled")
+		}
+	})
+}

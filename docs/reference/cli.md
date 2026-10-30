@@ -411,6 +411,8 @@ Usage of cancel:
     	namespace (default "default")
   -token string
     	API token
+  -tree
+    	cancel every unfinished task of its whole tree (its root and every descendant), not just this one
 ```
 
 ## agen call

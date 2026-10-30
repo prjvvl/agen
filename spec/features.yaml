@@ -168,7 +168,7 @@ features:
     on: [api, mcp, cli]
   - id: tasks.cancel
     title: Cancel a task or run
-    contract: [rpc:CancelTask, cli:cancel]
+    contract: [rpc:CancelTask, cli:cancel, field:CancelTask.tree]
     on: [rust, python, node, go, api, mcp, cli, console]
   - id: tasks.streaming
     title: Stream output while a run is in progress

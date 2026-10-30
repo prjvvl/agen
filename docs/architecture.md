@@ -458,9 +458,26 @@ chain delegates. Unlike `root_run_id` (empty until a run attaches to the
 task), it is always set, which is what makes `GetTaskTree(task_id)` able to
 resolve a whole tree from any task in it, including one still queued:
 it looks up that task, then returns every task sharing its `root_task_id`
-(`agen tree <task-id>`). The rest of the "Tree" design (`CancelTask(tree=true)`,
-join/suspend-on-children, `detach`, hold, signals and progress) is not built
-yet — this and the parent-close policy above are its first two pieces.
+(`agen tree <task-id>`).
+
+**Tree-wide cancel** (3.4, part): `CancelTask(id, tree=true)` cancels every
+unfinished task of `id`'s whole tree, resolved through `root_task_id` the
+same way `GetTaskTree` does — one flat query, not a parent-by-parent walk.
+Unlike the parent-close policy's automatic cascade (which deliberately
+skips async children), this touches every task of the tree, including an
+async one: cancelling a whole tree on purpose is a different thing from a
+task quietly ending. It still runs through the same `taskFinished`, so a
+task the parent-close policy already cascaded onto while this walk was
+running (processed moments earlier in the same transaction) is picked up
+and reported too, not double-cancelled. Only hard cancel exists today
+(stopped at once, same as the single-task path) — a graceful mode (give
+each run a last report turn, the Hub finishing stragglers after a grace
+period) is not built yet, nor is `tree=true` wired into `agen cancel`'s A2A
+counterpart.
+
+The rest of the "Tree" design (join/suspend-on-children, `detach`, hold,
+signals and progress) is not built yet — these three (parent-close,
+`GetTaskTree`, tree-wide cancel) are its first pieces.
 
 ## 7. Engine model
 

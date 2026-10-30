@@ -709,6 +709,23 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	if err := requireNamespace(ctx, t.Namespace); err != nil {
 		return nil, err
 	}
+	if req.Msg.Tree {
+		cancelled, err := h.Store.CancelTree(ctx, t.RootTaskID)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		out := make([]*agenv1.Task, len(cancelled))
+		for i, ct := range cancelled {
+			// Each cancelled child still answers the run that started it.
+			h.replyResult(ctx, ct)
+			out[i] = TaskProto(ct)
+		}
+		t, err = h.Store.GetTask(ctx, req.Msg.Id)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t), Cancelled: out}), nil
+	}
 	t, err = h.Store.CancelTask(ctx, req.Msg.Id)
 	if err != nil {
 		return nil, connectErr(err)

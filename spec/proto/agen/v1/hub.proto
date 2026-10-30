@@ -460,9 +460,17 @@ message ListTasksResponse {
 
 message CancelTaskRequest {
   string id = 1;
+  // Cancel every unfinished task of id's whole tree (its root and every
+  // descendant, found through root_task_id), not just id itself. Today
+  // this is always a hard cancel (stopped at once); a graceful mode that
+  // gives each run a last report turn first is not built yet.
+  bool tree = 2;
 }
 message CancelTaskResponse {
   Task task = 1;
+  // Set only when tree was asked for: every task it actually cancelled
+  // (already-finished tasks of the tree are left out).
+  repeated Task cancelled = 2;
 }
 
 message ResolveRequest {

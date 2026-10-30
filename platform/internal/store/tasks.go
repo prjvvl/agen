@@ -827,6 +827,64 @@ func (s *Store) CancelTask(ctx context.Context, id string) (Task, error) {
 	return s.GetTask(ctx, id)
 }
 
+// CancelTree hard-cancels every unfinished task of the tree rooted at
+// rootTaskID (found through root_task_id, so the whole tree in one query,
+// not a parent-by-parent cascade), and returns the ones it actually
+// cancelled, oldest first. Unlike the parent-close policy (on_parent_end),
+// this touches every task of the tree, including an async
+// (reply_deployment set) one: cancelling a whole tree is an explicit ask,
+// not an automatic side effect of something else ending.
+func (s *Store) CancelTree(ctx context.Context, rootTaskID string) ([]Task, error) {
+	var cancelled []Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id FROM tasks WHERE root_task_id = $1 AND state IN ('queued', 'leased', 'running', 'waiting') ORDER BY created_ms", rootTaskID)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		for _, id := range ids {
+			t, err := scanTask(tx.QueryRowContext(ctx,
+				"UPDATE tasks SET state = 'cancelled', wait_for = '', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running', 'waiting') RETURNING "+taskCols,
+				NowMs(), id))
+			if errors.Is(err, sql.ErrNoRows) {
+				// id was confirmed unfinished when this call started (the
+				// query above), so if it is cancelled now, it was cascaded
+				// by taskFinished's own parent-close policy onto a sibling
+				// cancelled earlier in this very loop: still ours to report.
+				if ct, err2 := scanTask(tx.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE id = $1", id)); err2 == nil && ct.State == "cancelled" {
+					cancelled = append(cancelled, ct)
+				}
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if err := endTaskRun(ctx, tx, t, "cancelled", "cancelled: its tree was cancelled"); err != nil {
+				return err
+			}
+			if err := taskFinished(ctx, tx, t); err != nil {
+				return err
+			}
+			cancelled = append(cancelled, t)
+		}
+		return nil
+	})
+	return cancelled, err
+}
+
 // endTaskRun ends the unfinished run of a task the Hub has finished, and
 // fences off its owner (a host may still be running it). Otherwise the run
 // would keep its conversation open, and the next task with the same

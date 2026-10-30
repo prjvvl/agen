@@ -19,6 +19,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/CancelTask` · MCP tool: `c
 | Field | Type | Description |
 |---|---|---|
 | `id` | string |  |
+| `tree` | bool | Cancel every unfinished task of id's whole tree (its root and every descendant, found through root_task_id), not just id itself. Today this is always a hard cancel (stopped at once); a graceful mode that gives each run a last report turn first is not built yet. |
 
 ## CreateApiToken
 

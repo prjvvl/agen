@@ -496,18 +496,19 @@ func (e *env) cmdWait(ctx context.Context, args []string) error {
 func (e *env) cmdCancel(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("cancel", &cf)
+	tree := fs.Bool("tree", false, "cancel every unfinished task of its whole tree (its root and every descendant), not just this one")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen cancel <task-id>")
+		return usageErr("agen cancel <task-id> [--tree]")
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
-	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0]}))
+	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0], Tree: *tree}))
 	if err != nil {
 		return err
 	}
@@ -515,6 +516,9 @@ func (e *env) cmdCancel(ctx context.Context, args []string) error {
 		return e.printJSON(r.Msg)
 	}
 	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Task.Id, stateName(r.Msg.Task.State, "TASK_STATE_"))
+	if *tree {
+		fmt.Fprintf(e.stdout, "%d task(s) cancelled across its tree\n", len(r.Msg.Cancelled))
+	}
 	return nil
 }
 
