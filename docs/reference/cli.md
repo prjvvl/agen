@@ -39,6 +39,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
   agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
   agen feedback ls [name]         feedback, newest first (--label, --since)
+  agen memory set <id>            durable text an agent reads and updates (value on stdin)
+  agen memory ls                  memory blocks in the namespace
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -561,6 +563,12 @@ Usage of events:
 
 ```text
 usage: agen feedback record <task> --score S [--note TEXT] [--label k=v] | agen feedback ls [name] [--label k=v] [--since D]
+```
+
+## agen memory
+
+```text
+usage: agen memory set <id> [--title T] [--description D] [--limit-chars N] (value on stdin) | agen memory ls
 ```
 
 ## agen triggers

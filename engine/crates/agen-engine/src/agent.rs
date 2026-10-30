@@ -115,6 +115,9 @@ pub struct AgentConfig {
     pub result_schema: Option<crate::outcome::ResultSchema>,
     /// Output limit of the report call at a limit (0: no report call).
     pub report_tokens: u32,
+    /// Memory blocks attached to this bundle (`x-agen/config.json`
+    /// `memory`), rendered into the system prompt.
+    pub memory: Vec<crate::bundle::MemoryAttachment>,
 }
 
 impl AgentConfig {
@@ -150,6 +153,7 @@ impl AgentConfig {
             tool_timeout: default_limits::TOOL_TIMEOUT,
             result_schema: None,
             report_tokens: default_limits::REPORT_TOKENS,
+            memory: vec![],
         }
     }
 }
@@ -469,6 +473,7 @@ impl Agent {
         }
         cfg.budget = bundle.config.budget.clone();
         cfg.limits = bundle.config.limits.clone();
+        cfg.memory = bundle.config.memory.clone();
         let limits = &bundle.config.limits;
         if let Some(t) = limits.max_run_duration.as_deref() {
             cfg.max_run_duration = duration_setting("limits.maxRunDuration", t)?;
@@ -528,6 +533,13 @@ impl Agent {
                     )));
                 }
             }
+        }
+        if !bundle.config.memory.is_empty() {
+            b = b.tool(Arc::new(crate::memory::MemoryUpdate::new(
+                store.clone(),
+                &namespace,
+                bundle.config.memory.clone(),
+            )));
         }
         if let Some(m) = &bundle.mcp {
             let redactor = Redactor::new();
@@ -1007,7 +1019,7 @@ impl Agent {
             }
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
-                system: self.redactor.redact(&self.system_prompt(opts)),
+                system: self.redactor.redact(&self.system_prompt(opts).await?),
                 messages: self.request_messages(&live.rec).await?,
                 tools: self.visible_tools(live, opts),
                 temperature: self.cfg.temperature,
@@ -1266,7 +1278,7 @@ impl Agent {
         extra.insert("tool_choice".into(), Value::String("none".into()));
         let req = ModelRequest {
             model: self.cfg.model.clone(),
-            system: self.redactor.redact(&self.system_prompt(opts)),
+            system: self.redactor.redact(&self.system_prompt(opts).await?),
             messages: self.request_messages(&live.rec).await?,
             tools: self.visible_tools(live, opts),
             temperature: self.cfg.temperature,
@@ -1577,7 +1589,7 @@ impl Agent {
     /// The bundle's system prompt, with skills preloaded (the bundle's
     /// `preloadSkills` plus any a task's overrides add), and the task's
     /// `overrides.systemAddendum`, if any, appended last.
-    fn system_prompt(&self, opts: &RunOptions) -> String {
+    async fn system_prompt(&self, opts: &RunOptions) -> Result<String, AgentError> {
         let extra_preload: &[String] = opts.overrides.as_ref().map(|o| o.skills.as_slice()).unwrap_or(&[]);
         let mut s = self.cfg.system_prompt.clone();
         let (pre, lazy): (Vec<&Skill>, Vec<&Skill>) = self
@@ -1603,7 +1615,10 @@ impl Agent {
             s.push_str("\n\n");
             s.push_str(addendum);
         }
-        s
+        if !self.cfg.memory.is_empty() {
+            s.push_str(&crate::memory::render(&self.store, &self.cfg.namespace, &self.cfg.memory).await?);
+        }
+        Ok(s)
     }
 
     fn redact_message(&self, m: &Message) -> Message {

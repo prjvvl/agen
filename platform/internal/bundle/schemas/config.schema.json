@@ -196,6 +196,19 @@
         },
         "additionalProperties": false
       }
+    },
+    "memory": {
+      "type": "array",
+      "description": "Memory blocks (durable, named text) this agent reads or updates, rendered into its system prompt",
+      "items": {
+        "type": "object",
+        "required": ["block"],
+        "properties": {
+          "block": { "type": "string", "description": "The block's id (agen memory set / the API's SetMemoryBlock)" },
+          "mode": { "enum": ["read", "append", "write"], "description": "read (default): see it only. append: memory_update may add text. write: memory_update may also replace it or edit it in place" }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false,

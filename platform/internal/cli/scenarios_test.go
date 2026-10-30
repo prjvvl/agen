@@ -304,6 +304,21 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		c.args = []string{"providers", "--json"}
 	case "ListTemplates":
 		c.args = []string{"init", "--list", "--json"}
+	case "SetMemoryBlock":
+		c.args = append([]string{"memory", "set", str("id"), "--json"}, ns()...)
+		if v := str("label"); v != "" {
+			c.args = append(c.args, "--title", v)
+		}
+		if v := str("description"); v != "" {
+			c.args = append(c.args, "--description", v)
+		}
+		if n, ok := a["limitChars"].(float64); ok {
+			used["limitChars"] = true
+			c.args = append(c.args, "--limit-chars", fmt.Sprint(int(n)))
+		}
+		c.stdin = str("value")
+	case "ListMemoryBlocks":
+		c.args = append([]string{"memory", "ls", "--json"}, ns()...)
 	case "RecordFeedback":
 		c.args = []string{"feedback", "record", str("taskId"), "--score", fmt.Sprint(a["score"]), "--json"}
 		used["score"] = true

@@ -1,0 +1,27 @@
+{
+  "name": "memory",
+  "description": "Set a memory block, replace its value, and list a namespace's blocks.",
+  "features": ["memory.blocks"],
+  "steps": [
+    {
+      "call": "SetMemoryBlock",
+      "args": { "namespace": "$ns", "id": "notes", "label": "Notes", "description": "scratch", "value": "hello" },
+      "expect": { "block.id": "notes", "block.value": "hello", "block.version": "1" }
+    },
+    {
+      "call": "SetMemoryBlock",
+      "args": { "namespace": "$ns", "id": "notes", "value": "world" },
+      "expect": { "block.value": "world", "block.version": "2" }
+    },
+    {
+      "call": "SetMemoryBlock",
+      "args": { "namespace": "$ns", "id": "other", "value": "y" },
+      "expect": { "block.id": "other" }
+    },
+    {
+      "call": "ListMemoryBlocks",
+      "args": { "namespace": "$ns" },
+      "expect": { "blocks": { "has": { "id": "other", "value": "y" } } }
+    }
+  ]
+}

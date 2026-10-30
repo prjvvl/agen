@@ -213,6 +213,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0033_trust.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0033_trust.sql"),
     },
+    Migration {
+        version: 34,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0034_memory_blocks.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0034_memory_blocks.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -239,6 +244,37 @@ pub struct Session {
     pub namespace: String,
     pub deployment: String,
     pub memory: serde_json::Value,
+}
+
+/// A durable, named block of text an agent reads and updates across runs
+/// and conversations (`x-agen/config.json` `memory`), namespace-scoped so
+/// a namespace's deployments can share one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryBlock {
+    pub namespace: String,
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub value: String,
+    /// 0: no limit.
+    pub limit_chars: i64,
+    /// Bumped on every update; `update_memory_block`'s `expected_version`
+    /// is checked against it so parallel writers cannot silently clobber
+    /// each other.
+    pub version: i64,
+    pub updated_ms: i64,
+}
+
+/// How `update_memory_block` changes a block's value.
+#[derive(Debug, Clone)]
+pub enum MemoryOp {
+    Replace(String),
+    Append(String),
+    /// Exactly one occurrence of `old` in the current value becomes `new`.
+    StrReplace {
+        old: String,
+        new: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -602,6 +638,159 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    fn memory_block_row(row: AnyRow) -> MemoryBlock {
+        MemoryBlock {
+            namespace: row.get(0),
+            id: row.get(1),
+            label: row.get(2),
+            description: row.get(3),
+            value: row.get(4),
+            limit_chars: row.get(5),
+            version: row.get(6),
+            updated_ms: row.get(7),
+        }
+    }
+
+    pub async fn get_memory_block(&self, namespace: &str, id: &str) -> Result<Option<MemoryBlock>> {
+        let row = sqlx::query(
+            "SELECT namespace, id, label, description, value, limit_chars, version, updated_ms \
+             FROM memory_blocks WHERE namespace = $1 AND id = $2",
+        )
+        .bind(namespace)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(Self::memory_block_row))
+    }
+
+    /// A namespace's memory blocks, newest-updated first (the API:
+    /// ListMemoryBlocks).
+    pub async fn list_memory_blocks(&self, namespace: &str) -> Result<Vec<MemoryBlock>> {
+        let rows = sqlx::query(
+            "SELECT namespace, id, label, description, value, limit_chars, version, updated_ms \
+             FROM memory_blocks WHERE namespace = $1 ORDER BY updated_ms DESC, id",
+        )
+        .bind(namespace)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(Self::memory_block_row).collect())
+    }
+
+    /// Replaces a block's value outright (the API: SetMemoryBlock),
+    /// creating it if it does not exist yet. Bumps the version.
+    pub async fn set_memory_block(
+        &self,
+        namespace: &str,
+        id: &str,
+        label: &str,
+        description: &str,
+        value: &str,
+        limit_chars: i64,
+    ) -> Result<MemoryBlock> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO memory_blocks (namespace, id, label, description, value, limit_chars, version, updated_ms) \
+             VALUES ($1, $2, $3, $4, $5, $6, 1, $7) \
+             ON CONFLICT (namespace, id) DO UPDATE SET label = excluded.label, description = excluded.description, \
+             value = excluded.value, limit_chars = excluded.limit_chars, version = memory_blocks.version + 1, updated_ms = excluded.updated_ms",
+        )
+        .bind(namespace)
+        .bind(id)
+        .bind(label)
+        .bind(description)
+        .bind(value)
+        .bind(limit_chars)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        self.get_memory_block(namespace, id)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("memory block {namespace}/{id}")))
+    }
+
+    /// Compare-and-set update (the `memory_update` tool): applies `op` to
+    /// the block's current value, creating it (at version 0) on first
+    /// write. With `expected_version`, a concurrent writer is a conflict
+    /// the caller must retry deliberately; without one, a concurrent
+    /// write is retried once against the fresh value.
+    pub async fn update_memory_block(
+        &self,
+        namespace: &str,
+        id: &str,
+        op: &MemoryOp,
+        expected_version: Option<i64>,
+    ) -> Result<MemoryBlock> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO memory_blocks (namespace, id, label, description, value, limit_chars, version, updated_ms) \
+             VALUES ($1, $2, '', '', '', 0, 0, $3) ON CONFLICT (namespace, id) DO NOTHING",
+        )
+        .bind(namespace)
+        .bind(id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        for _ in 0..10 {
+            let cur = self
+                .get_memory_block(namespace, id)
+                .await?
+                .ok_or_else(|| StoreError::NotFound(format!("memory block {namespace}/{id}")))?;
+            if let Some(want) = expected_version {
+                if want != cur.version {
+                    return Err(StoreError::Conflict(format!(
+                        "memory block {namespace}/{id} is at version {}, not {want} (someone else updated it)",
+                        cur.version
+                    )));
+                }
+            }
+            let new_value = match op {
+                MemoryOp::Replace(text) => text.clone(),
+                MemoryOp::Append(text) => format!("{}{}", cur.value, text),
+                MemoryOp::StrReplace { old, new } => {
+                    let n = cur.value.matches(old.as_str()).count();
+                    if n != 1 {
+                        return Err(StoreError::Invalid(format!(
+                            "{old:?} occurs {n} times in memory block {namespace}/{id}; it must occur exactly once"
+                        )));
+                    }
+                    cur.value.replacen(old.as_str(), new, 1)
+                }
+            };
+            if cur.limit_chars > 0 && new_value.chars().count() as i64 > cur.limit_chars {
+                return Err(StoreError::Invalid(format!(
+                    "memory block {namespace}/{id} would be {} chars, over its limit of {}",
+                    new_value.chars().count(),
+                    cur.limit_chars
+                )));
+            }
+            let res = sqlx::query(
+                "UPDATE memory_blocks SET value = $1, version = version + 1, updated_ms = $2 WHERE namespace = $3 AND id = $4 AND version = $5",
+            )
+            .bind(&new_value)
+            .bind(now)
+            .bind(namespace)
+            .bind(id)
+            .bind(cur.version)
+            .execute(&self.pool)
+            .await?;
+            if res.rows_affected() == 1 {
+                return self
+                    .get_memory_block(namespace, id)
+                    .await?
+                    .ok_or_else(|| StoreError::NotFound(format!("memory block {namespace}/{id}")));
+            }
+            if expected_version.is_some() {
+                return Err(StoreError::Conflict(format!(
+                    "memory block {namespace}/{id} changed concurrently; try again"
+                )));
+            }
+            // No specific version was demanded: retry against the value as it now stands.
+        }
+        Err(StoreError::Conflict(format!(
+            "memory block {namespace}/{id} changed concurrently too many times; try again"
+        )))
     }
 
     /// The conversation key of a conversation's session, giving the session

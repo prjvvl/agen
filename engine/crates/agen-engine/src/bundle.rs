@@ -312,6 +312,27 @@ pub struct Config {
     pub scale: Option<Value>,
     #[serde(default)]
     pub triggers: Vec<Value>,
+    #[serde(default)]
+    pub memory: Vec<MemoryAttachment>,
+}
+
+/// How much of a memory block (`x-agen/config.json` `memory`) an agent may
+/// do with it: see it, append, or fully rewrite it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryMode {
+    #[default]
+    Read,
+    Append,
+    Write,
+}
+
+/// A memory block attached to this bundle.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MemoryAttachment {
+    pub block: String,
+    #[serde(default)]
+    pub mode: MemoryMode,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -152,6 +152,12 @@ const (
 	HubServiceRecordFeedbackProcedure = "/agen.v1.HubService/RecordFeedback"
 	// HubServiceListFeedbackProcedure is the fully-qualified name of the HubService's ListFeedback RPC.
 	HubServiceListFeedbackProcedure = "/agen.v1.HubService/ListFeedback"
+	// HubServiceSetMemoryBlockProcedure is the fully-qualified name of the HubService's SetMemoryBlock
+	// RPC.
+	HubServiceSetMemoryBlockProcedure = "/agen.v1.HubService/SetMemoryBlock"
+	// HubServiceListMemoryBlocksProcedure is the fully-qualified name of the HubService's
+	// ListMemoryBlocks RPC.
+	HubServiceListMemoryBlocksProcedure = "/agen.v1.HubService/ListMemoryBlocks"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -249,6 +255,12 @@ type HubServiceClient interface {
 	RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error)
 	// Feedback, filtered by deployment, labels and time, newest first.
 	ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error)
+	// Replace a memory block's value outright, creating it if it does not
+	// exist yet (3.10). Agents change one through the memory_update tool
+	// instead, which compares versions first.
+	SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error)
+	// A namespace's memory blocks, newest-updated first.
+	ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -538,6 +550,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("ListFeedback")),
 			connect.WithClientOptions(opts...),
 		),
+		setMemoryBlock: connect.NewClient[v1.SetMemoryBlockRequest, v1.SetMemoryBlockResponse](
+			httpClient,
+			baseURL+HubServiceSetMemoryBlockProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("SetMemoryBlock")),
+			connect.WithClientOptions(opts...),
+		),
+		listMemoryBlocks: connect.NewClient[v1.ListMemoryBlocksRequest, v1.ListMemoryBlocksResponse](
+			httpClient,
+			baseURL+HubServiceListMemoryBlocksProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListMemoryBlocks")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -589,6 +613,8 @@ type hubServiceClient struct {
 	deleteNotificationTarget *connect.Client[v1.DeleteNotificationTargetRequest, v1.DeleteNotificationTargetResponse]
 	recordFeedback           *connect.Client[v1.RecordFeedbackRequest, v1.RecordFeedbackResponse]
 	listFeedback             *connect.Client[v1.ListFeedbackRequest, v1.ListFeedbackResponse]
+	setMemoryBlock           *connect.Client[v1.SetMemoryBlockRequest, v1.SetMemoryBlockResponse]
+	listMemoryBlocks         *connect.Client[v1.ListMemoryBlocksRequest, v1.ListMemoryBlocksResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -821,6 +847,16 @@ func (c *hubServiceClient) ListFeedback(ctx context.Context, req *connect.Reques
 	return c.listFeedback.CallUnary(ctx, req)
 }
 
+// SetMemoryBlock calls agen.v1.HubService.SetMemoryBlock.
+func (c *hubServiceClient) SetMemoryBlock(ctx context.Context, req *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error) {
+	return c.setMemoryBlock.CallUnary(ctx, req)
+}
+
+// ListMemoryBlocks calls agen.v1.HubService.ListMemoryBlocks.
+func (c *hubServiceClient) ListMemoryBlocks(ctx context.Context, req *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error) {
+	return c.listMemoryBlocks.CallUnary(ctx, req)
+}
+
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
 	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
@@ -916,6 +952,12 @@ type HubServiceHandler interface {
 	RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error)
 	// Feedback, filtered by deployment, labels and time, newest first.
 	ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error)
+	// Replace a memory block's value outright, creating it if it does not
+	// exist yet (3.10). Agents change one through the memory_update tool
+	// instead, which compares versions first.
+	SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error)
+	// A namespace's memory blocks, newest-updated first.
+	ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -1201,6 +1243,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("ListFeedback")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceSetMemoryBlockHandler := connect.NewUnaryHandler(
+		HubServiceSetMemoryBlockProcedure,
+		svc.SetMemoryBlock,
+		connect.WithSchema(hubServiceMethods.ByName("SetMemoryBlock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListMemoryBlocksHandler := connect.NewUnaryHandler(
+		HubServiceListMemoryBlocksProcedure,
+		svc.ListMemoryBlocks,
+		connect.WithSchema(hubServiceMethods.ByName("ListMemoryBlocks")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HubServiceCreateDeploymentProcedure:
@@ -1295,6 +1349,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceRecordFeedbackHandler.ServeHTTP(w, r)
 		case HubServiceListFeedbackProcedure:
 			hubServiceListFeedbackHandler.ServeHTTP(w, r)
+		case HubServiceSetMemoryBlockProcedure:
+			hubServiceSetMemoryBlockHandler.ServeHTTP(w, r)
+		case HubServiceListMemoryBlocksProcedure:
+			hubServiceListMemoryBlocksHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1486,4 +1544,12 @@ func (UnimplementedHubServiceHandler) RecordFeedback(context.Context, *connect.R
 
 func (UnimplementedHubServiceHandler) ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListFeedback is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.SetMemoryBlock is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListMemoryBlocks is not implemented"))
 }

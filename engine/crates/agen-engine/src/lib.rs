@@ -3,6 +3,7 @@ pub mod bundle;
 pub mod delegate;
 pub mod managed;
 pub mod mcp;
+pub mod memory;
 pub mod outcome;
 pub mod overrides;
 pub mod permissions;

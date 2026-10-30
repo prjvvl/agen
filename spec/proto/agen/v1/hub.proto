@@ -115,6 +115,13 @@ service HubService {
   rpc RecordFeedback(RecordFeedbackRequest) returns (RecordFeedbackResponse);
   // Feedback, filtered by deployment, labels and time, newest first.
   rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
+
+  // Replace a memory block's value outright, creating it if it does not
+  // exist yet (3.10). Agents change one through the memory_update tool
+  // instead, which compares versions first.
+  rpc SetMemoryBlock(SetMemoryBlockRequest) returns (SetMemoryBlockResponse);
+  // A namespace's memory blocks, newest-updated first.
+  rpc ListMemoryBlocks(ListMemoryBlocksRequest) returns (ListMemoryBlocksResponse);
 }
 
 message RecordFeedbackRequest {
@@ -135,6 +142,25 @@ message ListFeedbackRequest {
   google.protobuf.Timestamp since = 4;
   int32 limit = 5;
 }
+message SetMemoryBlockRequest {
+  string namespace = 1;
+  string id = 2;
+  string label = 3;
+  string description = 4;
+  string value = 5;
+  // 0: no limit.
+  int64 limit_chars = 6;
+}
+message SetMemoryBlockResponse {
+  MemoryBlock block = 1;
+}
+message ListMemoryBlocksRequest {
+  string namespace = 1;
+}
+message ListMemoryBlocksResponse {
+  repeated MemoryBlock blocks = 1;
+}
+
 message ListFeedbackResponse {
   repeated Feedback feedback = 1;
 }

@@ -293,6 +293,16 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListInstances` · MCP tool: `
 | `deployment` | string |  |
 | `nestId` | string |  |
 
+## ListMemoryBlocks
+
+A namespace's memory blocks, newest-updated first.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListMemoryBlocks` · MCP tool: `list_memory_blocks`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+
 ## ListNests
 
 Enrolled Nests (machines or clusters that run instances).
@@ -460,6 +470,21 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/ScaleDeployment` · MCP too
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `desired` | int32 |  |
+
+## SetMemoryBlock
+
+Replace a memory block's value outright, creating it if it does not exist yet (3.10). Agents change one through the memory_update tool instead, which compares versions first.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/SetMemoryBlock` · MCP tool: `set_memory_block`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `id` | string |  |
+| `label` | string |  |
+| `description` | string |  |
+| `value` | string |  |
+| `limitChars` | int64 | 0: no limit. |
 
 ## SetNotificationTarget
 

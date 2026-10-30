@@ -551,6 +551,23 @@ message Feedback {
   google.protobuf.Timestamp created_at = 9;
 }
 
+// Durable, named text an agent reads and updates across runs and
+// conversations (`x-agen/config.json` `memory`), namespace-scoped (3.10).
+message MemoryBlock {
+  string namespace = 1;
+  string id = 2;
+  string label = 3;
+  string description = 4;
+  string value = 5;
+  // 0: no limit.
+  int64 limit_chars = 6;
+  // Bumped on every update; the `memory_update` tool's `expectedVersion`
+  // is checked against it, so parallel conversations cannot silently
+  // overwrite each other.
+  int64 version = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
 message Run {
   string id = 1;
   string session_id = 2;

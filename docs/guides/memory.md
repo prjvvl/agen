@@ -58,3 +58,42 @@ keep long-lived conversations focused, or start a new key. Within one long
 run, the oldest tool results are shortened in what is sent to the model once
 the run outgrows `contextTokens`; the Store keeps them whole (see the
 [bundle reference](../reference/bundle.md#x-agenharnessjson)).
+
+## Memory blocks
+
+A conversation's history is per-conversation; a **memory block** is durable,
+named text that outlives any one conversation and that an agent can update
+on its own — a running summary, a user's preferences, a project's open
+questions. Blocks are namespace-scoped, so a namespace's deployments can
+share one.
+
+Attach one in `x-agen/config.json`:
+
+```json
+{ "memory": [{ "block": "user-prefs", "mode": "write" }] }
+```
+
+- `mode` gates what the agent may do with it: `read` (see it only, the
+  default), `append` (add to it), or `write` (also replace it or edit it in
+  place).
+- An attached block's current value is rendered into the system prompt as
+  `## Memory: <label> (<description>)`; one never written yet renders as
+  nothing.
+- With at least one non-`read` attachment, the agent gets a `memory_update`
+  tool: `op` `replace` (the given `text`), `append` (adds `text`), or
+  `str_replace` (`old`, which must occur exactly once in the block, becomes
+  `new`). Pass `expectedVersion` (the block's last-seen version) to refuse
+  the update instead of silently overwriting a concurrent change from
+  another conversation.
+
+People manage blocks directly, without an agent:
+
+```sh
+printf %s "Prefers metric units; working in Go" | agen memory set user-prefs --title "User prefs"
+agen memory ls
+```
+
+`agen memory set` (`SetMemoryBlock`) always replaces a block's value
+outright and bumps its version; it is for people, not for an agent's own
+updates (which go through `memory_update` so a stale read cannot clobber a
+newer write).

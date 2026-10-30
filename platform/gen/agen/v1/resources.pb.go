@@ -3438,6 +3438,112 @@ func (x *Feedback) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// Durable, named text an agent reads and updates across runs and
+// conversations (`x-agen/config.json` `memory`), namespace-scoped (3.10).
+type MemoryBlock struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Namespace   string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id          string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Label       string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	Description string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	Value       string                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
+	// 0: no limit.
+	LimitChars int64 `protobuf:"varint,6,opt,name=limit_chars,json=limitChars,proto3" json:"limit_chars,omitempty"`
+	// Bumped on every update; the `memory_update` tool's `expectedVersion`
+	// is checked against it, so parallel conversations cannot silently
+	// overwrite each other.
+	Version       int64                  `protobuf:"varint,7,opt,name=version,proto3" json:"version,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryBlock) Reset() {
+	*x = MemoryBlock{}
+	mi := &file_agen_v1_resources_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryBlock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryBlock) ProtoMessage() {}
+
+func (x *MemoryBlock) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_resources_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryBlock.ProtoReflect.Descriptor instead.
+func (*MemoryBlock) Descriptor() ([]byte, []int) {
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *MemoryBlock) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *MemoryBlock) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MemoryBlock) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *MemoryBlock) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *MemoryBlock) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *MemoryBlock) GetLimitChars() int64 {
+	if x != nil {
+		return x.LimitChars
+	}
+	return 0
+}
+
+func (x *MemoryBlock) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *MemoryBlock) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
 type Run struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -3472,7 +3578,7 @@ type Run struct {
 
 func (x *Run) Reset() {
 	*x = Run{}
-	mi := &file_agen_v1_resources_proto_msgTypes[29]
+	mi := &file_agen_v1_resources_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3484,7 +3590,7 @@ func (x *Run) String() string {
 func (*Run) ProtoMessage() {}
 
 func (x *Run) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_resources_proto_msgTypes[29]
+	mi := &file_agen_v1_resources_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3497,7 +3603,7 @@ func (x *Run) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Run.ProtoReflect.Descriptor instead.
 func (*Run) Descriptor() ([]byte, []int) {
-	return file_agen_v1_resources_proto_rawDescGZIP(), []int{29}
+	return file_agen_v1_resources_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Run) GetId() string {
@@ -4002,7 +4108,18 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xaf\x06\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xff\x01\n" +
+	"\vMemoryBlock\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\tR\x05value\x12\x1f\n" +
+	"\vlimit_chars\x18\x06 \x01(\x03R\n" +
+	"limitChars\x12\x18\n" +
+	"\aversion\x18\a \x01(\x03R\aversion\x129\n" +
+	"\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xaf\x06\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -4088,7 +4205,7 @@ func file_agen_v1_resources_proto_rawDescGZIP() []byte {
 }
 
 var file_agen_v1_resources_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_agen_v1_resources_proto_goTypes = []any{
 	(DeploymentKind)(0),           // 0: agen.v1.DeploymentKind
 	(TriggerEventState)(0),        // 1: agen.v1.TriggerEventState
@@ -4125,92 +4242,94 @@ var file_agen_v1_resources_proto_goTypes = []any{
 	(*LogLine)(nil),               // 32: agen.v1.LogLine
 	(*ApiToken)(nil),              // 33: agen.v1.ApiToken
 	(*Feedback)(nil),              // 34: agen.v1.Feedback
-	(*Run)(nil),                   // 35: agen.v1.Run
-	nil,                           // 36: agen.v1.Definition.FilesEntry
-	nil,                           // 37: agen.v1.Trigger.LabelsEntry
-	nil,                           // 38: agen.v1.EventMatch.LabelsEntry
-	nil,                           // 39: agen.v1.Placement.LabelsEntry
-	nil,                           // 40: agen.v1.Nest.LabelsEntry
-	nil,                           // 41: agen.v1.Task.LabelsEntry
-	nil,                           // 42: agen.v1.Event.LabelsEntry
-	nil,                           // 43: agen.v1.Feedback.LabelsEntry
-	nil,                           // 44: agen.v1.Run.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 45: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 46: google.protobuf.Struct
-	(*structpb.Value)(nil),        // 47: google.protobuf.Value
+	(*MemoryBlock)(nil),           // 35: agen.v1.MemoryBlock
+	(*Run)(nil),                   // 36: agen.v1.Run
+	nil,                           // 37: agen.v1.Definition.FilesEntry
+	nil,                           // 38: agen.v1.Trigger.LabelsEntry
+	nil,                           // 39: agen.v1.EventMatch.LabelsEntry
+	nil,                           // 40: agen.v1.Placement.LabelsEntry
+	nil,                           // 41: agen.v1.Nest.LabelsEntry
+	nil,                           // 42: agen.v1.Task.LabelsEntry
+	nil,                           // 43: agen.v1.Event.LabelsEntry
+	nil,                           // 44: agen.v1.Feedback.LabelsEntry
+	nil,                           // 45: agen.v1.Run.LabelsEntry
+	(*timestamppb.Timestamp)(nil), // 46: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),       // 47: google.protobuf.Struct
+	(*structpb.Value)(nil),        // 48: google.protobuf.Value
 }
 var file_agen_v1_resources_proto_depIdxs = []int32{
-	36, // 0: agen.v1.Definition.files:type_name -> agen.v1.Definition.FilesEntry
-	45, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
+	37, // 0: agen.v1.Definition.files:type_name -> agen.v1.Definition.FilesEntry
+	46, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
 	13, // 2: agen.v1.Trigger.auth:type_name -> agen.v1.WebhookAuth
 	14, // 3: agen.v1.Trigger.idempotency_key:type_name -> agen.v1.KeySource
 	14, // 4: agen.v1.Trigger.conversation_key:type_name -> agen.v1.KeySource
-	37, // 5: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
-	45, // 6: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
-	45, // 7: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
+	38, // 5: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
+	46, // 6: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
+	46, // 7: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
 	12, // 8: agen.v1.Trigger.on:type_name -> agen.v1.EventMatch
-	38, // 9: agen.v1.EventMatch.labels:type_name -> agen.v1.EventMatch.LabelsEntry
+	39, // 9: agen.v1.EventMatch.labels:type_name -> agen.v1.EventMatch.LabelsEntry
 	1,  // 10: agen.v1.TriggerEvent.state:type_name -> agen.v1.TriggerEventState
-	45, // 11: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
-	45, // 12: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
-	39, // 13: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
+	46, // 11: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
+	46, // 12: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
+	40, // 13: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
 	0,  // 14: agen.v1.Deployment.kind:type_name -> agen.v1.DeploymentKind
 	8,  // 15: agen.v1.Deployment.scale:type_name -> agen.v1.ScalePolicy
 	9,  // 16: agen.v1.Deployment.budget:type_name -> agen.v1.Budget
 	16, // 17: agen.v1.Deployment.placement:type_name -> agen.v1.Placement
-	45, // 18: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
-	45, // 19: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
+	46, // 18: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
+	46, // 19: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
 	10, // 20: agen.v1.Deployment.limits:type_name -> agen.v1.Limits
 	11, // 21: agen.v1.Deployment.triggers:type_name -> agen.v1.Trigger
 	18, // 22: agen.v1.Deployment.provider_hold:type_name -> agen.v1.ProviderHold
-	45, // 23: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
-	45, // 24: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
+	46, // 23: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
+	46, // 24: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
 	2,  // 25: agen.v1.Instance.state:type_name -> agen.v1.InstanceState
-	45, // 26: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
-	45, // 27: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
+	46, // 26: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
+	46, // 27: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
 	20, // 28: agen.v1.Instance.tool_servers:type_name -> agen.v1.ToolServer
-	40, // 29: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
+	41, // 29: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
 	3,  // 30: agen.v1.Nest.state:type_name -> agen.v1.NestState
-	45, // 31: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
+	46, // 31: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
 	4,  // 32: agen.v1.Task.state:type_name -> agen.v1.TaskState
-	45, // 33: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	45, // 34: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
-	45, // 35: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
-	41, // 36: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
-	45, // 37: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
+	46, // 33: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	46, // 34: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
+	46, // 35: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
+	42, // 36: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
+	46, // 37: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
 	28, // 38: agen.v1.Task.outcome:type_name -> agen.v1.Outcome
 	24, // 39: agen.v1.Task.overrides:type_name -> agen.v1.TaskOverrides
-	45, // 40: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
+	46, // 40: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
 	25, // 41: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
 	26, // 42: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
-	42, // 43: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
-	46, // 44: agen.v1.Event.data:type_name -> google.protobuf.Struct
-	45, // 45: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
-	47, // 46: agen.v1.Outcome.data:type_name -> google.protobuf.Value
-	46, // 47: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
+	43, // 43: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
+	47, // 44: agen.v1.Event.data:type_name -> google.protobuf.Struct
+	46, // 45: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
+	48, // 46: agen.v1.Outcome.data:type_name -> google.protobuf.Value
+	47, // 47: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
 	5,  // 48: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
-	45, // 49: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
-	45, // 50: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
-	45, // 51: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
-	45, // 52: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
-	45, // 53: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
-	46, // 54: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
-	45, // 55: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	45, // 56: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
-	45, // 57: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
-	43, // 58: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
-	45, // 59: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
-	30, // 60: agen.v1.Run.usage:type_name -> agen.v1.Usage
-	45, // 61: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	45, // 62: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
-	44, // 63: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	30, // 64: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
-	28, // 65: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
-	66, // [66:66] is the sub-list for method output_type
-	66, // [66:66] is the sub-list for method input_type
-	66, // [66:66] is the sub-list for extension type_name
-	66, // [66:66] is the sub-list for extension extendee
-	0,  // [0:66] is the sub-list for field type_name
+	46, // 49: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
+	46, // 50: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
+	46, // 51: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
+	46, // 52: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
+	46, // 53: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
+	47, // 54: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
+	46, // 55: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
+	46, // 56: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
+	46, // 57: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
+	44, // 58: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
+	46, // 59: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
+	46, // 60: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
+	30, // 61: agen.v1.Run.usage:type_name -> agen.v1.Usage
+	46, // 62: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	46, // 63: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
+	45, // 64: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
+	30, // 65: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	28, // 66: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
+	67, // [67:67] is the sub-list for method output_type
+	67, // [67:67] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }
@@ -4224,7 +4343,7 @@ func file_agen_v1_resources_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_resources_proto_rawDesc), len(file_agen_v1_resources_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   39,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

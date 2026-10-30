@@ -513,6 +513,17 @@ Agent → Session → Conversation → Run → Span.
   gave it), recorded by `RecordFeedback` and read back by `ListFeedback`.
   `DecideApproval` records one too (`by: "approval"`, score 1.0/0.0), so
   approvals and explicit ratings land in the same place.
+- Memory blocks (3.10, part): durable, namespace-scoped named text
+  (`memory_blocks`: namespace, id, label, description, value, limit_chars, a
+  version bumped on every update), attached in `x-agen/config.json` `memory`
+  (`block`, `mode`: `read` / `append` / `write`) and rendered into the system
+  prompt. With a non-`read` attachment the engine registers a
+  `memory_update` tool (`replace` / `append` / `str_replace`, an optional
+  `expectedVersion` compare-and-set) so parallel conversations cannot
+  silently overwrite each other; `SetMemoryBlock` (people, via
+  `agen memory set`) always replaces the value outright. Live `mcp:`/`url:`
+  context providers and conversation rollover (continue-as-new with an
+  auto-summary) are not yet implemented.
 - Secrets: resolved by name (env or the platform secret store; the OS keychain
   is reserved). Values
   are registered with a redactor that scrubs logs, spans, stored messages and
