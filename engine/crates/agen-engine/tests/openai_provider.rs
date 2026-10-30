@@ -186,9 +186,11 @@ async fn agent_runs_tool_loop_through_bundle_configured_provider() {
         [
             "finish",
             "math_add",
+            "query_agent",
             "read_artifact",
             "report_progress",
-            "save_artifact"
+            "save_artifact",
+            "signal_agent"
         ]
     );
     let second = &seen[1].1["messages"];

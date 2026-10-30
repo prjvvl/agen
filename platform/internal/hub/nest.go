@@ -503,6 +503,87 @@ func (n *NestAPI) ReportProgress(ctx context.Context, req *connect.Request[agenv
 	return connect.NewResponse(&agenv1.NestReportProgressResponse{}), nil
 }
 
+// maxDescendantWalk bounds isDescendant's walk up the parent chain:
+// generous next to any realistic max_delegation_depth, just a backstop
+// against a corrupted chain looping forever.
+const maxDescendantWalk = 64
+
+// isDescendant reports whether id is ancestorID itself or a descendant of
+// it, walking up id's parent_task_id chain (3.4, part: query_agent and
+// signal_agent only work on the caller's own descendants).
+func (n *NestAPI) isDescendant(ctx context.Context, ancestorID, id string) (bool, error) {
+	for i := 0; i < maxDescendantWalk; i++ {
+		if id == ancestorID {
+			return true, nil
+		}
+		if id == "" {
+			return false, nil
+		}
+		t, err := n.hub.Store.GetTask(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		id = t.ParentTaskID
+	}
+	return false, nil
+}
+
+// QueryChildTask is query_agent's RPC (3.4, part): QueryTask, restricted to
+// one of the calling task's own descendants.
+func (n *NestAPI) QueryChildTask(ctx context.Context, req *connect.Request[agenv1.NestQueryChildTaskRequest]) (*connect.Response[agenv1.QueryTaskResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if ok, err := n.isDescendant(ctx, m.CallerTaskId, m.TaskId); err != nil {
+		return nil, connectErr(err)
+	} else if !ok {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("task %s is not a descendant of %s", m.TaskId, m.CallerTaskId))
+	}
+	t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out, err := n.hub.queryTaskProto(ctx, t)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(out), nil
+}
+
+// SignalChildTask is signal_agent's RPC (3.4, part): writes a run_inbox row
+// for one of the calling task's own descendants and wakes it if it is
+// waiting on exactly this signal. A running (not waiting) target just
+// holds the row until draining a signal into a running or resumed run is
+// implemented; it is not yet.
+func (n *NestAPI) SignalChildTask(ctx context.Context, req *connect.Request[agenv1.NestSignalChildTaskRequest]) (*connect.Response[agenv1.NestSignalChildTaskResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.Message == "" {
+		return nil, invalid("message is required")
+	}
+	if ok, err := n.isDescendant(ctx, m.CallerTaskId, m.TaskId); err != nil {
+		return nil, connectErr(err)
+	} else if !ok {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("task %s is not a descendant of %s", m.TaskId, m.CallerTaskId))
+	}
+	t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if t.Terminal() {
+		return nil, invalid(fmt.Sprintf("task %s has already ended", m.TaskId))
+	}
+	if _, err := n.hub.Store.WriteInbox(ctx, store.InboxRow{Namespace: t.Namespace, TaskID: t.ID, RunID: t.RunID, Kind: "signal", Ref: m.CallerTaskId, Payload: m.Message}); err != nil {
+		return nil, connectErr(err)
+	}
+	_ = n.hub.Store.AppendEvent(ctx, store.Event{Namespace: t.Namespace, Type: "task.signalled", Deployment: t.Deployment, TaskID: t.ID,
+		ParentTaskID: t.ParentTaskID, Labels: t.Labels, Severity: "info", Data: map[string]any{"from": m.CallerTaskId, "message": m.Message}})
+	return connect.NewResponse(&agenv1.NestSignalChildTaskResponse{}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

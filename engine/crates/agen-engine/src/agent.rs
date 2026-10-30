@@ -344,6 +344,14 @@ impl AgentBuilder {
                 self.task_starter.clone(),
             )));
         }
+        if !self.tools.iter().any(|t| t.spec().name == crate::signals::SIGNAL_AGENT) {
+            self.tools
+                .push(Arc::new(crate::signals::SignalAgent::new(self.task_starter.clone())));
+        }
+        if !self.tools.iter().any(|t| t.spec().name == crate::signals::QUERY_AGENT) {
+            self.tools
+                .push(Arc::new(crate::signals::QueryAgent::new(self.task_starter.clone())));
+        }
         let mut wire: std::collections::BTreeMap<String, String> = Default::default();
         for t in self.tools {
             let name = t.spec().name;

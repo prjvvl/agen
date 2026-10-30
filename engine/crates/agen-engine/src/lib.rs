@@ -11,6 +11,7 @@ pub mod permissions;
 pub mod progress;
 pub mod provider;
 pub mod secrets;
+pub mod signals;
 pub mod store;
 pub mod tools;
 pub mod trace;

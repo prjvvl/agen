@@ -105,6 +105,13 @@ pub trait TaskStarter: Send + Sync {
     /// Reports progress on the current task (3.4, part: the `report_progress`
     /// built-in), not one it started.
     async fn report_progress(&self, task_id: &str, progress: Value) -> Result<(), String>;
+    /// Progress, activity and outcome of one of the current task's own
+    /// descendants (3.4, part: the `query_agent` built-in). The JSON shape
+    /// of `QueryTaskResponse`.
+    async fn query_descendant(&self, caller_task_id: &str, task_id: &str) -> Result<Value, String>;
+    /// Signals one of the current task's own descendants (3.4, part: the
+    /// `signal_agent` built-in).
+    async fn signal_descendant(&self, caller_task_id: &str, task_id: &str, message: &str) -> Result<(), String>;
 }
 
 /// What waiting for a task found.
@@ -228,6 +235,47 @@ impl TaskStarter for ManagerResolver {
             let v: Value = resp.json().await.unwrap_or(Value::Null);
             return Err(format!(
                 "report progress for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(())
+    }
+
+    async fn query_descendant(&self, caller_task_id: &str, task_id: &str) -> Result<Value, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/QueryChildTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"callerTaskId": caller_task_id, "taskId": task_id}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "query task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v)
+    }
+
+    async fn signal_descendant(&self, caller_task_id: &str, task_id: &str, message: &str) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/SignalChildTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"callerTaskId": caller_task_id, "taskId": task_id, "message": message}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        if !resp.status().is_success() {
+            let v: Value = resp.json().await.unwrap_or(Value::Null);
+            return Err(format!(
+                "signal task {task_id}: {}",
                 v.get("message").and_then(Value::as_str).unwrap_or("failed")
             ));
         }

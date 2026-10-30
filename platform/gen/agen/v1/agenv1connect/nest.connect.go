@@ -57,6 +57,12 @@ const (
 	// NestServiceReportProgressProcedure is the fully-qualified name of the NestService's
 	// ReportProgress RPC.
 	NestServiceReportProgressProcedure = "/agen.v1.NestService/ReportProgress"
+	// NestServiceQueryChildTaskProcedure is the fully-qualified name of the NestService's
+	// QueryChildTask RPC.
+	NestServiceQueryChildTaskProcedure = "/agen.v1.NestService/QueryChildTask"
+	// NestServiceSignalChildTaskProcedure is the fully-qualified name of the NestService's
+	// SignalChildTask RPC.
+	NestServiceSignalChildTaskProcedure = "/agen.v1.NestService/SignalChildTask"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -113,6 +119,13 @@ type NestServiceClient interface {
 	// duplicate instance reporting progress after being fenced off is a
 	// harmless cosmetic race, not a correctness issue.
 	ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in). PermissionDenied if
+	// task_id is not a descendant of caller_task_id.
+	QueryChildTask(context.Context, *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in); same descendant check as QueryChildTask.
+	SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -206,6 +219,18 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("ReportProgress")),
 			connect.WithClientOptions(opts...),
 		),
+		queryChildTask: connect.NewClient[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse](
+			httpClient,
+			baseURL+NestServiceQueryChildTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("QueryChildTask")),
+			connect.WithClientOptions(opts...),
+		),
+		signalChildTask: connect.NewClient[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse](
+			httpClient,
+			baseURL+NestServiceSignalChildTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("SignalChildTask")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -275,6 +300,8 @@ type nestServiceClient struct {
 	suspendTask       *connect.Client[v1.SuspendTaskRequest, v1.SuspendTaskResponse]
 	waitTask          *connect.Client[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse]
 	reportProgress    *connect.Client[v1.NestReportProgressRequest, v1.NestReportProgressResponse]
+	queryChildTask    *connect.Client[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse]
+	signalChildTask   *connect.Client[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse]
 	createApproval    *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval       *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity    *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -334,6 +361,16 @@ func (c *nestServiceClient) WaitTask(ctx context.Context, req *connect.Request[v
 // ReportProgress calls agen.v1.NestService.ReportProgress.
 func (c *nestServiceClient) ReportProgress(ctx context.Context, req *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error) {
 	return c.reportProgress.CallUnary(ctx, req)
+}
+
+// QueryChildTask calls agen.v1.NestService.QueryChildTask.
+func (c *nestServiceClient) QueryChildTask(ctx context.Context, req *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return c.queryChildTask.CallUnary(ctx, req)
+}
+
+// SignalChildTask calls agen.v1.NestService.SignalChildTask.
+func (c *nestServiceClient) SignalChildTask(ctx context.Context, req *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error) {
+	return c.signalChildTask.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -410,6 +447,13 @@ type NestServiceHandler interface {
 	// duplicate instance reporting progress after being fenced off is a
 	// harmless cosmetic race, not a correctness issue.
 	ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in). PermissionDenied if
+	// task_id is not a descendant of caller_task_id.
+	QueryChildTask(context.Context, *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in); same descendant check as QueryChildTask.
+	SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -499,6 +543,18 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("ReportProgress")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceQueryChildTaskHandler := connect.NewUnaryHandler(
+		NestServiceQueryChildTaskProcedure,
+		svc.QueryChildTask,
+		connect.WithSchema(nestServiceMethods.ByName("QueryChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceSignalChildTaskHandler := connect.NewUnaryHandler(
+		NestServiceSignalChildTaskProcedure,
+		svc.SignalChildTask,
+		connect.WithSchema(nestServiceMethods.ByName("SignalChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -575,6 +631,10 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceWaitTaskHandler.ServeHTTP(w, r)
 		case NestServiceReportProgressProcedure:
 			nestServiceReportProgressHandler.ServeHTTP(w, r)
+		case NestServiceQueryChildTaskProcedure:
+			nestServiceQueryChildTaskHandler.ServeHTTP(w, r)
+		case NestServiceSignalChildTaskProcedure:
+			nestServiceSignalChildTaskHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -640,6 +700,14 @@ func (UnimplementedNestServiceHandler) WaitTask(context.Context, *connect.Reques
 
 func (UnimplementedNestServiceHandler) ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReportProgress is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) QueryChildTask(context.Context, *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.QueryChildTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.SignalChildTask is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

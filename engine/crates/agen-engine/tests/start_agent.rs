@@ -40,6 +40,14 @@ impl TaskStarter for Recorder {
     async fn report_progress(&self, _task_id: &str, _progress: serde_json::Value) -> Result<(), String> {
         Ok(())
     }
+
+    async fn query_descendant(&self, _caller_task_id: &str, _task_id: &str) -> Result<serde_json::Value, String> {
+        Ok(serde_json::Value::Null)
+    }
+
+    async fn signal_descendant(&self, _caller_task_id: &str, _task_id: &str, _message: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn start(agent: &str) -> FakeResponse {

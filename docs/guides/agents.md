@@ -123,6 +123,26 @@ A run started over A2A (no task of its own) can start tasks too: the Hub
 accepts its unfinished run as the parent and derives the depth from its
 lineage.
 
+## Checking in on a task you started
+
+`query_agent(task)` and `signal_agent(task, message)` work on a task you
+started yourself — directly, or one it in turn started — without the
+delegation bookkeeping `call_agent`/`start_agent` do. Use `query_agent`
+after `start_agent` to check in on long work instead of polling with
+`call_agent`; use `signal_agent` to tell it something while it runs
+(cancelling is still `agen cancel` or `CancelTask`, not a signal).
+
+- `query_agent` returns the task's state, its current activity
+  (`model`/`tool`/`idle`/`approval`), its latest `report_progress` call if
+  any, and its outcome once it has one — without waiting or touching the
+  run, the same as a person's `agen query <task-id>`.
+- `signal_agent` writes the message for the target and returns at once;
+  picking it up mid-run is not implemented yet, so today it has no visible
+  effect until that exists — do not rely on it to steer a run yet.
+- Both refuse a task that is not actually yours: not any id you happen to
+  know, only something you (or something you started) started, however
+  many hops down.
+
 ## Narrowing a worker's brief
 
 A delegate marked `"overrides": true` is a generic worker: `start_agent`

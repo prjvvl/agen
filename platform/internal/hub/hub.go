@@ -530,34 +530,47 @@ func (h *Hub) QueryTask(ctx context.Context, req *connect.Request[agenv1.QueryTa
 	if err := requireNamespace(ctx, t.Namespace); err != nil {
 		return nil, err
 	}
-	out := &agenv1.QueryTaskResponse{Id: t.ID, State: taskStates[t.State], Outcome: outcomeProto(t.Outcome, t.State, t.Output, t.Error),
-		Progress: taskProgressProto(t.Progress)}
-	if !t.Terminal() && t.RunID != "" {
-		steps, err := h.Store.OpenSteps(ctx, []string{t.RunID})
-		if err != nil {
-			return nil, connectErr(err)
-		}
-		approvals, err := h.Store.PendingApprovalsByRun(ctx, []string{t.RunID})
-		if err != nil {
-			return nil, connectErr(err)
-		}
-		st := steps[t.RunID]
-		switch {
-		case approvals[t.RunID].ID != "":
-			ap := approvals[t.RunID]
-			out.Activity, out.PendingApprovalId = "approval", ap.ID
-			out.ActivitySince = ms(ap.CreatedMs)
-		case st.Name == "gen_ai.chat":
-			out.Activity = "model"
-			out.ActivitySince = ms(st.StartMs)
-		case st.Name == "agen.tool":
-			out.Activity, out.Detail = "tool", str(st.Attributes, "gen_ai.tool.name")
-			out.ActivitySince = ms(st.StartMs)
-		default:
-			out.Activity = "idle"
-		}
+	out, err := h.queryTaskProto(ctx, t)
+	if err != nil {
+		return nil, connectErr(err)
 	}
 	return connect.NewResponse(out), nil
+}
+
+// queryTaskProto is QueryTask's core, shared with NestAPI.QueryChildTask
+// (query_agent): a task's progress, outcome and a simplified cut of
+// GetActivity's own activity (model/tool/idle/approval only; not a task
+// waiting on a delegate, nor GetActivity's fleet-wide warnings).
+func (h *Hub) queryTaskProto(ctx context.Context, t store.Task) (*agenv1.QueryTaskResponse, error) {
+	out := &agenv1.QueryTaskResponse{Id: t.ID, State: taskStates[t.State], Outcome: outcomeProto(t.Outcome, t.State, t.Output, t.Error),
+		Progress: taskProgressProto(t.Progress)}
+	if t.Terminal() || t.RunID == "" {
+		return out, nil
+	}
+	steps, err := h.Store.OpenSteps(ctx, []string{t.RunID})
+	if err != nil {
+		return nil, err
+	}
+	approvals, err := h.Store.PendingApprovalsByRun(ctx, []string{t.RunID})
+	if err != nil {
+		return nil, err
+	}
+	st := steps[t.RunID]
+	switch {
+	case approvals[t.RunID].ID != "":
+		ap := approvals[t.RunID]
+		out.Activity, out.PendingApprovalId = "approval", ap.ID
+		out.ActivitySince = ms(ap.CreatedMs)
+	case st.Name == "gen_ai.chat":
+		out.Activity = "model"
+		out.ActivitySince = ms(st.StartMs)
+	case st.Name == "agen.tool":
+		out.Activity, out.Detail = "tool", str(st.Attributes, "gen_ai.tool.name")
+		out.ActivitySince = ms(st.StartMs)
+	default:
+		out.Activity = "idle"
+	}
+	return out, nil
 }
 
 // RunHeader names the run of the agent making a call (with TaskHeader and

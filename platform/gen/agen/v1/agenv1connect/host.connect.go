@@ -59,6 +59,12 @@ const (
 	// ManagerServiceReportProgressProcedure is the fully-qualified name of the ManagerService's
 	// ReportProgress RPC.
 	ManagerServiceReportProgressProcedure = "/agen.v1.ManagerService/ReportProgress"
+	// ManagerServiceQueryChildTaskProcedure is the fully-qualified name of the ManagerService's
+	// QueryChildTask RPC.
+	ManagerServiceQueryChildTaskProcedure = "/agen.v1.ManagerService/QueryChildTask"
+	// ManagerServiceSignalChildTaskProcedure is the fully-qualified name of the ManagerService's
+	// SignalChildTask RPC.
+	ManagerServiceSignalChildTaskProcedure = "/agen.v1.ManagerService/SignalChildTask"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -232,6 +238,14 @@ type ManagerServiceClient interface {
 	// Reports progress on the calling instance's own current task (3.4,
 	// part: the report_progress built-in), not one it started.
 	ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in).
+	QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in). Written to the target's run_inbox; draining a
+	// signal into a resumed or running run is not implemented yet, so it
+	// sits there until that exists.
+	SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -281,6 +295,18 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("ReportProgress")),
 			connect.WithClientOptions(opts...),
 		),
+		queryChildTask: connect.NewClient[v1.QueryChildTaskRequest, v1.QueryTaskResponse](
+			httpClient,
+			baseURL+ManagerServiceQueryChildTaskProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("QueryChildTask")),
+			connect.WithClientOptions(opts...),
+		),
+		signalChildTask: connect.NewClient[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse](
+			httpClient,
+			baseURL+ManagerServiceSignalChildTaskProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("SignalChildTask")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -292,6 +318,8 @@ type managerServiceClient struct {
 	startTask       *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
 	waitTask        *connect.Client[v1.WaitTaskRequest, v1.WaitTaskResponse]
 	reportProgress  *connect.Client[v1.ReportProgressRequest, v1.ReportProgressResponse]
+	queryChildTask  *connect.Client[v1.QueryChildTaskRequest, v1.QueryTaskResponse]
+	signalChildTask *connect.Client[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -324,6 +352,16 @@ func (c *managerServiceClient) ReportProgress(ctx context.Context, req *connect.
 	return c.reportProgress.CallUnary(ctx, req)
 }
 
+// QueryChildTask calls agen.v1.ManagerService.QueryChildTask.
+func (c *managerServiceClient) QueryChildTask(ctx context.Context, req *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return c.queryChildTask.CallUnary(ctx, req)
+}
+
+// SignalChildTask calls agen.v1.ManagerService.SignalChildTask.
+func (c *managerServiceClient) SignalChildTask(ctx context.Context, req *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error) {
+	return c.signalChildTask.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -343,6 +381,14 @@ type ManagerServiceHandler interface {
 	// Reports progress on the calling instance's own current task (3.4,
 	// part: the report_progress built-in), not one it started.
 	ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in).
+	QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in). Written to the target's run_inbox; draining a
+	// signal into a resumed or running run is not implemented yet, so it
+	// sits there until that exists.
+	SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -388,6 +434,18 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("ReportProgress")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceQueryChildTaskHandler := connect.NewUnaryHandler(
+		ManagerServiceQueryChildTaskProcedure,
+		svc.QueryChildTask,
+		connect.WithSchema(managerServiceMethods.ByName("QueryChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceSignalChildTaskHandler := connect.NewUnaryHandler(
+		ManagerServiceSignalChildTaskProcedure,
+		svc.SignalChildTask,
+		connect.WithSchema(managerServiceMethods.ByName("SignalChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -402,6 +460,10 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceWaitTaskHandler.ServeHTTP(w, r)
 		case ManagerServiceReportProgressProcedure:
 			managerServiceReportProgressHandler.ServeHTTP(w, r)
+		case ManagerServiceQueryChildTaskProcedure:
+			managerServiceQueryChildTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceSignalChildTaskProcedure:
+			managerServiceSignalChildTaskHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -433,4 +495,12 @@ func (UnimplementedManagerServiceHandler) WaitTask(context.Context, *connect.Req
 
 func (UnimplementedManagerServiceHandler) ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.ReportProgress is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.QueryChildTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.SignalChildTask is not implemented"))
 }

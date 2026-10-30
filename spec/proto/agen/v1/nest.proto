@@ -37,6 +37,13 @@ service NestService {
   // duplicate instance reporting progress after being fenced off is a
   // harmless cosmetic race, not a correctness issue.
   rpc ReportProgress(NestReportProgressRequest) returns (NestReportProgressResponse);
+  // Progress, activity and outcome of one of the calling task's own
+  // descendants (3.4, part: the query_agent built-in). PermissionDenied if
+  // task_id is not a descendant of caller_task_id.
+  rpc QueryChildTask(NestQueryChildTaskRequest) returns (QueryTaskResponse);
+  // Signals one of the calling task's own descendants (3.4, part: the
+  // signal_agent built-in); same descendant check as QueryChildTask.
+  rpc SignalChildTask(NestSignalChildTaskRequest) returns (NestSignalChildTaskResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -192,6 +199,20 @@ message NestReportProgressRequest {
   TaskProgress progress = 3;
 }
 message NestReportProgressResponse {}
+
+message NestQueryChildTaskRequest {
+  string nest_id = 1;
+  string caller_task_id = 2;
+  string task_id = 3;
+}
+
+message NestSignalChildTaskRequest {
+  string nest_id = 1;
+  string caller_task_id = 2;
+  string task_id = 3;
+  string message = 4;
+}
+message NestSignalChildTaskResponse {}
 
 message CreateApprovalRequest {
   Approval approval = 1;

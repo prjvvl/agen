@@ -495,12 +495,32 @@ alongside a simplified cut of `GetActivity`'s own per-run activity
 approval; not `agent` for one waiting on a delegate, and none of
 `GetActivity`'s fleet-wide warnings) and the outcome, without `GetTask`'s
 `wait_seconds` — a lighter read for a caller or a person checking in on
-long work. `signal_agent`/`query_agent` (2.33's other half, `SignalTask`)
-are not built yet.
+long work.
 
-The rest of the "Tree" design (join/suspend-on-children, `detach`, hold
-and signals) is not built yet — these four (parent-close, `GetTaskTree`,
-tree-wide cancel, progress/query) are its first pieces.
+**Signals and queries** (3.4, part: 2.33): `signal_agent(task, message)`
+and `query_agent(task)` are the same idea as `start_agent`/`call_agent`
+but without going through delegation bookkeeping — a run checking in on,
+or sending a message to, a task it (directly or transitively) delegated
+to. Both are built-in, registered unconditionally like `report_progress`,
+and both reach the Hub through a *descendant-scoped* round trip:
+`ManagerService.{Query,Signal}ChildTask` → `NestService.{Query,Signal}ChildTask`,
+each carrying the calling task's own id (`ToolContext::task_id`) alongside
+the target's. `NestAPI.isDescendant` walks the target's `parent_task_id`
+chain up to the caller (bounded, generous next to any realistic
+`max_delegation_depth`) and refuses `PermissionDenied` if it never reaches
+it — "only your own descendants," not any task you happen to know the id
+of. `QueryChildTask` is `QueryTask`'s own logic (factored into
+`Hub.queryTaskProto`, shared by both RPCs) with that check in front.
+`SignalChildTask` writes a `run_inbox` row (`kind: "signal"`, `ref`: the
+caller's task id) and emits `task.signalled`, waking the target if it
+happens to be waiting on exactly this signal — but draining a signal into
+a *running* (not suspended) run is not implemented yet, so today it just
+sits in the inbox, the same gap 3.3 originally had for `"child"` rows
+before 3.2b's resume path closed it.
+
+The rest of the "Tree" design (join/suspend-on-children, `detach` and
+hold) is not built yet — these five (parent-close, `GetTaskTree`,
+tree-wide cancel, progress/query, signals/queries) are its first pieces.
 
 ## 7. Engine model
 

@@ -39,6 +39,14 @@ service ManagerService {
   // Reports progress on the calling instance's own current task (3.4,
   // part: the report_progress built-in), not one it started.
   rpc ReportProgress(ReportProgressRequest) returns (ReportProgressResponse);
+  // Progress, activity and outcome of one of the calling task's own
+  // descendants (3.4, part: the query_agent built-in).
+  rpc QueryChildTask(QueryChildTaskRequest) returns (QueryTaskResponse);
+  // Signals one of the calling task's own descendants (3.4, part: the
+  // signal_agent built-in). Written to the target's run_inbox; draining a
+  // signal into a resumed or running run is not implemented yet, so it
+  // sits there until that exists.
+  rpc SignalChildTask(SignalChildTaskRequest) returns (SignalChildTaskResponse);
 }
 
 message StartTaskRequest {
@@ -75,6 +83,18 @@ message ReportProgressRequest {
   TaskProgress progress = 2;
 }
 message ReportProgressResponse {}
+
+message QueryChildTaskRequest {
+  string caller_task_id = 1;
+  string task_id = 2;
+}
+
+message SignalChildTaskRequest {
+  string caller_task_id = 1;
+  string task_id = 2;
+  string message = 3;
+}
+message SignalChildTaskResponse {}
 
 message RequestApprovalRequest {
   string instance_id = 1;

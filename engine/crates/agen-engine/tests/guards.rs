@@ -184,7 +184,15 @@ async fn denied_tools_are_hidden() {
     let names: Vec<String> = calls.requests()[0].tools.iter().map(|t| t.name.clone()).collect();
     assert_eq!(
         names,
-        ["finish", "read_artifact", "report_progress", "safe", "save_artifact"]
+        [
+            "finish",
+            "query_agent",
+            "read_artifact",
+            "report_progress",
+            "safe",
+            "save_artifact",
+            "signal_agent"
+        ]
     );
 }
 
