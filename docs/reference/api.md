@@ -501,6 +501,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `overrides` | TaskOverrides | Narrow what this task may do: tools, skills, a system prompt addendum, extra deny/ask rules and run limits. |
 | `notAfter` | Timestamp | Not leased after this time: fails as "expired" instead of waiting indefinitely for capacity. |
 | `scheduleKey` | string | At most one queued task per (deployment, schedule_key); submitting again with the same key cancels the queued task that already has it. |
+| `priority` | string | Lease order within this deployment's queue: urgent, high, normal or background. Empty: normal. |
 
 ## UpdateDeployment
 

@@ -256,7 +256,7 @@ func TaskProto(t store.Task) *agenv1.Task {
 		CreatedAt: ms(t.CreatedMs), UpdatedAt: ms(t.UpdatedMs), LeaseExpiresAt: ms(t.LeaseExpiresMs), LeaseId: t.LeaseID,
 		ParentTaskId: t.ParentTaskID, ParentRunId: t.ParentRunID, RootRunId: t.RootRunID, Depth: int32(t.Depth), Traceparent: t.Traceparent,
 		ConversationKey: t.ConversationKey, Labels: t.Labels, ModelTier: t.ModelTier,
-		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey, ScheduleKey: t.ScheduleKey,
+		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey, ScheduleKey: t.ScheduleKey, Priority: t.Priority,
 	}
 	if t.NotBeforeMs > 0 {
 		out.NotBefore = ms(t.NotBeforeMs)

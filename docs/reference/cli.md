@@ -356,6 +356,8 @@ Usage of run:
     	namespace (default "default")
   -no-wait
     	print the task id and return
+  -priority string
+    	lease order within the deployment's queue: urgent, high, normal or background
   -schedule-key string
     	at most one queued task per deployment and key; submitting again with the same key cancels the queued one
   -tier string

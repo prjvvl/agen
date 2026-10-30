@@ -185,6 +185,9 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		if v := str("modelTier"); v != "" {
 			c.args = append(c.args, "--tier", v)
 		}
+		if v := str("priority"); v != "" {
+			c.args = append(c.args, "--priority", v)
+		}
 		if v := str("notBefore"); v != "" {
 			c.args = append(c.args, "--at", v)
 		}

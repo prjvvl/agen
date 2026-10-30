@@ -203,6 +203,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0031_feedback.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0031_feedback.sql"),
     },
+    Migration {
+        version: 32,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0032_task_priority.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0032_task_priority.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").

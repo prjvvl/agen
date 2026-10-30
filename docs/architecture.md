@@ -184,7 +184,10 @@ scheduler tick fails a still-queued task past it (`ExpireOverdueTasks`,
 reason `expired`) instead of leaving it queued indefinitely. It may carry
 `schedule_key`: `SubmitTask` cancels, in the same transaction as the insert,
 the queued task of that deployment that already has the key, so at most one
-is ever queued per key. It may carry `model_tier`, the cost tier
+is ever queued per key. It may carry `priority` (`urgent`, `high`, `normal`,
+`background`; default `normal`): `LeaseTasks` orders a deployment's own
+queue by it before submission order, never across deployments and after a
+conversation's own ordering. It may carry `model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
 the bundle's `router.budgetTier`. When the Hub fails a

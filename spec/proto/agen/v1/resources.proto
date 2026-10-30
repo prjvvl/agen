@@ -359,6 +359,10 @@ message Task {
   // At most one queued task per (deployment, schedule_key); submitting a
   // task with the same key cancels the queued task that already has it.
   string schedule_key = 34;
+  // Lease order within a deployment's queue: urgent, high, normal or
+  // background (default normal). Does not cross deployments or affect
+  // scheduling otherwise; a conversation's own ordering still applies first.
+  string priority = 35;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

@@ -357,6 +357,9 @@ message SubmitTaskRequest {
   // At most one queued task per (deployment, schedule_key); submitting
   // again with the same key cancels the queued task that already has it.
   string schedule_key = 10;
+  // Lease order within this deployment's queue: urgent, high, normal or
+  // background. Empty: normal.
+  string priority = 11;
 }
 message SubmitTaskResponse {
   Task task = 1;

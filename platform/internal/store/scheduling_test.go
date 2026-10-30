@@ -101,3 +101,36 @@ func TestExpireOverdueTasks(t *testing.T) {
 		}
 	})
 }
+
+// LeaseTasks takes urgent before high before normal (and no priority) before
+// background, regardless of submission order; ties within a priority still
+// go oldest first.
+func TestLeaseTasksOrdersByPriority(t *testing.T) {
+	each(t, func(t *testing.T, s *Store) {
+		ctx := context.Background()
+		ns := uniq("pr")
+		normal, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "a"})
+		must(t, err)
+		background, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "b", Priority: "background"})
+		must(t, err)
+		urgent, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "c", Priority: "urgent"})
+		must(t, err)
+		high, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "d", Priority: "high"})
+		must(t, err)
+		var order []string
+		for i := 0; i < 4; i++ {
+			leased, err := s.LeaseTasks(ctx, "n1", ns, "d", 1, 60_000)
+			must(t, err)
+			if len(leased) != 1 {
+				t.Fatalf("lease %d: got %d", i, len(leased))
+			}
+			order = append(order, leased[0].ID)
+		}
+		want := []string{urgent.ID, high.ID, normal.ID, background.ID}
+		for i := range want {
+			if order[i] != want[i] {
+				t.Fatalf("lease order: got %v, want %v", order, want)
+			}
+		}
+	})
+}

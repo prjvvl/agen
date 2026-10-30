@@ -2245,7 +2245,10 @@ type SubmitTaskRequest struct {
 	NotAfter *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=not_after,json=notAfter,proto3" json:"not_after,omitempty"`
 	// At most one queued task per (deployment, schedule_key); submitting
 	// again with the same key cancels the queued task that already has it.
-	ScheduleKey   string `protobuf:"bytes,10,opt,name=schedule_key,json=scheduleKey,proto3" json:"schedule_key,omitempty"`
+	ScheduleKey string `protobuf:"bytes,10,opt,name=schedule_key,json=scheduleKey,proto3" json:"schedule_key,omitempty"`
+	// Lease order within this deployment's queue: urgent, high, normal or
+	// background. Empty: normal.
+	Priority      string `protobuf:"bytes,11,opt,name=priority,proto3" json:"priority,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2346,6 +2349,13 @@ func (x *SubmitTaskRequest) GetNotAfter() *timestamppb.Timestamp {
 func (x *SubmitTaskRequest) GetScheduleKey() string {
 	if x != nil {
 		return x.ScheduleKey
+	}
+	return ""
+}
+
+func (x *SubmitTaskRequest) GetPriority() string {
+	if x != nil {
+		return x.Priority
 	}
 	return ""
 }
@@ -6389,7 +6399,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tinstances\x18\x01 \x03(\v2\x11.agen.v1.InstanceR\tinstances\"\x12\n" +
 	"\x10ListNestsRequest\"8\n" +
 	"\x11ListNestsResponse\x12#\n" +
-	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\x8e\x04\n" +
+	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xaa\x04\n" +
 	"\x11SubmitTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12'\n" +
@@ -6403,7 +6413,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\toverrides\x18\b \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x127\n" +
 	"\tnot_after\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\bnotAfter\x12!\n" +
 	"\fschedule_key\x18\n" +
-	" \x01(\tR\vscheduleKey\x1a9\n" +
+	" \x01(\tR\vscheduleKey\x12\x1a\n" +
+	"\bpriority\x18\v \x01(\tR\bpriority\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +

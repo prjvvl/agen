@@ -2035,7 +2035,11 @@ type Task struct {
 	NotAfter *timestamppb.Timestamp `protobuf:"bytes,33,opt,name=not_after,json=notAfter,proto3" json:"not_after,omitempty"`
 	// At most one queued task per (deployment, schedule_key); submitting a
 	// task with the same key cancels the queued task that already has it.
-	ScheduleKey   string `protobuf:"bytes,34,opt,name=schedule_key,json=scheduleKey,proto3" json:"schedule_key,omitempty"`
+	ScheduleKey string `protobuf:"bytes,34,opt,name=schedule_key,json=scheduleKey,proto3" json:"schedule_key,omitempty"`
+	// Lease order within a deployment's queue: urgent, high, normal or
+	// background (default normal). Does not cross deployments or affect
+	// scheduling otherwise; a conversation's own ordering still applies first.
+	Priority      string `protobuf:"bytes,35,opt,name=priority,proto3" json:"priority,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2304,6 +2308,13 @@ func (x *Task) GetNotAfter() *timestamppb.Timestamp {
 func (x *Task) GetScheduleKey() string {
 	if x != nil {
 		return x.ScheduleKey
+	}
+	return ""
+}
+
+func (x *Task) GetPriority() string {
+	if x != nil {
+		return x.Priority
 	}
 	return ""
 }
@@ -3738,7 +3749,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xce\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xea\n" +
 	"\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
@@ -3783,7 +3794,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"waitReason\x124\n" +
 	"\toverrides\x18  \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x127\n" +
 	"\tnot_after\x18! \x01(\v2\x1a.google.protobuf.TimestampR\bnotAfter\x12!\n" +
-	"\fschedule_key\x18\" \x01(\tR\vscheduleKey\x1a9\n" +
+	"\fschedule_key\x18\" \x01(\tR\vscheduleKey\x12\x1a\n" +
+	"\bpriority\x18# \x01(\tR\bpriority\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +

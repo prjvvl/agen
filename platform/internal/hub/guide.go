@@ -133,6 +133,14 @@ func checkTier(t string) error {
 	return invalid(fmt.Sprintf("model_tier %q: use low, medium, high, xhigh or max", t))
 }
 
+func checkPriority(p string) error {
+	switch p {
+	case "", "urgent", "high", "normal", "background":
+		return nil
+	}
+	return invalid(fmt.Sprintf("priority %q: use urgent, high, normal or background", p))
+}
+
 // bundleFiles merges binary and text bundle files; a path may be given once.
 func bundleFiles(bin map[string][]byte, text map[string]string) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(bin)+len(text))

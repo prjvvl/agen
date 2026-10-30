@@ -165,6 +165,16 @@ piles up:
 agen run reporter "Nightly digest" --schedule-key nightly-digest --no-wait
 ```
 
+`priority` (`--priority`) orders a deployment's own queue: `urgent`, `high`,
+`normal` (the default) or `background`. It only decides which of a
+deployment's queued tasks is leased next; it never crosses deployments, and
+a conversation's own ordering (its tasks run one at a time, oldest first)
+still applies first.
+
+```sh
+agen run reporter "Page the on-call" --priority urgent --no-wait
+```
+
 ## The Schedules page
 
 The console's **Schedules** page shows everything that starts work on its
