@@ -307,6 +307,22 @@ impl AgentBuilder {
             self.tools
                 .push(Arc::new(crate::outcome::Finish::new(self.cfg.result_schema.clone())));
         }
+        if !self
+            .tools
+            .iter()
+            .any(|t| t.spec().name == crate::artifacts::SAVE_ARTIFACT)
+        {
+            self.tools
+                .push(Arc::new(crate::artifacts::SaveArtifact::new(self.store.clone())));
+        }
+        if !self
+            .tools
+            .iter()
+            .any(|t| t.spec().name == crate::artifacts::READ_ARTIFACT)
+        {
+            self.tools
+                .push(Arc::new(crate::artifacts::ReadArtifact::new(self.store.clone())));
+        }
         let mut wire: std::collections::BTreeMap<String, String> = Default::default();
         for t in self.tools {
             let name = t.spec().name;
@@ -1174,6 +1190,11 @@ impl Agent {
     /// bundle's own.
     fn policy(&self, opts: &RunOptions, tool: &str, trust: Trust) -> Action {
         if self.finish && tool == crate::outcome::FINISH {
+            return Action::Allow;
+        }
+        // Artifacts are engine mechanics available to every agent, like
+        // finish; they are never gated by the bundle's own permissions.
+        if tool == crate::artifacts::SAVE_ARTIFACT || tool == crate::artifacts::READ_ARTIFACT {
             return Action::Allow;
         }
         let Some(ov) = &opts.overrides else {

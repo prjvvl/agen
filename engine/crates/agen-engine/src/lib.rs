@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod artifacts;
 pub mod bundle;
 pub mod delegate;
 pub mod managed;

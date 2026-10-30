@@ -573,6 +573,22 @@ message MemoryBlock {
   google.protobuf.Timestamp updated_at = 8;
 }
 
+// Named, content-addressed text an agent saved during a run with the
+// save_artifact tool (3.8, part), read back with read_artifact or the API.
+message Artifact {
+  string namespace = 1;
+  // "sha256:<hex>" of content.
+  string id = 2;
+  string name = 3;
+  string media_type = 4;
+  // Byte length of content.
+  int64 size = 5;
+  string content = 6;
+  string task_id = 7;
+  string run_id = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
 message Run {
   string id = 1;
   string session_id = 2;

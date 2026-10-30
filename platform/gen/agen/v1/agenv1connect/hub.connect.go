@@ -158,6 +158,11 @@ const (
 	// HubServiceListMemoryBlocksProcedure is the fully-qualified name of the HubService's
 	// ListMemoryBlocks RPC.
 	HubServiceListMemoryBlocksProcedure = "/agen.v1.HubService/ListMemoryBlocks"
+	// HubServiceGetArtifactProcedure is the fully-qualified name of the HubService's GetArtifact RPC.
+	HubServiceGetArtifactProcedure = "/agen.v1.HubService/GetArtifact"
+	// HubServiceListArtifactsProcedure is the fully-qualified name of the HubService's ListArtifacts
+	// RPC.
+	HubServiceListArtifactsProcedure = "/agen.v1.HubService/ListArtifacts"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -261,6 +266,11 @@ type HubServiceClient interface {
 	SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error)
 	// A namespace's memory blocks, newest-updated first.
 	ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error)
+	// One artifact by id (3.8, part): named, content-addressed text an
+	// agent saved during a run with the save_artifact tool.
+	GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error)
+	// A namespace's artifacts, newest first; optionally one task's.
+	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -562,6 +572,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("ListMemoryBlocks")),
 			connect.WithClientOptions(opts...),
 		),
+		getArtifact: connect.NewClient[v1.GetArtifactRequest, v1.GetArtifactResponse](
+			httpClient,
+			baseURL+HubServiceGetArtifactProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetArtifact")),
+			connect.WithClientOptions(opts...),
+		),
+		listArtifacts: connect.NewClient[v1.ListArtifactsRequest, v1.ListArtifactsResponse](
+			httpClient,
+			baseURL+HubServiceListArtifactsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListArtifacts")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -615,6 +637,8 @@ type hubServiceClient struct {
 	listFeedback             *connect.Client[v1.ListFeedbackRequest, v1.ListFeedbackResponse]
 	setMemoryBlock           *connect.Client[v1.SetMemoryBlockRequest, v1.SetMemoryBlockResponse]
 	listMemoryBlocks         *connect.Client[v1.ListMemoryBlocksRequest, v1.ListMemoryBlocksResponse]
+	getArtifact              *connect.Client[v1.GetArtifactRequest, v1.GetArtifactResponse]
+	listArtifacts            *connect.Client[v1.ListArtifactsRequest, v1.ListArtifactsResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -857,6 +881,16 @@ func (c *hubServiceClient) ListMemoryBlocks(ctx context.Context, req *connect.Re
 	return c.listMemoryBlocks.CallUnary(ctx, req)
 }
 
+// GetArtifact calls agen.v1.HubService.GetArtifact.
+func (c *hubServiceClient) GetArtifact(ctx context.Context, req *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error) {
+	return c.getArtifact.CallUnary(ctx, req)
+}
+
+// ListArtifacts calls agen.v1.HubService.ListArtifacts.
+func (c *hubServiceClient) ListArtifacts(ctx context.Context, req *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error) {
+	return c.listArtifacts.CallUnary(ctx, req)
+}
+
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
 	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
@@ -958,6 +992,11 @@ type HubServiceHandler interface {
 	SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error)
 	// A namespace's memory blocks, newest-updated first.
 	ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error)
+	// One artifact by id (3.8, part): named, content-addressed text an
+	// agent saved during a run with the save_artifact tool.
+	GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error)
+	// A namespace's artifacts, newest first; optionally one task's.
+	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -1255,6 +1294,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("ListMemoryBlocks")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceGetArtifactHandler := connect.NewUnaryHandler(
+		HubServiceGetArtifactProcedure,
+		svc.GetArtifact,
+		connect.WithSchema(hubServiceMethods.ByName("GetArtifact")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListArtifactsHandler := connect.NewUnaryHandler(
+		HubServiceListArtifactsProcedure,
+		svc.ListArtifacts,
+		connect.WithSchema(hubServiceMethods.ByName("ListArtifacts")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HubServiceCreateDeploymentProcedure:
@@ -1353,6 +1404,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceSetMemoryBlockHandler.ServeHTTP(w, r)
 		case HubServiceListMemoryBlocksProcedure:
 			hubServiceListMemoryBlocksHandler.ServeHTTP(w, r)
+		case HubServiceGetArtifactProcedure:
+			hubServiceGetArtifactHandler.ServeHTTP(w, r)
+		case HubServiceListArtifactsProcedure:
+			hubServiceListArtifactsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1552,4 +1607,12 @@ func (UnimplementedHubServiceHandler) SetMemoryBlock(context.Context, *connect.R
 
 func (UnimplementedHubServiceHandler) ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListMemoryBlocks is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetArtifact is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListArtifacts is not implemented"))
 }

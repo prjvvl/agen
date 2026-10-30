@@ -129,6 +129,17 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetActivity` · MCP tool: `ge
 |---|---|---|
 | `namespace` | string | Empty: every namespace the caller may see. |
 
+## GetArtifact
+
+One artifact by id (3.8, part): named, content-addressed text an agent saved during a run with the save_artifact tool.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetArtifact` · MCP tool: `get_artifact`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `id` | string |  |
+
 ## GetBundleGuide
 
 How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
@@ -228,6 +239,17 @@ Scope: `approver` · REST: `POST /agen.v1.HubService/ListApprovals` · MCP tool:
 |---|---|---|
 | `namespace` | string |  |
 | `state` | ApprovalState |  |
+
+## ListArtifacts
+
+A namespace's artifacts, newest first; optionally one task's.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListArtifacts` · MCP tool: `list_artifacts`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `taskId` | string |  |
 
 ## ListDefinitions
 

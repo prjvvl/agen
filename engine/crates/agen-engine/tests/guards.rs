@@ -182,7 +182,7 @@ async fn denied_tools_are_hidden() {
     assert_eq!(r.output, "ok", "{}", r.error);
     assert_eq!(n.load(Ordering::SeqCst), 0);
     let names: Vec<String> = calls.requests()[0].tools.iter().map(|t| t.name.clone()).collect();
-    assert_eq!(names, ["finish", "safe"]);
+    assert_eq!(names, ["finish", "read_artifact", "safe", "save_artifact"]);
 }
 
 // 2.15 / 2.16: compaction keeps skill instructions whole and its note names

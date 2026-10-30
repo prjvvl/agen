@@ -122,6 +122,12 @@ service HubService {
   rpc SetMemoryBlock(SetMemoryBlockRequest) returns (SetMemoryBlockResponse);
   // A namespace's memory blocks, newest-updated first.
   rpc ListMemoryBlocks(ListMemoryBlocksRequest) returns (ListMemoryBlocksResponse);
+
+  // One artifact by id (3.8, part): named, content-addressed text an
+  // agent saved during a run with the save_artifact tool.
+  rpc GetArtifact(GetArtifactRequest) returns (GetArtifactResponse);
+  // A namespace's artifacts, newest first; optionally one task's.
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
 }
 
 message RecordFeedbackRequest {
@@ -159,6 +165,21 @@ message ListMemoryBlocksRequest {
 }
 message ListMemoryBlocksResponse {
   repeated MemoryBlock blocks = 1;
+}
+
+message GetArtifactRequest {
+  string namespace = 1;
+  string id = 2;
+}
+message GetArtifactResponse {
+  Artifact artifact = 1;
+}
+message ListArtifactsRequest {
+  string namespace = 1;
+  string task_id = 2;
+}
+message ListArtifactsResponse {
+  repeated Artifact artifacts = 1;
 }
 
 message ListFeedbackResponse {

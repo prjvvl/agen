@@ -532,6 +532,18 @@ Agent → Session → Conversation → Run → Span.
   `agen memory set`) always replaces the value outright. Live `mcp:`/`url:`
   context providers and conversation rollover (continue-as-new with an
   auto-summary) are not yet implemented.
+- Artifacts (3.8, part): named, content-addressed text (`artifacts`:
+  namespace, id = `sha256:<hex>` of content, name, media_type, size, content,
+  task_id, run_id) an agent saves with the built-in `save_artifact` tool
+  and reads back with `read_artifact` (paged by `offset`/`length`), or
+  people read with `GetArtifact`/`ListArtifacts` (`agen artifacts`). Like
+  `finish`, both tools are available to every agent and bypass the
+  bundle's permissions and any task overrides entirely (storage mechanics,
+  not an action on the outside world). Saving the same bytes again in a
+  namespace returns the existing row. Limits: 25 MB per artifact, 500 MB
+  per namespace. The tool-result cap (`harness.maxToolResultChars`,
+  auto-saving an over-long tool result) and carrying artifacts over A2A are
+  not yet implemented.
 - Secrets: resolved by name (env or the platform secret store; the OS keychain
   is reserved). Values
   are registered with a redactor that scrubs logs, spans, stored messages and

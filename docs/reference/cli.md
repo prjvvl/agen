@@ -41,6 +41,8 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen feedback ls [name]         feedback, newest first (--label, --since)
   agen memory set <id>            durable text an agent reads and updates (value on stdin)
   agen memory ls                  memory blocks in the namespace
+  agen artifacts get <id>         an artifact an agent saved with save_artifact
+  agen artifacts ls [task]        artifacts in the namespace, or one task's
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -571,6 +573,12 @@ usage: agen feedback record <task> --score S [--note TEXT] [--label k=v] | agen 
 
 ```text
 usage: agen memory set <id> [--title T] [--description D] [--limit-chars N] (value on stdin) | agen memory ls
+```
+
+## agen artifacts
+
+```text
+usage: agen artifacts get <id> | agen artifacts ls [task]
 ```
 
 ## agen triggers

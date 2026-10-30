@@ -223,6 +223,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0035_locks.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0035_locks.sql"),
     },
+    Migration {
+        version: 36,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0036_artifacts.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0036_artifacts.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -280,6 +285,33 @@ pub enum MemoryOp {
         old: String,
         new: String,
     },
+}
+
+/// Named, content-addressed text an agent saves during a run and reads
+/// back later (`save_artifact` / `read_artifact`), so a long result does
+/// not have to stay in the model's context.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Artifact {
+    pub namespace: String,
+    /// "sha256:<hex>" of content.
+    pub id: String,
+    pub name: String,
+    pub media_type: String,
+    /// Byte length of content.
+    pub size: i64,
+    pub content: String,
+    pub task_id: String,
+    pub run_id: String,
+    pub created_ms: i64,
+}
+
+/// What `save_artifact` needs beyond the namespace and quota.
+pub struct NewArtifact<'a> {
+    pub name: &'a str,
+    pub content: &'a str,
+    pub media_type: &'a str,
+    pub task_id: &'a str,
+    pub run_id: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -796,6 +828,95 @@ impl Store {
         Err(StoreError::Conflict(format!(
             "memory block {namespace}/{id} changed concurrently too many times; try again"
         )))
+    }
+
+    fn artifact_row(row: AnyRow) -> Artifact {
+        Artifact {
+            namespace: row.get(0),
+            id: row.get(1),
+            name: row.get(2),
+            media_type: row.get(3),
+            size: row.get(4),
+            content: row.get(5),
+            task_id: row.get(6),
+            run_id: row.get(7),
+            created_ms: row.get(8),
+        }
+    }
+
+    /// Saves content as an artifact (`save_artifact`), content-addressed:
+    /// saving the same bytes again in the same namespace returns the
+    /// existing row (its name and task/run stay the first save's).
+    /// `quota` (0: no limit) bounds the namespace's total artifact bytes.
+    pub async fn save_artifact(&self, namespace: &str, new: NewArtifact<'_>, quota: i64) -> Result<Artifact> {
+        let NewArtifact {
+            name,
+            content,
+            media_type,
+            task_id,
+            run_id,
+        } = new;
+        use sha2::{Digest, Sha256};
+        let id = format!("sha256:{}", hex::encode(Sha256::digest(content.as_bytes())));
+        if let Some(existing) = self.get_artifact(namespace, &id).await? {
+            return Ok(existing);
+        }
+        let size = content.len() as i64;
+        if quota > 0 {
+            let used: i64 = sqlx::query("SELECT COALESCE(SUM(size), 0) FROM artifacts WHERE namespace = $1")
+                .bind(namespace)
+                .fetch_one(&self.pool)
+                .await?
+                .get(0);
+            if used + size > quota {
+                return Err(StoreError::Invalid(format!(
+                    "saving this artifact ({size} bytes) would put {namespace} over its {quota}-byte artifact quota ({used} used)"
+                )));
+            }
+        }
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO artifacts (namespace, id, name, media_type, size, content, task_id, run_id, created_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+             ON CONFLICT (namespace, id) DO NOTHING",
+        )
+        .bind(namespace)
+        .bind(&id)
+        .bind(name)
+        .bind(media_type)
+        .bind(size)
+        .bind(content)
+        .bind(task_id)
+        .bind(run_id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        self.get_artifact(namespace, &id)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("artifact {namespace}/{id}")))
+    }
+
+    pub async fn get_artifact(&self, namespace: &str, id: &str) -> Result<Option<Artifact>> {
+        let row = sqlx::query(
+            "SELECT namespace, id, name, media_type, size, content, task_id, run_id, created_ms FROM artifacts WHERE namespace = $1 AND id = $2",
+        )
+        .bind(namespace)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(Self::artifact_row))
+    }
+
+    /// A task's artifacts, newest first.
+    pub async fn list_artifacts(&self, namespace: &str, task_id: &str) -> Result<Vec<Artifact>> {
+        let rows = sqlx::query(
+            "SELECT namespace, id, name, media_type, size, content, task_id, run_id, created_ms FROM artifacts \
+             WHERE namespace = $1 AND ($2 = '' OR task_id = $2) ORDER BY created_ms DESC, id DESC",
+        )
+        .bind(namespace)
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(Self::artifact_row).collect())
     }
 
     /// The conversation key of a conversation's session, giving the session
