@@ -23,7 +23,7 @@ import (
 // method fails TestMCPScopeMatrix until it is classified here.
 var expectedScope = map[string]string{
 	"ListDeployments": ScopeViewer, "GetDeployment": ScopeViewer, "ListInstances": ScopeViewer, "ListNests": ScopeViewer,
-	"GetTask": ScopeViewer, "ListTasks": ScopeViewer, "Resolve": ScopeViewer, "ListDefinitions": ScopeViewer,
+	"GetTask": ScopeViewer, "ListTasks": ScopeViewer, "GetTaskTree": ScopeViewer, "Resolve": ScopeViewer, "ListDefinitions": ScopeViewer,
 	"GetDefinition": ScopeViewer, "ListTriggerEvents": ScopeViewer, "ListRuns": ScopeViewer, "GetTrace": ScopeViewer, "GetLogs": ScopeViewer,
 	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer, "ListProviderHolds": ScopeViewer, "GetActivity": ScopeViewer, "ListEvents": ScopeViewer, "ListFeedback": ScopeViewer, "ListMemoryBlocks": ScopeViewer, "GetArtifact": ScopeViewer, "ListArtifacts": ScopeViewer, "ResumeProvider": ScopeOperator,
 	"CreateDeployment": ScopeOperator, "UpdateDeployment": ScopeOperator, "ScaleDeployment": ScopeOperator, "DeleteDeployment": ScopeOperator,

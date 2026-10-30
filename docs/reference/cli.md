@@ -35,6 +35,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
+  agen tree <task-id>              every task of the tree it belongs to
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
   agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
@@ -506,6 +507,22 @@ Usage of runs:
 
 ```text
 Usage of trace:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen tree
+
+```text
+Usage of tree:
   -ca-hash string
     	pin the Hub CA of an https Hub
   -hub string

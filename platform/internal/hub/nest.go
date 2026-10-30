@@ -806,7 +806,7 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	parentOv, _ := store.ParseOverrides(parent.Overrides)
 	effective := store.CombineOverrides(parentOv, overridesFromProto(m.Overrides))
 	child := store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
-		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
+		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, RootTaskID: parent.RootTaskID, Depth: depth, Traceparent: m.Traceparent,
 		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks),
 		ModelTier: m.ModelTier, Overrides: effective.JSON(), Trust: trust, OnParentEnd: m.OnParentEnd}
 	if m.ReplyConversationKey != "" {

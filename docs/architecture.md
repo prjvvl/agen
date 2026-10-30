@@ -447,10 +447,20 @@ skips this and leaves them running with no parent left to report back to
 (their own `reply_deployment`/inbox target, if any, still applies). It is
 set on `SubmitTask`/`SubmitChildTask`/`agen run --on-parent-end`; neither
 `call_agent` nor `start_agent` expose it yet (their children keep the
-default). The broader "Tree" design (`root_task_id`-style queries via
-`GetTaskTree`, `CancelTask(tree=true)`, join/suspend-on-children, hold,
-signals and progress) is not built yet — this is only its parent-close
-piece.
+default).
+
+**Tree queries** (3.4, part): `Task.root_task_id` names the tree a task
+belongs to — a task with no parent is its own root; `SubmitTask` defaults
+it to the task's own id when a caller leaves it unset, and `linkToCaller`
+and `SubmitChildTask` both carry the parent's own `root_task_id` down
+rather than deriving it fresh, so it stays correct no matter how deep a
+chain delegates. Unlike `root_run_id` (empty until a run attaches to the
+task), it is always set, which is what makes `GetTaskTree(task_id)` able to
+resolve a whole tree from any task in it, including one still queued:
+it looks up that task, then returns every task sharing its `root_task_id`
+(`agen tree <task-id>`). The rest of the "Tree" design (`CancelTask(tree=true)`,
+join/suspend-on-children, `detach`, hold, signals and progress) is not built
+yet — this and the parent-close policy above are its first two pieces.
 
 ## 7. Engine model
 

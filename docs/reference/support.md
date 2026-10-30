@@ -53,6 +53,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Memory blocks (durable, named text an agent reads and updates across runs) | ✓ | ✓ | ✓ | –[^13] |  |
 | Artifacts (save_artifact / read_artifact; a long result need not stay in context) | ✓ | ✓ | ✓ | –[^14] |  |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
+| Every task of the tree a task belongs to (its root and descendants) | ✓ | ✓ | ✓ |  |  |
 | Cancel a task or run | ✓ | ✓ | ✓ | ✓ |  |
 | Stream output while a run is in progress | –[^15] |  |  |  |  |
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |

@@ -66,6 +66,57 @@ func TestParentFinishingAbandonsChildrenWhenAsked(t *testing.T) {
 	})
 }
 
+// SubmitTask defaults RootTaskID to the task's own id when the caller
+// leaves it unset (a plain root task, or an older caller): root_task_id is
+// always populated, unlike root_run_id which stays empty until a run
+// starts.
+func TestSubmitTaskDefaultsRootTaskIDToItself(t *testing.T) {
+	each(t, func(t *testing.T, s *Store) {
+		ctx := context.Background()
+		ns := uniq("tr")
+		got, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "x"})
+		must(t, err)
+		if got.RootTaskID != got.ID {
+			t.Fatalf("root_task_id=%q, want self (%q)", got.RootTaskID, got.ID)
+		}
+	})
+}
+
+// ListTaskTree returns every task sharing a root_task_id, oldest first,
+// and nothing from an unrelated tree.
+func TestListTaskTreeReturnsOnlyTasksOfThatTree(t *testing.T) {
+	each(t, func(t *testing.T, s *Store) {
+		ctx := context.Background()
+		ns := uniq("tr")
+		root, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "root"})
+		must(t, err)
+		child, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "child", ParentTaskID: root.ID, RootTaskID: root.ID})
+		must(t, err)
+		grandchild, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "grandchild", ParentTaskID: child.ID, RootTaskID: root.ID})
+		must(t, err)
+		other, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "unrelated"})
+		must(t, err)
+
+		tree, err := s.ListTaskTree(ctx, ns, root.ID)
+		must(t, err)
+		if len(tree) != 3 {
+			t.Fatalf("tree has %d tasks, want 3: %v", len(tree), tree)
+		}
+		got := []string{tree[0].ID, tree[1].ID, tree[2].ID}
+		want := []string{root.ID, child.ID, grandchild.ID}
+		for i, w := range want {
+			if got[i] != w {
+				t.Fatalf("tree[%d]=%q, want %q (oldest first): %v", i, got[i], w, got)
+			}
+		}
+		for _, tk := range tree {
+			if tk.ID == other.ID {
+				t.Fatalf("unrelated tree's task %q leaked into this tree", other.ID)
+			}
+		}
+	})
+}
+
 // An async (reply_deployment set) child, like start_agent's, is never
 // cascaded on either policy: its whole point is to outlive the task that
 // started it, so a parent finishing right after starting one (today's

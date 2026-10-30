@@ -39,6 +39,9 @@ service HubService {
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
   // Cancel a task that has not finished; a running run is stopped.
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+  // Every task in the tree a given task belongs to (its root's descendants,
+  // including the root itself), oldest first (3.4, part).
+  rpc GetTaskTree(GetTaskTreeRequest) returns (GetTaskTreeResponse);
 
   // A2A endpoints of a deployment and a short-lived call token for them.
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
@@ -432,6 +435,15 @@ message GetTaskRequest {
 }
 message GetTaskResponse {
   Task task = 1;
+}
+
+message GetTaskTreeRequest {
+  // Any task in the tree; the response covers its root and every one of
+  // the root's descendants.
+  string task_id = 1;
+}
+message GetTaskTreeResponse {
+  repeated Task tasks = 1;
 }
 
 message ListTasksRequest {

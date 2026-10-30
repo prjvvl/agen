@@ -67,6 +67,8 @@ const (
 	HubServiceListTasksProcedure = "/agen.v1.HubService/ListTasks"
 	// HubServiceCancelTaskProcedure is the fully-qualified name of the HubService's CancelTask RPC.
 	HubServiceCancelTaskProcedure = "/agen.v1.HubService/CancelTask"
+	// HubServiceGetTaskTreeProcedure is the fully-qualified name of the HubService's GetTaskTree RPC.
+	HubServiceGetTaskTreeProcedure = "/agen.v1.HubService/GetTaskTree"
 	// HubServiceResolveProcedure is the fully-qualified name of the HubService's Resolve RPC.
 	HubServiceResolveProcedure = "/agen.v1.HubService/Resolve"
 	// HubServiceRequestWakeProcedure is the fully-qualified name of the HubService's RequestWake RPC.
@@ -193,6 +195,9 @@ type HubServiceClient interface {
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
 	// Cancel a task that has not finished; a running run is stopped.
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
+	// Every task in the tree a given task belongs to (its root's descendants,
+	// including the root itself), oldest first (3.4, part).
+	GetTaskTree(context.Context, *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error)
 	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
 	// Start a sleeping deployment (scale it to at least 1).
@@ -360,6 +365,12 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+HubServiceCancelTaskProcedure,
 			connect.WithSchema(hubServiceMethods.ByName("CancelTask")),
+			connect.WithClientOptions(opts...),
+		),
+		getTaskTree: connect.NewClient[v1.GetTaskTreeRequest, v1.GetTaskTreeResponse](
+			httpClient,
+			baseURL+HubServiceGetTaskTreeProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetTaskTree")),
 			connect.WithClientOptions(opts...),
 		),
 		resolve: connect.NewClient[v1.ResolveRequest, v1.ResolveResponse](
@@ -602,6 +613,7 @@ type hubServiceClient struct {
 	getTask                  *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
 	listTasks                *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
 	cancelTask               *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
+	getTaskTree              *connect.Client[v1.GetTaskTreeRequest, v1.GetTaskTreeResponse]
 	resolve                  *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
 	requestWake              *connect.Client[v1.RequestWakeRequest, v1.RequestWakeResponse]
 	listApprovals            *connect.Client[v1.ListApprovalsRequest, v1.ListApprovalsResponse]
@@ -704,6 +716,11 @@ func (c *hubServiceClient) ListTasks(ctx context.Context, req *connect.Request[v
 // CancelTask calls agen.v1.HubService.CancelTask.
 func (c *hubServiceClient) CancelTask(ctx context.Context, req *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error) {
 	return c.cancelTask.CallUnary(ctx, req)
+}
+
+// GetTaskTree calls agen.v1.HubService.GetTaskTree.
+func (c *hubServiceClient) GetTaskTree(ctx context.Context, req *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error) {
+	return c.getTaskTree.CallUnary(ctx, req)
 }
 
 // Resolve calls agen.v1.HubService.Resolve.
@@ -919,6 +936,9 @@ type HubServiceHandler interface {
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
 	// Cancel a task that has not finished; a running run is stopped.
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
+	// Every task in the tree a given task belongs to (its root's descendants,
+	// including the root itself), oldest first (3.4, part).
+	GetTaskTree(context.Context, *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error)
 	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
 	// Start a sleeping deployment (scale it to at least 1).
@@ -1082,6 +1102,12 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		HubServiceCancelTaskProcedure,
 		svc.CancelTask,
 		connect.WithSchema(hubServiceMethods.ByName("CancelTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceGetTaskTreeHandler := connect.NewUnaryHandler(
+		HubServiceGetTaskTreeProcedure,
+		svc.GetTaskTree,
+		connect.WithSchema(hubServiceMethods.ByName("GetTaskTree")),
 		connect.WithHandlerOptions(opts...),
 	)
 	hubServiceResolveHandler := connect.NewUnaryHandler(
@@ -1334,6 +1360,8 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceListTasksHandler.ServeHTTP(w, r)
 		case HubServiceCancelTaskProcedure:
 			hubServiceCancelTaskHandler.ServeHTTP(w, r)
+		case HubServiceGetTaskTreeProcedure:
+			hubServiceGetTaskTreeHandler.ServeHTTP(w, r)
 		case HubServiceResolveProcedure:
 			hubServiceResolveHandler.ServeHTTP(w, r)
 		case HubServiceRequestWakeProcedure:
@@ -1467,6 +1495,10 @@ func (UnimplementedHubServiceHandler) ListTasks(context.Context, *connect.Reques
 
 func (UnimplementedHubServiceHandler) CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.CancelTask is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) GetTaskTree(context.Context, *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetTaskTree is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error) {

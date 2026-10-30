@@ -518,6 +518,32 @@ func (e *env) cmdCancel(ctx context.Context, args []string) error {
 	return nil
 }
 
+func (e *env) cmdTree(ctx context.Context, args []string) error {
+	var cf clientFlags
+	pos, err := parse(e.flags("tree", &cf), args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen tree <task-id>")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.GetTaskTree(ctx, connect.NewRequest(&agenv1.GetTaskTreeRequest{TaskId: pos[0]}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	for _, t := range r.Msg.Tasks {
+		fmt.Fprintf(e.stdout, "%s%s %s/%s %s\n", strings.Repeat("  ", int(t.Depth)), t.Id, t.Namespace, t.Deployment, stateName(t.State, "TASK_STATE_"))
+	}
+	return nil
+}
+
 func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t *agenv1.Task, timeout time.Duration, asJSON bool) error {
 	deadline := time.Now().Add(timeout)
 	for !terminal(t.State) {

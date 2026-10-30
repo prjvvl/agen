@@ -490,6 +490,32 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
 }
 
+// GetTaskTree returns every task of the tree a given task belongs to,
+// oldest first (3.4, part): its root (found through RootTaskID, always set)
+// and every one of the root's descendants, across however many deployments
+// they delegated to within the namespace.
+func (h *Hub) GetTaskTree(ctx context.Context, req *connect.Request[agenv1.GetTaskTreeRequest]) (*connect.Response[agenv1.GetTaskTreeResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	tasks, err := h.Store.ListTaskTree(ctx, t.Namespace, t.RootTaskID)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out := make([]*agenv1.Task, len(tasks))
+	for i, tk := range tasks {
+		out[i] = TaskProto(tk)
+	}
+	if err := h.withTraceIDs(ctx, out); err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.GetTaskTreeResponse{Tasks: out}), nil
+}
+
 // RunHeader names the run of the agent making a call (with TaskHeader and
 // a W3C traceparent; the MCP endpoint sets them from the call's _meta).
 const RunHeader = "X-Agen-Run"
@@ -507,7 +533,7 @@ func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deploym
 	if err != nil || parent.Terminal() || !PrincipalFrom(ctx).AllowsNamespace(parent.Namespace) {
 		return nil
 	}
-	t.ParentTaskID, t.Depth, t.RootRunID = parent.ID, parent.Depth+1, parent.RootRunID
+	t.ParentTaskID, t.Depth, t.RootRunID, t.RootTaskID = parent.ID, parent.Depth+1, parent.RootRunID, parent.RootTaskID
 	parentOv, _ := store.ParseOverrides(parent.Overrides)
 	childOv, _ := store.ParseOverrides(t.Overrides)
 	t.Overrides = store.CombineOverrides(parentOv, childOv).JSON()

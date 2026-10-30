@@ -410,6 +410,11 @@ message Task {
   // they are cancelled too, recursively down the tree. "abandon": left
   // running on their own, with no parent to report back to.
   string on_parent_end = 39;
+  // The tree's root task (3.4, part): a task with no parent is its own
+  // root; every descendant inherits its ancestor's. Unlike root_run_id
+  // (which names a run and is empty until that run starts), this is always
+  // set, so GetTaskTree can resolve a tree from any task in it right away.
+  string root_task_id = 40;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

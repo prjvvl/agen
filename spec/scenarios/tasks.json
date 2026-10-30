@@ -1,7 +1,7 @@
 {
   "name": "tasks",
   "description": "Deploy an agent, run a task with a cost tier, conversation and labels, schedule one for later, list scheduled tasks, cancel it, and read the logs.",
-  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "observe.logs"],
+  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "observe.logs", "tasks.tree"],
   "bundles": {
     "hello": { "from": "examples/bundles/hello" }
   },
@@ -22,6 +22,11 @@
       "args": { "id": "$t1", "waitSeconds": 60 },
       "expect": { "task.state": "TASK_STATE_SUCCEEDED", "task.output": "Hello! Nice to meet you.", "task.modelTier": "high" },
       "retry": 120
+    },
+    {
+      "call": "GetTaskTree",
+      "args": { "taskId": "$t1" },
+      "expect": { "tasks": { "has": { "id": "$t1", "rootTaskId": "$t1" } } }
     },
     {
       "call": "SubmitTask",

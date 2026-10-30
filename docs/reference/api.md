@@ -202,6 +202,16 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTask` · MCP tool: `get_ta
 | `id` | string |  |
 | `waitSeconds` | int32 | Wait up to this many seconds (at most 300) for the task to finish; the task is returned as it is when the wait ends. |
 
+## GetTaskTree
+
+Every task in the tree a given task belongs to (its root's descendants, including the root itself), oldest first (3.4, part).
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTaskTree` · MCP tool: `get_task_tree`
+
+| Field | Type | Description |
+|---|---|---|
+| `taskId` | string | Any task in the tree; the response covers its root and every one of the root's descendants. |
+
 ## GetTrace
 
 The spans of a trace: model calls, tool calls and delegations across agents.

@@ -162,6 +162,10 @@ features:
       field:SubmitTask.overrides, field:SubmitTask.priority, field:SubmitTask.trust, field:SubmitTask.locks,
       field:SubmitTask.on_parent_end]
     on: [rust, python, node, go, api, mcp, cli, console]
+  - id: tasks.tree
+    title: Every task of the tree a task belongs to (its root and descendants)
+    contract: [rpc:GetTaskTree, field:GetTaskTree.task_id, cli:tree]
+    on: [api, mcp, cli]
   - id: tasks.cancel
     title: Cancel a task or run
     contract: [rpc:CancelTask, cli:cancel]
