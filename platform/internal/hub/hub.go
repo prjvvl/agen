@@ -676,7 +676,8 @@ func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deploym
 	t.ParentTaskID, t.Depth, t.RootRunID, t.RootTaskID = parent.ID, parent.Depth+1, parent.RootRunID, parent.RootTaskID
 	parentOv, _ := store.ParseOverrides(parent.Overrides)
 	childOv, _ := store.ParseOverrides(t.Overrides)
-	t.Overrides = store.CombineOverrides(parentOv, childOv).JSON()
+	combined := h.narrowForTreeBudget(ctx, parent.RootTaskID, store.CombineOverrides(parentOv, childOv))
+	t.Overrides = combined.JSON()
 	// Never more trusted than the parent's own task (its stored trust; a
 	// live run further tainted mid-run reports that directly through
 	// start_agent/call_agent instead, which this header-based path is not).

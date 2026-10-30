@@ -247,6 +247,44 @@ widened by a looser override). `start_agent` can set overrides only on a
 delegate whose `x-agen/config.json` `delegates[].overrides` is `true`; the
 calling engine enforces this before the request reaches the Hub.
 
+**Tree budgets** (3.5, part): a root task's own `overrides.budget` is
+also the whole tree's budget — not a separate field. When a child is
+submitted (`SubmitChildTask`, or a header-linked task via
+`linkToCaller`), `Hub.narrowForTreeBudget` finds the root (via
+`RootTaskID`), reads its `overrides.budget`, and — if it set
+`maxTokens`/`maxUsd` — computes the tree's remainder (that limit minus
+`Store.TreeUsage`'s sum of every run of every task of the tree so far,
+joined through each run's `task_id`) and narrows the child's own
+combined budget down to the smaller of its own request and that
+remainder, through the exact same `budget` field and narrowing semantics
+described above. No new engine code, proto field, or table: the existing
+per-run `budget_exceeded` check (unchanged) is what actually enforces
+whatever this narrows a child's budget down to, the same as it always
+has for a plain per-run override. A remainder already used up floors at
+a small positive value (1 token / $0.0001) rather than 0, since 0 reads
+as "unset, no limit" to the existing narrowing logic; the floor still
+lets a child's own first turn run (no usage yet is not over a 1-token
+limit), so it is cut off on its very next check instead — the same
+"overshoot of at most one model call" the deployment's own daily budget
+already documents and accepts.
+
+This is deliberately the "napkin math" slice, computed once at each
+child's own submission, not a continuously re-checked live budget: a
+sibling spending heavily *while* another is already running does not
+retroactively shrink the running one's own already-fixed budget, only
+the next child submitted after it. A live per-turn check (mirroring
+`is_held`/`unfinished_children`'s `TaskStarter` round trip) would close
+that gap, but needs its own new RPC chain
+(`TaskStarter::tree_budget_exceeded` → `ManagerService` →
+`NestService` → `Store`) comparable in size to join or hold, and is not
+built. Per-label budgets (`labelBudgets` in the plan's wording) are not
+built either: there is no namespace-level budget config surface today
+(budgets are deployment-scoped), so this needs a new config surface
+first, not just new leasing SQL. `budget.threshold` events, `GetMetrics`
+rolled up per tree/label, and showing budget status to the model mid-run
+are separate, additive pieces of the original design, not part of
+enforcement itself, and are not built either.
+
 **Hub leader**: several Hub replicas can serve the API; exactly one is leader
 and runs the scheduler, autoscaler and triggers. Leadership is a Store row
 `(name='hub-leader', holder, epoch, expires_at)` renewed every few seconds.

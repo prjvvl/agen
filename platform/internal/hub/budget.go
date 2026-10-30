@@ -56,3 +56,63 @@ func (h *Hub) withBudget(ctx context.Context, d store.Deployment, pd *agenv1.Dep
 	h.stampCronTimes(ctx, d, pd)
 	return pd
 }
+
+// narrowForTreeBudget narrows combined's budget by the tree's remaining
+// budget (3.5, part): a tree budget is the root task's own
+// overrides.budget (maxTokens/maxUsd), not a separate field — a child's
+// effective budget is the smaller of its own request and the tree's
+// remainder (the root's limit minus every run of the tree's usage so
+// far, TreeUsage). No root budget: no narrowing, combined is returned
+// unchanged (nil stays nil).
+//
+// This is computed once, at the child's own submission, not re-checked
+// against the tree's usage again for the rest of that child's run: a
+// sibling spending heavily later is not retroactively applied to a run
+// already in progress, only to the NEXT child submitted after it. A
+// remainder that is already used up floors at a small positive value
+// (1 token / $0.0001) rather than 0, since the engine's own existing
+// budget_exceeded check treats a 0 limit as "unset, no limit" — a floor
+// still lets the child's own very first turn run (0 tokens used is not
+// yet over a 1-token limit), then ends it with a report on its second
+// check, the same "overshoot of at most one model call" the daily
+// deployment budget already documents.
+func (h *Hub) narrowForTreeBudget(ctx context.Context, rootTaskID string, combined *store.TaskOverrides) *store.TaskOverrides {
+	root, err := h.Store.GetTask(ctx, rootTaskID)
+	if err != nil {
+		return combined
+	}
+	rootOv, _ := store.ParseOverrides(root.Overrides)
+	if rootOv == nil || rootOv.Budget == nil || (rootOv.Budget.MaxTokens <= 0 && rootOv.Budget.MaxUsd <= 0) {
+		return combined
+	}
+	inTok, outTok, usd, err := h.Store.TreeUsage(ctx, rootTaskID)
+	if err != nil {
+		return combined
+	}
+	tokens := inTok + outTok
+	if combined == nil {
+		combined = &store.TaskOverrides{}
+	}
+	if combined.Budget == nil {
+		combined.Budget = &store.RunBudget{}
+	}
+	if max := rootOv.Budget.MaxTokens; max > 0 {
+		remainder := max - tokens
+		if remainder < 1 {
+			remainder = 1
+		}
+		if combined.Budget.MaxTokens <= 0 || remainder < combined.Budget.MaxTokens {
+			combined.Budget.MaxTokens = remainder
+		}
+	}
+	if max := rootOv.Budget.MaxUsd; max > 0 {
+		remainder := max - usd
+		if remainder < 0.0001 {
+			remainder = 0.0001
+		}
+		if combined.Budget.MaxUsd <= 0 || remainder < combined.Budget.MaxUsd {
+			combined.Budget.MaxUsd = remainder
+		}
+	}
+	return combined
+}

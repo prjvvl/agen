@@ -161,3 +161,14 @@ func (s *Store) Usage(ctx context.Context, ns, deployment string, sinceMs int64)
 		ns, deployment, sinceMs).Scan(&inputTokens, &outputTokens, &costUSD)
 	return
 }
+
+// TreeUsage sums model usage of every run of every task of the tree
+// rooted at rootTaskID (3.5, part: tree budgets), joining through each
+// run's task_id since a run itself carries no root_task_id of its own.
+func (s *Store) TreeUsage(ctx context.Context, rootTaskID string) (inputTokens, outputTokens int64, costUSD float64, err error) {
+	err = s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(SUM(r.input_tokens), 0), COALESCE(SUM(r.output_tokens), 0), COALESCE(SUM(r.cost_usd), 0) "+
+			"FROM runs r JOIN tasks t ON t.id = r.task_id WHERE t.root_task_id = $1",
+		rootTaskID).Scan(&inputTokens, &outputTokens, &costUSD)
+	return
+}
