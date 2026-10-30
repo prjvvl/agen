@@ -167,7 +167,7 @@ features:
     contract: [rpc:GetTaskTree, field:GetTaskTree.task_id, cli:tree]
     on: [api, mcp, cli]
   - id: tasks.queue-modes
-    title: How a busy conversation's queue behaves (collect merges messages instead of running them one at a time; followup is today's default)
+    title: How a busy conversation's queue behaves (followup, the default, queues separately; collect merges; steer delivers into the running turn; interrupt gracefully cancels it first)
     contract: [config:conversations, field:CreateDeployment.conversations, field:UpdateDeployment.conversations]
     on: [api, mcp, cli]
   - id: tasks.progress

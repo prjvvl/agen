@@ -1413,6 +1413,13 @@ impl Agent {
                 "cancel" => {
                     format!("[This task is being cancelled: {payload}. Wrap up now and call finish with whatever you have, or it will be stopped shortly.]")
                 }
+                // "steer" queue mode (3.9, part): a new submission to this
+                // conversation delivered into the run already in progress,
+                // the same fire-and-forget shape as a signal (no separate
+                // task of its own).
+                "steer" => {
+                    format!("[New input for this conversation] {payload}")
+                }
                 _ => continue,
             };
             if let Err(e) = self.add_user_note(live, &text).await {

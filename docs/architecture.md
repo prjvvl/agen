@@ -630,9 +630,40 @@ carries the final outcome (`SUCCEEDED`/`FAILED`/etc. if the run wrapped up
 in time, `CANCELLED` otherwise) with no further polling needed on the
 caller's side either.
 
-The rest of the "Tree" design is otherwise done; 3.9's `steer`/`interrupt`
-queue modes are not built yet, though the piece they were both blocked on
-(drain) now exists. These eight (parent-close, `GetTaskTree`, tree-wide
+**`steer`/`interrupt` queue modes** (3.9, part): `conversations.queueMode`'s
+remaining two values, alongside `followup` (default) and `collect`.
+`steer` delivers a new submission into the conversation's currently
+`leased`/`running` task as a `"steer"`-kind `run_inbox` entry
+(`Store.RunningConversationTask` finds it; conversation ordering
+guarantees at most one) instead of queuing it separately — the
+drive_inner's inbox drain turns it into a user message
+(`"[New input for this conversation] <input>"`) before the run's next
+model call. This is deliberately shaped like a Temporal Signal rather
+than an Update: fire-and-forget, no independent result of its own (the
+`SubmitTaskResponse` is the running task itself, the same way `collect`
+returns the task it merged into rather than a new one); a caller after a
+result should query that task, not treat the steer submission as having
+one. Same documented idempotency-key gap as `collect` (not addressed
+here). `interrupt` reuses graceful cancel's own mechanism
+(`Hub.gracefulCancelReason`) on the conversation's running task — a new
+`Hub.InterruptGrace` field (default `defaultGracePeriod`, since
+`SubmitTask` has no field of its own for a longer one, unlike
+`CancelTask`'s request-level override) — then queues the new submission
+as its own, independent task once the old one ends, one way or the
+other. This mirrors Temporal's own cancellation model: cooperative (the
+run decides how to respond, same "cancel" inbox entry/wrap-up-and-finish
+path graceful cancel uses) and a run that finishes on its own within the
+grace period ends however it finished, not cancelled — only a survivor
+past the deadline is hard-stopped. Neither mode needed a new Task column,
+proto field, or RPC: both are entirely `SubmitTask`-side branches on the
+existing `conversations.queueMode` string and `Store.WriteInbox`/
+`Hub.gracefulCancel`, which already existed for signal_agent and graceful
+cancel respectively. With nothing running in the conversation right now
+(it's idle, queued, or suspended waiting on something else), both modes
+fall through and queue normally, same as `followup`.
+
+The rest of the "Tree" design is otherwise done; 3.9's queue modes are
+now all four built. These eight (parent-close, `GetTaskTree`, tree-wide
 cancel, progress/query, signals/queries, join, hold, graceful cancel) are
 3.4's pieces so far.
 

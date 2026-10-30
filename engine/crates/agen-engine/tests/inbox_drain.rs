@@ -141,6 +141,41 @@ async fn a_cancel_entry_is_drained_into_a_wrap_up_message() {
 }
 
 #[tokio::test]
+async fn a_steer_entry_is_drained_into_a_new_input_message() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open_sqlite_path(&d.path().join("t.db")).await.unwrap());
+    let starter = Arc::new(ScriptedInbox::new(vec![json!({
+        "kind": "steer", "ref": "", "payload": "actually, use Spanish"
+    })]));
+    let p = Arc::new(FakeProvider::new(vec![say("ok, switching")]));
+    let agent = Agent::builder(AgentConfig::new("lead", "Lead.", "fake-1"), store.clone())
+        .provider(p.clone())
+        .task_starter(starter.clone())
+        .build()
+        .unwrap();
+
+    let r = agent
+        .run(
+            "go",
+            RunOptions {
+                task_id: "task-1".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+
+    let reqs = p.requests();
+    assert_eq!(reqs.len(), 1);
+    let texts: Vec<&str> = reqs[0].messages.iter().map(|m| m.content.as_str()).collect();
+    assert!(
+        texts.iter().any(|t| t.contains("actually, use Spanish")),
+        "expected a drained steer message, got {texts:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_task_without_a_task_id_never_drains() {
     let d = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open_sqlite_path(&d.path().join("t.db")).await.unwrap());

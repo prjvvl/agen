@@ -166,9 +166,9 @@ func checkConversationPolicy(p *agenv1.ConversationPolicy) error {
 		return nil
 	}
 	switch p.QueueMode {
-	case "", "followup", "collect":
+	case "", "followup", "collect", "steer", "interrupt":
 	default:
-		return invalid(fmt.Sprintf("conversations.queueMode %q: use followup or collect", p.QueueMode))
+		return invalid(fmt.Sprintf("conversations.queueMode %q: use followup, collect, steer or interrupt", p.QueueMode))
 	}
 	if p.Debounce != "" {
 		if _, err := time.ParseDuration(p.Debounce); err != nil {

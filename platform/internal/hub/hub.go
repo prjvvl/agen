@@ -32,6 +32,10 @@ type Hub struct {
 	Auth  *Auth
 	// Poll is how often GetTask(wait_seconds) re-checks a task.
 	Poll time.Duration
+	// InterruptGrace is "interrupt" queue mode's grace period (3.9, part):
+	// SubmitTask has no field of its own for a longer one, unlike
+	// CancelTask's own mode="graceful". Defaults to defaultGracePeriod.
+	InterruptGrace time.Duration
 
 	// CA is set by EnableTLS: Nests then enrol with a CSR and must present
 	// their client certificate.
@@ -61,7 +65,7 @@ func (h *Hub) logger() *slog.Logger {
 
 // New creates a Hub over a store; adminToken authenticates the admin.
 func New(s *store.Store, adminToken string) *Hub {
-	return &Hub{Store: s, Auth: &Auth{AdminToken: adminToken, Store: s}, Poll: 100 * time.Millisecond}
+	return &Hub{Store: s, Auth: &Auth{AdminToken: adminToken, Store: s}, Poll: 100 * time.Millisecond, InterruptGrace: defaultGracePeriod}
 }
 
 // Handler mounts HubService (Connect, gRPC and JSON) with authentication.
@@ -500,13 +504,16 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
 		return nil, err
 	}
-	// "collect" queue mode (3.9, part): merge into the conversation's still-
-	// queued task instead of queuing a separate one. Not idempotency-key
-	// aware yet: a merged submission's own idempotency_key is not recorded
-	// anywhere, so retrying it with the same key merges again rather than
-	// returning the earlier result. Submissions that rely on idempotency
-	// should not also use collect mode until this is addressed.
-	if cp := PolicyOf(d).Conversations; cp.QueueMode == "collect" && task.ConversationKey != "" {
+	cp := PolicyOf(d).Conversations
+	switch {
+	// "collect" queue mode (3.9, part): merge into the conversation's
+	// still-queued task instead of queuing a separate one. Not
+	// idempotency-key aware yet: a merged submission's own
+	// idempotency_key is not recorded anywhere, so retrying it with the
+	// same key merges again rather than returning the earlier result.
+	// Submissions that rely on idempotency should not also use collect
+	// mode until this is addressed.
+	case cp.QueueMode == "collect" && task.ConversationKey != "":
 		merged, ok, err := h.Store.MergeIntoQueuedConversationTask(ctx, task, conversationDebounce(cp.Debounce).Milliseconds())
 		if err != nil {
 			return nil, connectErr(err)
@@ -514,6 +521,39 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 		if ok {
 			_ = h.Store.TouchActivity(ctx, ns, name)
 			return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(merged)}), nil
+		}
+	// "steer" queue mode (3.9, part): deliver into the conversation's
+	// currently running task as a "steer" run_inbox entry instead of
+	// queuing a separate one, the same fire-and-forget shape as a signal
+	// (no independent result of its own — this submission's "outcome" is
+	// whatever the steered run ends with; a caller after its own result
+	// should query the returned task, not this submission). Same
+	// idempotency-key gap as collect: not addressed here. Nothing running
+	// right now (queued, waiting, or idle): falls through and queues
+	// normally, same as followup.
+	case cp.QueueMode == "steer" && task.ConversationKey != "":
+		live, err := h.Store.RunningConversationTask(ctx, ns, name, task.ConversationKey)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		if live.ID != "" {
+			if _, err := h.Store.WriteInbox(ctx, store.InboxRow{Namespace: live.Namespace, TaskID: live.ID, RunID: live.RunID, Kind: "steer", Payload: task.Input}); err != nil {
+				return nil, connectErr(err)
+			}
+			_ = h.Store.TouchActivity(ctx, ns, name)
+			return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(live)}), nil
+		}
+	// "interrupt" queue mode (3.9, part): gracefully cancel the
+	// conversation's currently running task (the same mechanism
+	// CancelTask's own mode="graceful" uses, with the default grace
+	// period — SubmitTask has no field of its own for a longer one),
+	// then queue this submission normally once the conversation is free.
+	// A run that calls finish on its own within the grace period ends
+	// however it finished, not cancelled, same as graceful cancel always
+	// does; nothing running right now falls through the same as steer.
+	case cp.QueueMode == "interrupt" && task.ConversationKey != "":
+		if live, err := h.Store.RunningConversationTask(ctx, ns, name, task.ConversationKey); err == nil && live.ID != "" {
+			h.interruptRunningTask(ctx, live)
 		}
 	}
 	t, err := h.Store.SubmitTask(ctx, task)
@@ -870,12 +910,16 @@ func graceDuration(seconds int32) time.Duration {
 // CancelTask/CancelTree call right after it is what actually stops
 // whatever is still unfinished once the grace period passes.
 func (h *Hub) gracefulCancel(ctx context.Context, tasks []store.Task, grace time.Duration) {
+	h.gracefulCancelReason(ctx, tasks, grace, "its task tree is being cancelled")
+}
+
+func (h *Hub) gracefulCancelReason(ctx context.Context, tasks []store.Task, grace time.Duration, reason string) {
 	var waitIDs []string
 	for _, t := range tasks {
 		if t.State != "leased" && t.State != "running" {
 			continue
 		}
-		if _, err := h.Store.WriteInbox(ctx, store.InboxRow{Namespace: t.Namespace, TaskID: t.ID, RunID: t.RunID, Kind: "cancel", Payload: "its task tree is being cancelled"}); err != nil {
+		if _, err := h.Store.WriteInbox(ctx, store.InboxRow{Namespace: t.Namespace, TaskID: t.ID, RunID: t.RunID, Kind: "cancel", Payload: reason}); err != nil {
 			continue
 		}
 		waitIDs = append(waitIDs, t.ID)
@@ -900,6 +944,20 @@ func (h *Hub) gracefulCancel(ctx context.Context, tasks []store.Task, grace time
 			return
 		case <-time.After(h.Poll):
 		}
+	}
+}
+
+// interruptRunningTask gracefully cancels t (the default grace period —
+// "interrupt" queue mode has no field of its own for a longer one) then
+// hard-stops it if it is still unfinished once that passes, same as
+// CancelTask(mode="graceful") does for a caller-named task; the new
+// submission that triggered this queues normally right after, once the
+// conversation is free. Errors are swallowed: a task this cannot act on
+// (already gone) simply queues the new submission straight away.
+func (h *Hub) interruptRunningTask(ctx context.Context, t store.Task) {
+	h.gracefulCancelReason(ctx, []store.Task{t}, h.InterruptGrace, "a new message is replacing it in its conversation")
+	if ct, err := h.Store.CancelTask(ctx, t.ID); err == nil {
+		h.replyResult(ctx, ct)
 	}
 }
 

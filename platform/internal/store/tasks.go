@@ -469,6 +469,26 @@ func (s *Store) MergeIntoQueuedConversationTask(ctx context.Context, t Task, deb
 	return merged, merged.ID != "", nil
 }
 
+// RunningConversationTask returns the conversation's one currently
+// leased or running task (3.9, part: "steer"/"interrupt" need the live
+// task to act on, not a queued one — conversation ordering guarantees at
+// most one task of a conversation is ever leased/running/waiting at
+// once). A zero Task, no error, means there is none right now (it is
+// queued, waiting on something else, or the conversation is idle) — the
+// caller then falls back to queuing normally.
+func (s *Store) RunningConversationTask(ctx context.Context, namespace, deployment, conversationKey string) (Task, error) {
+	if conversationKey == "" {
+		return Task{}, nil
+	}
+	t, err := scanTask(s.db.QueryRowContext(ctx,
+		"SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND conversation_key = $3 AND state IN ('leased', 'running') ORDER BY created_ms DESC LIMIT 1",
+		namespace, deployment, conversationKey))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, nil
+	}
+	return t, err
+}
+
 // ListTaskTree returns every task of the tree rooted at rootTaskID, oldest
 // first (the root itself included, since it is its own root_task_id).
 func (s *Store) ListTaskTree(ctx context.Context, namespace, rootTaskID string) ([]Task, error) {

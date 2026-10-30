@@ -39,6 +39,7 @@ func setup(t *testing.T) env {
 	t.Cleanup(func() { s.Close() })
 	h := New(s, admin)
 	h.Poll = 10 * time.Millisecond
+	h.InterruptGrace = 10 * time.Millisecond
 	mux := http.NewServeMux()
 	path, handler := h.Handler()
 	mux.Handle(path, handler)
