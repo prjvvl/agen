@@ -513,14 +513,36 @@ of. `QueryChildTask` is `QueryTask`'s own logic (factored into
 `Hub.queryTaskProto`, shared by both RPCs) with that check in front.
 `SignalChildTask` writes a `run_inbox` row (`kind: "signal"`, `ref`: the
 caller's task id) and emits `task.signalled`, waking the target if it
-happens to be waiting on exactly this signal — but draining a signal into
-a *running* (not suspended) run is not implemented yet, so today it just
-sits in the inbox, the same gap 3.3 originally had for `"child"` rows
-before 3.2b's resume path closed it.
+happens to be waiting on exactly this signal.
+
+**Draining the inbox into a running run** (3.4/3.9, part): the gap 3.3
+originally left — "turning a `run_inbox` row back into a tool result or a
+message is engine work, not implemented yet" — is now closed for rows
+other than `"child"`. Before each model call, `Agent::drive_inner` calls
+`AgentBuilder::task_starter`'s `drain_inbox(task_id)` (managed mode only;
+a no-op without a starter, or without a `task_id` — standalone/embedded
+runs have neither), which reaches `ManagerService.DrainInbox` →
+`NestService.DrainInbox` → `Store.DrainInbox`: claims (sets
+`consumed_ms`, atomically with the read) every unconsumed row of the
+task other than `"child"` — those stay the `call_agent` resume path's own
+business, never read generically — oldest first. A `"signal"` row becomes
+a new user message, `"[Signal from task <ref>] <payload>"`, folded into
+the very next request to the model; any other kind is claimed (so it
+does not pile up) but not yet turned into anything, ready for `"cancel"`
+(graceful tree cancel) or `"steer"` (queue mode) rows once those exist.
+Like `ReportProgress`, `NestAPI.DrainInbox` has no lease fencing
+(`requireNest` only) — low stakes, since claiming is idempotent and the
+worst case is a stale instance's drain racing a real one for the same
+row. A failed drain (the Hub unreachable, say) is logged and the turn
+goes on without it — this must never be the reason a run stalls, the
+same invariant the direct-Store write path protects for runs/spans.
 
 The rest of the "Tree" design (join/suspend-on-children, `detach` and
-hold) is not built yet — these five (parent-close, `GetTaskTree`,
-tree-wide cancel, progress/query, signals/queries) are its first pieces.
+hold) is not built yet; 3.9's `steer`/`interrupt` queue modes are not
+built either, though the piece they were both blocked on (this section)
+now exists. These five (parent-close, `GetTaskTree`, tree-wide cancel,
+progress/query, signals/queries — the last two now including the drain)
+are 3.4's pieces so far.
 
 ## 7. Engine model
 

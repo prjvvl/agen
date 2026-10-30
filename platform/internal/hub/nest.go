@@ -584,6 +584,30 @@ func (n *NestAPI) SignalChildTask(ctx context.Context, req *connect.Request[agen
 	return connect.NewResponse(&agenv1.NestSignalChildTaskResponse{}), nil
 }
 
+// DrainInbox claims a task this Nest currently leases' own unconsumed
+// run_inbox entries other than "child" rows (3.4/3.9, part), so the
+// engine can turn them into run messages before its next model call.
+// Low-stakes like ReportProgress: requireNest only, no lease fencing (the
+// engine has no lease id to send).
+func (n *NestAPI) DrainInbox(ctx context.Context, req *connect.Request[agenv1.NestDrainInboxRequest]) (*connect.Response[agenv1.NestDrainInboxResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	rows, err := n.hub.Store.DrainInbox(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out := make([]*agenv1.InboxEntry, len(rows))
+	for i, r := range rows {
+		out[i] = &agenv1.InboxEntry{Kind: r.Kind, Ref: r.Ref, Payload: r.Payload, CreatedAt: ms(r.CreatedMs)}
+	}
+	return connect.NewResponse(&agenv1.NestDrainInboxResponse{Entries: out}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

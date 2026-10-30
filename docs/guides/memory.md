@@ -53,13 +53,15 @@ or body field (see [Triggers](triggers.md#conversations)).
   the task it merged into, not a new one; keep using that id.
   `debounce` only resets while the task is still queued — once it is
   leased, the next submission starts a fresh one.
-- Not yet implemented: `steer` (delivered into an already-running run's
-  inbox, picked up before its next model call) and `interrupt` (the
-  running run gets a last report turn, then the new task runs);
-  `SubmitTask.delivery` to ask for a mode per task rather than per
-  deployment; and `collect` is not idempotency-key aware — a merged
-  submission's own key is not recorded, so retrying it with the same key
-  merges again rather than returning the earlier result.
+- Not yet implemented: `steer` and `interrupt` as queue modes. The engine
+  side both would need — a run's `run_inbox` drained into it before its
+  next model call — now exists (it is what makes `signal_agent` work),
+  but neither mode's own `SubmitTask` → `run_inbox` wiring, nor
+  `interrupt`'s "running run gets a last report turn first," is built.
+  Also missing: `SubmitTask.delivery` to ask for a mode per task rather
+  than per deployment, and `collect` is not idempotency-key aware — a
+  merged submission's own key is not recorded, so retrying it with the
+  same key merges again rather than returning the earlier result.
 
 ## Labels
 

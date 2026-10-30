@@ -43,10 +43,15 @@ service ManagerService {
   // descendants (3.4, part: the query_agent built-in).
   rpc QueryChildTask(QueryChildTaskRequest) returns (QueryTaskResponse);
   // Signals one of the calling task's own descendants (3.4, part: the
-  // signal_agent built-in). Written to the target's run_inbox; draining a
-  // signal into a resumed or running run is not implemented yet, so it
-  // sits there until that exists.
+  // signal_agent built-in). Written to the target's run_inbox; drained
+  // into it before its next model call by DrainInbox.
   rpc SignalChildTask(SignalChildTaskRequest) returns (SignalChildTaskResponse);
+  // Claims the calling task's own unconsumed run_inbox entries other than
+  // "child" rows (3.4/3.9, part), so the engine can turn them into
+  // messages before its next model call. Called once per turn when a
+  // TaskStarter is configured; claiming is atomic, so a retried call never
+  // redelivers an entry already claimed.
+  rpc DrainInbox(DrainInboxRequest) returns (DrainInboxResponse);
 }
 
 message StartTaskRequest {
@@ -95,6 +100,13 @@ message SignalChildTaskRequest {
   string message = 3;
 }
 message SignalChildTaskResponse {}
+
+message DrainInboxRequest {
+  string task_id = 1;
+}
+message DrainInboxResponse {
+  repeated InboxEntry entries = 1;
+}
 
 message RequestApprovalRequest {
   string instance_id = 1;

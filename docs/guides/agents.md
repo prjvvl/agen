@@ -137,8 +137,9 @@ after `start_agent` to check in on long work instead of polling with
   any, and its outcome once it has one — without waiting or touching the
   run, the same as a person's `agen query <task-id>`.
 - `signal_agent` writes the message for the target and returns at once;
-  picking it up mid-run is not implemented yet, so today it has no visible
-  effect until that exists — do not rely on it to steer a run yet.
+  the target picks it up as a new message right before its next model
+  call (a running run) or right after a wake (a suspended one), the same
+  as any other content delivered through its `run_inbox`.
 - Both refuse a task that is not actually yours: not any id you happen to
   know, only something you (or something you started) started, however
   many hops down.

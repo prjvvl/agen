@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
+	"github.com/prjvvl/agen/platform/internal/store"
 )
 
 // QueryChildTask (query_agent's RPC) and SignalChildTask (signal_agent's)
@@ -131,5 +132,74 @@ func TestQueryChildTaskWorksTwoHopsDown(t *testing.T) {
 	}
 	if _, err := b.QueryChildTask(ctx, connect.NewRequest(&agenv1.NestQueryChildTaskRequest{NestId: idB, CallerTaskId: child.Msg.Task.Id, TaskId: gc.Msg.Task.Id})); err != nil {
 		t.Fatalf("query a child from its own parent: %v", err)
+	}
+}
+
+// DrainInbox claims a signal written by SignalChildTask, once; it never
+// claims a wake-on-match "child" row left by 3.3's own mechanism.
+// features: tasks.progress
+func TestDrainInboxClaimsASignalOnceAndSkipsChildRows(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	idB, b := e.enroll(t, "nest-b", 4, nil)
+	for _, name := range []string{"hello", "worker"} {
+		args := &agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)}
+		if name != "hello" {
+			args.Name = name
+		}
+		if _, err := c.CreateDeployment(ctx, connect.NewRequest(args)); err != nil {
+			t.Fatal(err)
+		}
+		c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref("", name), Desired: 1}))
+	}
+	e.scheduler().Step(ctx)
+	if _, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "root"})); err != nil {
+		t.Fatal(err)
+	}
+	rl, err := b.LeaseTasks(ctx, connect.NewRequest(&agenv1.LeaseTasksRequest{NestId: idB, Ref: ref("", "hello"), Max: 1, LeaseSeconds: 30}))
+	if err != nil || len(rl.Msg.Tasks) != 1 {
+		t.Fatalf("lease root: %v %v", rl, err)
+	}
+	root := rl.Msg.Tasks[0]
+	child, err := b.SubmitChildTask(ctx, connect.NewRequest(&agenv1.SubmitChildTaskRequest{NestId: idB, Ref: ref("", "worker"), Input: "child", ParentTaskId: root.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A child-kind row from the 3.3 wake-on-match mechanism, written
+	// directly (the engine never calls WriteInbox itself; the Store does,
+	// via taskFinished, when a real child ends).
+	if _, err := e.store.WriteInbox(ctx, store.InboxRow{Namespace: "default", TaskID: root.Id, RunID: "r1", Kind: "child", Ref: child.Msg.Task.Id, Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SignalChildTask(ctx, connect.NewRequest(&agenv1.NestSignalChildTaskRequest{NestId: idB, CallerTaskId: root.Id, TaskId: child.Msg.Task.Id, Message: "hurry up"})); err != nil {
+		t.Fatal(err)
+	}
+
+	drained, err := b.DrainInbox(ctx, connect.NewRequest(&agenv1.NestDrainInboxRequest{NestId: idB, TaskId: child.Msg.Task.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drained.Msg.Entries) != 1 || drained.Msg.Entries[0].Kind != "signal" || drained.Msg.Entries[0].Payload != "hurry up" {
+		t.Fatalf("drained from the child: %v", drained.Msg.Entries)
+	}
+
+	// The root's own "child" row is never claimed by DrainInbox.
+	drainedRoot, err := b.DrainInbox(ctx, connect.NewRequest(&agenv1.NestDrainInboxRequest{NestId: idB, TaskId: root.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drainedRoot.Msg.Entries) != 0 {
+		t.Fatalf("a child row was drained, want it left alone: %v", drainedRoot.Msg.Entries)
+	}
+
+	// Draining again finds nothing left.
+	again, err := b.DrainInbox(ctx, connect.NewRequest(&agenv1.NestDrainInboxRequest{NestId: idB, TaskId: child.Msg.Task.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.Msg.Entries) != 0 {
+		t.Fatalf("drained twice: %v", again.Msg.Entries)
 	}
 }

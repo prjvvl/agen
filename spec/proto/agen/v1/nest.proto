@@ -44,6 +44,10 @@ service NestService {
   // Signals one of the calling task's own descendants (3.4, part: the
   // signal_agent built-in); same descendant check as QueryChildTask.
   rpc SignalChildTask(NestSignalChildTaskRequest) returns (NestSignalChildTaskResponse);
+  // Claims a task this Nest currently leases' own unconsumed run_inbox
+  // entries other than "child" rows (3.4/3.9, part). Low-stakes like
+  // ReportProgress: requireNest only, no lease fencing.
+  rpc DrainInbox(NestDrainInboxRequest) returns (NestDrainInboxResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -213,6 +217,14 @@ message NestSignalChildTaskRequest {
   string message = 4;
 }
 message NestSignalChildTaskResponse {}
+
+message NestDrainInboxRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestDrainInboxResponse {
+  repeated InboxEntry entries = 1;
+}
 
 message CreateApprovalRequest {
   Approval approval = 1;

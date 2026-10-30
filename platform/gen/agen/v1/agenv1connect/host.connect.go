@@ -65,6 +65,9 @@ const (
 	// ManagerServiceSignalChildTaskProcedure is the fully-qualified name of the ManagerService's
 	// SignalChildTask RPC.
 	ManagerServiceSignalChildTaskProcedure = "/agen.v1.ManagerService/SignalChildTask"
+	// ManagerServiceDrainInboxProcedure is the fully-qualified name of the ManagerService's DrainInbox
+	// RPC.
+	ManagerServiceDrainInboxProcedure = "/agen.v1.ManagerService/DrainInbox"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -242,10 +245,15 @@ type ManagerServiceClient interface {
 	// descendants (3.4, part: the query_agent built-in).
 	QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
 	// Signals one of the calling task's own descendants (3.4, part: the
-	// signal_agent built-in). Written to the target's run_inbox; draining a
-	// signal into a resumed or running run is not implemented yet, so it
-	// sits there until that exists.
+	// signal_agent built-in). Written to the target's run_inbox; drained
+	// into it before its next model call by DrainInbox.
 	SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error)
+	// Claims the calling task's own unconsumed run_inbox entries other than
+	// "child" rows (3.4/3.9, part), so the engine can turn them into
+	// messages before its next model call. Called once per turn when a
+	// TaskStarter is configured; claiming is atomic, so a retried call never
+	// redelivers an entry already claimed.
+	DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -307,6 +315,12 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("SignalChildTask")),
 			connect.WithClientOptions(opts...),
 		),
+		drainInbox: connect.NewClient[v1.DrainInboxRequest, v1.DrainInboxResponse](
+			httpClient,
+			baseURL+ManagerServiceDrainInboxProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("DrainInbox")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -320,6 +334,7 @@ type managerServiceClient struct {
 	reportProgress  *connect.Client[v1.ReportProgressRequest, v1.ReportProgressResponse]
 	queryChildTask  *connect.Client[v1.QueryChildTaskRequest, v1.QueryTaskResponse]
 	signalChildTask *connect.Client[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse]
+	drainInbox      *connect.Client[v1.DrainInboxRequest, v1.DrainInboxResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -362,6 +377,11 @@ func (c *managerServiceClient) SignalChildTask(ctx context.Context, req *connect
 	return c.signalChildTask.CallUnary(ctx, req)
 }
 
+// DrainInbox calls agen.v1.ManagerService.DrainInbox.
+func (c *managerServiceClient) DrainInbox(ctx context.Context, req *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error) {
+	return c.drainInbox.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -385,10 +405,15 @@ type ManagerServiceHandler interface {
 	// descendants (3.4, part: the query_agent built-in).
 	QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
 	// Signals one of the calling task's own descendants (3.4, part: the
-	// signal_agent built-in). Written to the target's run_inbox; draining a
-	// signal into a resumed or running run is not implemented yet, so it
-	// sits there until that exists.
+	// signal_agent built-in). Written to the target's run_inbox; drained
+	// into it before its next model call by DrainInbox.
 	SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error)
+	// Claims the calling task's own unconsumed run_inbox entries other than
+	// "child" rows (3.4/3.9, part), so the engine can turn them into
+	// messages before its next model call. Called once per turn when a
+	// TaskStarter is configured; claiming is atomic, so a retried call never
+	// redelivers an entry already claimed.
+	DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -446,6 +471,12 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("SignalChildTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceDrainInboxHandler := connect.NewUnaryHandler(
+		ManagerServiceDrainInboxProcedure,
+		svc.DrainInbox,
+		connect.WithSchema(managerServiceMethods.ByName("DrainInbox")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -464,6 +495,8 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceQueryChildTaskHandler.ServeHTTP(w, r)
 		case ManagerServiceSignalChildTaskProcedure:
 			managerServiceSignalChildTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceDrainInboxProcedure:
+			managerServiceDrainInboxHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -503,4 +536,8 @@ func (UnimplementedManagerServiceHandler) QueryChildTask(context.Context, *conne
 
 func (UnimplementedManagerServiceHandler) SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.SignalChildTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.DrainInbox is not implemented"))
 }

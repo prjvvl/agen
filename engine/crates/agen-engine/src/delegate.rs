@@ -112,6 +112,14 @@ pub trait TaskStarter: Send + Sync {
     /// Signals one of the current task's own descendants (3.4, part: the
     /// `signal_agent` built-in).
     async fn signal_descendant(&self, caller_task_id: &str, task_id: &str, message: &str) -> Result<(), String>;
+    /// Claims the current task's unconsumed run_inbox entries other than
+    /// "child" rows (3.4/3.9, part: draining a suspended run's inbox into
+    /// one it is resuming is `call_agent`'s own re-check of the child's
+    /// status, not this). Each claimed entry is a JSON object
+    /// `{"kind", "ref", "payload"}`; claiming is atomic on the Hub side, so
+    /// a retried call after a transport error never redelivers one already
+    /// claimed.
+    async fn drain_inbox(&self, task_id: &str) -> Result<Vec<Value>, String>;
 }
 
 /// What waiting for a task found.
@@ -280,6 +288,27 @@ impl TaskStarter for ManagerResolver {
             ));
         }
         Ok(())
+    }
+
+    async fn drain_inbox(&self, task_id: &str) -> Result<Vec<Value>, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/DrainInbox", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "drain inbox for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
     }
 }
 

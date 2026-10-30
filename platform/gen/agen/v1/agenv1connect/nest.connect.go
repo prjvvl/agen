@@ -63,6 +63,8 @@ const (
 	// NestServiceSignalChildTaskProcedure is the fully-qualified name of the NestService's
 	// SignalChildTask RPC.
 	NestServiceSignalChildTaskProcedure = "/agen.v1.NestService/SignalChildTask"
+	// NestServiceDrainInboxProcedure is the fully-qualified name of the NestService's DrainInbox RPC.
+	NestServiceDrainInboxProcedure = "/agen.v1.NestService/DrainInbox"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -126,6 +128,10 @@ type NestServiceClient interface {
 	// Signals one of the calling task's own descendants (3.4, part: the
 	// signal_agent built-in); same descendant check as QueryChildTask.
 	SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error)
+	// Claims a task this Nest currently leases' own unconsumed run_inbox
+	// entries other than "child" rows (3.4/3.9, part). Low-stakes like
+	// ReportProgress: requireNest only, no lease fencing.
+	DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -231,6 +237,12 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("SignalChildTask")),
 			connect.WithClientOptions(opts...),
 		),
+		drainInbox: connect.NewClient[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse](
+			httpClient,
+			baseURL+NestServiceDrainInboxProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("DrainInbox")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -302,6 +314,7 @@ type nestServiceClient struct {
 	reportProgress    *connect.Client[v1.NestReportProgressRequest, v1.NestReportProgressResponse]
 	queryChildTask    *connect.Client[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse]
 	signalChildTask   *connect.Client[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse]
+	drainInbox        *connect.Client[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse]
 	createApproval    *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval       *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity    *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -371,6 +384,11 @@ func (c *nestServiceClient) QueryChildTask(ctx context.Context, req *connect.Req
 // SignalChildTask calls agen.v1.NestService.SignalChildTask.
 func (c *nestServiceClient) SignalChildTask(ctx context.Context, req *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error) {
 	return c.signalChildTask.CallUnary(ctx, req)
+}
+
+// DrainInbox calls agen.v1.NestService.DrainInbox.
+func (c *nestServiceClient) DrainInbox(ctx context.Context, req *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error) {
+	return c.drainInbox.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -454,6 +472,10 @@ type NestServiceHandler interface {
 	// Signals one of the calling task's own descendants (3.4, part: the
 	// signal_agent built-in); same descendant check as QueryChildTask.
 	SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error)
+	// Claims a task this Nest currently leases' own unconsumed run_inbox
+	// entries other than "child" rows (3.4/3.9, part). Low-stakes like
+	// ReportProgress: requireNest only, no lease fencing.
+	DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -555,6 +577,12 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("SignalChildTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceDrainInboxHandler := connect.NewUnaryHandler(
+		NestServiceDrainInboxProcedure,
+		svc.DrainInbox,
+		connect.WithSchema(nestServiceMethods.ByName("DrainInbox")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -635,6 +663,8 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceQueryChildTaskHandler.ServeHTTP(w, r)
 		case NestServiceSignalChildTaskProcedure:
 			nestServiceSignalChildTaskHandler.ServeHTTP(w, r)
+		case NestServiceDrainInboxProcedure:
+			nestServiceDrainInboxHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -708,6 +738,10 @@ func (UnimplementedNestServiceHandler) QueryChildTask(context.Context, *connect.
 
 func (UnimplementedNestServiceHandler) SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.SignalChildTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.DrainInbox is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

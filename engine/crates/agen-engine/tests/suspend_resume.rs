@@ -85,6 +85,10 @@ impl TaskStarter for ScriptedStarter {
     async fn signal_descendant(&self, _caller_task_id: &str, _task_id: &str, _message: &str) -> Result<(), String> {
         Ok(())
     }
+
+    async fn drain_inbox(&self, _task_id: &str) -> Result<Vec<serde_json::Value>, String> {
+        Ok(vec![])
+    }
 }
 
 fn call_agent(message: &str) -> FakeResponse {

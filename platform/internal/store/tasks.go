@@ -691,10 +691,12 @@ type InboxRow struct {
 	Namespace string
 	TaskID    string
 	RunID     string
-	// Kind: "child" (Ref: the child task's id) so far.
-	Kind    string
-	Ref     string
-	Payload string
+	// Kind: "child" (Ref: the child task's id), or "signal" (Ref: the
+	// sending task's id).
+	Kind      string
+	Ref       string
+	Payload   string
+	CreatedMs int64
 }
 
 // writeInboxRow is WriteInbox's core, run in the caller's transaction (so
@@ -729,6 +731,48 @@ func (s *Store) WriteInbox(ctx context.Context, r InboxRow) (woken bool, err err
 		return err
 	})
 	return woken, err
+}
+
+// DrainInbox claims a task's unconsumed run_inbox entries other than
+// "child" rows, oldest first (3.4/3.9, part: the engine turns them into
+// run messages before its next model call; "child" rows are drained by
+// call_agent's own re-check of the child's status on resume instead, never
+// by this). Claiming (setting consumed_ms) happens in the same
+// transaction as the read, so a retried call after a transport error
+// never redelivers one already claimed.
+func (s *Store) DrainInbox(ctx context.Context, taskID string) ([]InboxRow, error) {
+	var out []InboxRow
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id, namespace, task_id, run_id, kind, ref, payload, created_ms FROM run_inbox WHERE task_id = $1 AND kind <> 'child' AND consumed_ms = 0 ORDER BY created_ms",
+			taskID)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var r InboxRow
+			if err := rows.Scan(&r.ID, &r.Namespace, &r.TaskID, &r.RunID, &r.Kind, &r.Ref, &r.Payload, &r.CreatedMs); err != nil {
+				rows.Close()
+				return err
+			}
+			out = append(out, r)
+			ids = append(ids, r.ID)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		if len(ids) == 0 {
+			return nil
+		}
+		var q query
+		now := q.arg(NowMs())
+		q.in("id", ids)
+		_, err = tx.ExecContext(ctx, "UPDATE run_inbox SET consumed_ms = "+now+q.clause(), q.args...)
+		return err
+	})
+	return out, err
 }
 
 // RequeueExpiredLeases returns tasks whose lease expired to the queue. A task

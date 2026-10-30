@@ -443,6 +443,18 @@ message TaskProgress {
   repeated string artifacts = 5;
 }
 
+// One claimed run_inbox row (3.4/3.9, part), drained into a run before its
+// next model call.
+message InboxEntry {
+  // "signal" (signal_agent) today; a future queue-steer or tree-cancel row
+  // would use its own kind.
+  string kind = 1;
+  // What the kind's ref names: for "signal", the task that sent it.
+  string ref = 2;
+  string payload = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
 // Per-task settings that can only narrow what the bundle allows. A child
 // task gets its own overrides combined with its parent's, so restrictions
 // pass down a tree.

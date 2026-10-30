@@ -248,6 +248,9 @@ pub struct Agent {
     log_sink: Option<LogSink>,
     /// The engine's `finish` tool is registered (no host tool took the name).
     finish: bool,
+    /// Backs the run_inbox drain before each model call (3.4/3.9, part),
+    /// same as `report_progress`/`signal_agent`/`query_agent`.
+    task_starter: Option<Arc<dyn crate::delegate::TaskStarter>>,
 }
 
 /// Receives operational log lines (level, redacted message). Default: stderr.
@@ -375,6 +378,7 @@ impl AgentBuilder {
             mcp: self.mcp,
             log_sink: self.log_sink,
             finish,
+            task_starter: self.task_starter,
         })
     }
 }
@@ -1099,6 +1103,7 @@ impl Agent {
             if let Some(e) = self.budget_exceeded(opts, &live.rec.usage) {
                 return self.report(live, tracer, ctx, opts, "budget", e).await;
             }
+            self.drain_inbox(live).await;
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
                 system: self.redactor.redact(&self.system_prompt(opts).await?),
@@ -1324,6 +1329,52 @@ impl Agent {
     }
 
     /// Record an engine note to the model as a user message of the run.
+    /// Drains the task's run_inbox (3.4/3.9, part) into new user messages
+    /// before the next model call, so a signal sent while this run is
+    /// between turns is not lost — "picked up before its next model call,"
+    /// same as a steered task's would be once that queue mode exists.
+    /// Best-effort: managed mode only, and a failed drain (the Hub is
+    /// unreachable, say) is logged and the turn goes on without it, the
+    /// same way every other platform-only feature degrades standalone.
+    async fn drain_inbox(&self, live: &Live) {
+        if live.rec.task_id.is_empty() {
+            return;
+        }
+        let Some(starter) = &self.task_starter else {
+            return;
+        };
+        let entries = match starter.drain_inbox(&live.rec.task_id).await {
+            Ok(e) => e,
+            Err(e) => {
+                self.log(
+                    "warn",
+                    &format!("run {}: could not drain its task inbox: {e}", live.rec.id),
+                )
+                .await;
+                return;
+            }
+        };
+        for entry in entries {
+            let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("");
+            let payload = entry.get("payload").and_then(Value::as_str).unwrap_or("");
+            // Other kinds (today only "child", handled by call_agent's own
+            // re-check of the child's status on resume, never reaches
+            // here) are claimed by the drain but turn into nothing yet.
+            if kind != "signal" {
+                continue;
+            }
+            let from = entry.get("ref").and_then(Value::as_str).unwrap_or("");
+            let text = format!("[Signal from task {from}] {payload}");
+            if let Err(e) = self.add_user_note(live, &text).await {
+                self.log(
+                    "warn",
+                    &format!("run {}: could not record a drained signal: {e}", live.rec.id),
+                )
+                .await;
+            }
+        }
+    }
+
     async fn add_user_note(&self, live: &Live, text: &str) -> Result<(), AgentError> {
         self.store
             .checkpoint(
