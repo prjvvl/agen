@@ -516,6 +516,50 @@ func (h *Hub) GetTaskTree(ctx context.Context, req *connect.Request[agenv1.GetTa
 	return connect.NewResponse(&agenv1.GetTaskTreeResponse{Tasks: out}), nil
 }
 
+// QueryTask returns a task's progress, current activity and outcome
+// without waiting on it (3.4, part): a lighter read than GetTask's
+// wait_seconds for a caller or a person checking in on long work.
+// Activity is a simplified cut of GetActivity's own (model/tool/idle/
+// approval only; it does not cover a task waiting on a delegate, nor the
+// fleet-wide warnings GetActivity computes alongside it).
+func (h *Hub) QueryTask(ctx context.Context, req *connect.Request[agenv1.QueryTaskRequest]) (*connect.Response[agenv1.QueryTaskResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	out := &agenv1.QueryTaskResponse{Id: t.ID, State: taskStates[t.State], Outcome: outcomeProto(t.Outcome, t.State, t.Output, t.Error),
+		Progress: taskProgressProto(t.Progress)}
+	if !t.Terminal() && t.RunID != "" {
+		steps, err := h.Store.OpenSteps(ctx, []string{t.RunID})
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		approvals, err := h.Store.PendingApprovalsByRun(ctx, []string{t.RunID})
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		st := steps[t.RunID]
+		switch {
+		case approvals[t.RunID].ID != "":
+			ap := approvals[t.RunID]
+			out.Activity, out.PendingApprovalId = "approval", ap.ID
+			out.ActivitySince = ms(ap.CreatedMs)
+		case st.Name == "gen_ai.chat":
+			out.Activity = "model"
+			out.ActivitySince = ms(st.StartMs)
+		case st.Name == "agen.tool":
+			out.Activity, out.Detail = "tool", str(st.Attributes, "gen_ai.tool.name")
+			out.ActivitySince = ms(st.StartMs)
+		default:
+			out.Activity = "idle"
+		}
+	}
+	return connect.NewResponse(out), nil
+}
+
 // RunHeader names the run of the agent making a call (with TaskHeader and
 // a W3C traceparent; the MCP endpoint sets them from the call's _meta).
 const RunHeader = "X-Agen-Run"

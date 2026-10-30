@@ -429,6 +429,16 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/PauseDeployment` · MCP too
 | `ref` | DeploymentRef |  |
 | `paused` | bool | false resumes. |
 
+## QueryTask
+
+A task's progress, current activity and outcome, without waiting on it like GetTask's wait_seconds does (3.4, part).
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/QueryTask` · MCP tool: `query_task`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string |  |
+
 ## RecordFeedback
 
 Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.

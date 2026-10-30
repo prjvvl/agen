@@ -8,6 +8,7 @@ pub mod memory;
 pub mod outcome;
 pub mod overrides;
 pub mod permissions;
+pub mod progress;
 pub mod provider;
 pub mod secrets;
 pub mod store;

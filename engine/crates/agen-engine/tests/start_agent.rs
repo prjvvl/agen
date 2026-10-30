@@ -36,6 +36,10 @@ impl TaskStarter for Recorder {
         // These tests exercise start_agent (fire-and-forget); nothing waits.
         Ok(WaitOutcome::Pending)
     }
+
+    async fn report_progress(&self, _task_id: &str, _progress: serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn start(agent: &str) -> FakeResponse {

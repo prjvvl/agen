@@ -156,7 +156,7 @@ func RequiredScope(method string) string { return procedureScope("/" + method) }
 func procedureScope(procedure string) string {
 	name := procedure[strings.LastIndex(procedure, "/")+1:]
 	switch name {
-	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "GetTaskTree", "Resolve",
+	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "GetTaskTree", "QueryTask", "Resolve",
 		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide",
 		"GetTranscript", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds", "ListEvents", "ListFeedback", "ListMemoryBlocks", "GetArtifact", "ListArtifacts":
 		return ScopeViewer

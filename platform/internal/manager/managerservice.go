@@ -226,6 +226,29 @@ func (s *managerService) WaitTask(ctx context.Context, req *connect.Request[agen
 	}
 }
 
+func (s *managerService) ReportProgress(ctx context.Context, req *connect.Request[agenv1.ReportProgressRequest]) (*connect.Response[agenv1.ReportProgressResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		_, err := s.m.hub().ReportProgress(ctx, connect.NewRequest(&agenv1.NestReportProgressRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId, Progress: req.Msg.Progress}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.ReportProgressResponse{}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	select {
 	case <-ctx.Done():

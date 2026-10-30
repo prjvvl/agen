@@ -458,6 +458,51 @@ func (n *NestAPI) SuspendTask(ctx context.Context, req *connect.Request[agenv1.S
 	return connect.NewResponse(&agenv1.SuspendTaskResponse{}), nil
 }
 
+// ReportProgress records a task's latest report_progress call and emits a
+// task.progress event, rate-limited to one per 10s per task (3.4, part).
+// Low-stakes by design (see nest.proto): requireNest only, no lease
+// fencing, and a terminal or already-gone task is left alone rather than
+// erroring, since the engine has no way to know that before calling.
+func (n *NestAPI) ReportProgress(ctx context.Context, req *connect.Request[agenv1.NestReportProgressRequest]) (*connect.Response[agenv1.NestReportProgressResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if t.Terminal() {
+		return connect.NewResponse(&agenv1.NestReportProgressResponse{}), nil
+	}
+	p := m.Progress
+	data := map[string]any{"step": p.GetStep(), "done": p.GetDone()}
+	if p.GetTotal() > 0 {
+		data["total"] = p.GetTotal()
+	}
+	if p.GetNote() != "" {
+		data["note"] = p.GetNote()
+	}
+	if len(p.GetArtifacts()) > 0 {
+		data["artifacts"] = p.GetArtifacts()
+	}
+	progressJSON, err := json.Marshal(data)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := n.hub.Store.SetTaskProgress(ctx, t.ID, string(progressJSON)); err != nil {
+		return nil, connectErr(err)
+	}
+	now := store.NowMs()
+	_, _ = n.hub.Store.AppendEventOnce(ctx, store.Event{Namespace: t.Namespace, Type: "task.progress", Deployment: t.Deployment, TaskID: t.ID,
+		ParentTaskID: t.ParentTaskID, Labels: t.Labels, Severity: "info", Data: data,
+		DedupeKey: fmt.Sprintf("progress:%s:%d", t.ID, now/10_000)})
+	return connect.NewResponse(&agenv1.NestReportProgressResponse{}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

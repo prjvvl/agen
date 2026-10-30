@@ -73,6 +73,10 @@ impl TaskStarter for ScriptedStarter {
             .take()
             .expect("wait() called again after the child was already reported done"))
     }
+
+    async fn report_progress(&self, _task_id: &str, _progress: serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn call_agent(message: &str) -> FakeResponse {

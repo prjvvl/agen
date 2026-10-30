@@ -548,6 +548,46 @@ func (e *env) cmdTree(ctx context.Context, args []string) error {
 	return nil
 }
 
+func (e *env) cmdQuery(ctx context.Context, args []string) error {
+	var cf clientFlags
+	pos, err := parse(e.flags("query", &cf), args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen query <task-id>")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.QueryTask(ctx, connect.NewRequest(&agenv1.QueryTaskRequest{Id: pos[0]}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Id, stateName(r.Msg.State, "TASK_STATE_"))
+	if r.Msg.Activity != "" {
+		detail := r.Msg.Detail
+		if detail != "" {
+			detail = ": " + detail
+		}
+		fmt.Fprintf(e.stdout, "activity: %s%s\n", r.Msg.Activity, detail)
+	}
+	if p := r.Msg.Progress; p != nil {
+		fmt.Fprintf(e.stdout, "progress: %s (done=%v)\n", p.Step, p.Done)
+		if p.Note != "" {
+			fmt.Fprintf(e.stdout, "note: %s\n", p.Note)
+		}
+	}
+	if o := r.Msg.Outcome; o != nil && o.Summary != "" {
+		fmt.Fprintf(e.stdout, "outcome: %s\n", o.Summary)
+	}
+	return nil
+}
+
 func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t *agenv1.Task, timeout time.Duration, asJSON bool) error {
 	deadline := time.Now().Add(timeout)
 	for !terminal(t.State) {

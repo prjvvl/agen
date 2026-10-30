@@ -233,6 +233,21 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0037_run_inbox.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0037_run_inbox.sql"),
     },
+    Migration {
+        version: 38,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0038_on_parent_end.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0038_on_parent_end.sql"),
+    },
+    Migration {
+        version: 39,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0039_root_task_id.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0039_root_task_id.sql"),
+    },
+    Migration {
+        version: 40,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0040_task_progress.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0040_task_progress.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").

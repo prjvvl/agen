@@ -42,6 +42,9 @@ service HubService {
   // Every task in the tree a given task belongs to (its root's descendants,
   // including the root itself), oldest first (3.4, part).
   rpc GetTaskTree(GetTaskTreeRequest) returns (GetTaskTreeResponse);
+  // A task's progress, current activity and outcome, without waiting on it
+  // like GetTask's wait_seconds does (3.4, part).
+  rpc QueryTask(QueryTaskRequest) returns (QueryTaskResponse);
 
   // A2A endpoints of a deployment and a short-lived call token for them.
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
@@ -444,6 +447,23 @@ message GetTaskTreeRequest {
 }
 message GetTaskTreeResponse {
   repeated Task tasks = 1;
+}
+
+message QueryTaskRequest {
+  string id = 1;
+}
+message QueryTaskResponse {
+  string id = 1;
+  TaskState state = 2;
+  Outcome outcome = 3;
+  TaskProgress progress = 4;
+  // "model", "tool", "idle" or "approval"; unset if the task has no run
+  // currently going (queued, or already terminal).
+  string activity = 5;
+  // The tool name, for "tool".
+  string detail = 6;
+  google.protobuf.Timestamp activity_since = 7;
+  string pending_approval_id = 8;
 }
 
 message ListTasksRequest {

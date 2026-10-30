@@ -3041,6 +3041,153 @@ func (x *GetTaskTreeResponse) GetTasks() []*Task {
 	return nil
 }
 
+type QueryTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryTaskRequest) Reset() {
+	*x = QueryTaskRequest{}
+	mi := &file_agen_v1_hub_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryTaskRequest) ProtoMessage() {}
+
+func (x *QueryTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_hub_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryTaskRequest.ProtoReflect.Descriptor instead.
+func (*QueryTaskRequest) Descriptor() ([]byte, []int) {
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *QueryTaskRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type QueryTaskResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	State    TaskState              `protobuf:"varint,2,opt,name=state,proto3,enum=agen.v1.TaskState" json:"state,omitempty"`
+	Outcome  *Outcome               `protobuf:"bytes,3,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	Progress *TaskProgress          `protobuf:"bytes,4,opt,name=progress,proto3" json:"progress,omitempty"`
+	// "model", "tool", "idle" or "approval"; unset if the task has no run
+	// currently going (queued, or already terminal).
+	Activity string `protobuf:"bytes,5,opt,name=activity,proto3" json:"activity,omitempty"`
+	// The tool name, for "tool".
+	Detail            string                 `protobuf:"bytes,6,opt,name=detail,proto3" json:"detail,omitempty"`
+	ActivitySince     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=activity_since,json=activitySince,proto3" json:"activity_since,omitempty"`
+	PendingApprovalId string                 `protobuf:"bytes,8,opt,name=pending_approval_id,json=pendingApprovalId,proto3" json:"pending_approval_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *QueryTaskResponse) Reset() {
+	*x = QueryTaskResponse{}
+	mi := &file_agen_v1_hub_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryTaskResponse) ProtoMessage() {}
+
+func (x *QueryTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_hub_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryTaskResponse.ProtoReflect.Descriptor instead.
+func (*QueryTaskResponse) Descriptor() ([]byte, []int) {
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *QueryTaskResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *QueryTaskResponse) GetState() TaskState {
+	if x != nil {
+		return x.State
+	}
+	return TaskState_TASK_STATE_UNSPECIFIED
+}
+
+func (x *QueryTaskResponse) GetOutcome() *Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return nil
+}
+
+func (x *QueryTaskResponse) GetProgress() *TaskProgress {
+	if x != nil {
+		return x.Progress
+	}
+	return nil
+}
+
+func (x *QueryTaskResponse) GetActivity() string {
+	if x != nil {
+		return x.Activity
+	}
+	return ""
+}
+
+func (x *QueryTaskResponse) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *QueryTaskResponse) GetActivitySince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ActivitySince
+	}
+	return nil
+}
+
+func (x *QueryTaskResponse) GetPendingApprovalId() string {
+	if x != nil {
+		return x.PendingApprovalId
+	}
+	return ""
+}
+
 type ListTasksRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Namespace  string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -3055,7 +3202,7 @@ type ListTasksRequest struct {
 
 func (x *ListTasksRequest) Reset() {
 	*x = ListTasksRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[54]
+	mi := &file_agen_v1_hub_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3067,7 +3214,7 @@ func (x *ListTasksRequest) String() string {
 func (*ListTasksRequest) ProtoMessage() {}
 
 func (x *ListTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[54]
+	mi := &file_agen_v1_hub_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3080,7 +3227,7 @@ func (x *ListTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTasksRequest.ProtoReflect.Descriptor instead.
 func (*ListTasksRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{54}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ListTasksRequest) GetNamespace() string {
@@ -3127,7 +3274,7 @@ type ListTasksResponse struct {
 
 func (x *ListTasksResponse) Reset() {
 	*x = ListTasksResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[55]
+	mi := &file_agen_v1_hub_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3139,7 +3286,7 @@ func (x *ListTasksResponse) String() string {
 func (*ListTasksResponse) ProtoMessage() {}
 
 func (x *ListTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[55]
+	mi := &file_agen_v1_hub_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3152,7 +3299,7 @@ func (x *ListTasksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTasksResponse.ProtoReflect.Descriptor instead.
 func (*ListTasksResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{55}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ListTasksResponse) GetTasks() []*Task {
@@ -3176,7 +3323,7 @@ type CancelTaskRequest struct {
 
 func (x *CancelTaskRequest) Reset() {
 	*x = CancelTaskRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[56]
+	mi := &file_agen_v1_hub_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3188,7 +3335,7 @@ func (x *CancelTaskRequest) String() string {
 func (*CancelTaskRequest) ProtoMessage() {}
 
 func (x *CancelTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[56]
+	mi := &file_agen_v1_hub_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3201,7 +3348,7 @@ func (x *CancelTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTaskRequest.ProtoReflect.Descriptor instead.
 func (*CancelTaskRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{56}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *CancelTaskRequest) GetId() string {
@@ -3230,7 +3377,7 @@ type CancelTaskResponse struct {
 
 func (x *CancelTaskResponse) Reset() {
 	*x = CancelTaskResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[57]
+	mi := &file_agen_v1_hub_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3242,7 +3389,7 @@ func (x *CancelTaskResponse) String() string {
 func (*CancelTaskResponse) ProtoMessage() {}
 
 func (x *CancelTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[57]
+	mi := &file_agen_v1_hub_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3255,7 +3402,7 @@ func (x *CancelTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTaskResponse.ProtoReflect.Descriptor instead.
 func (*CancelTaskResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{57}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *CancelTaskResponse) GetTask() *Task {
@@ -3284,7 +3431,7 @@ type ResolveRequest struct {
 
 func (x *ResolveRequest) Reset() {
 	*x = ResolveRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[58]
+	mi := &file_agen_v1_hub_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3296,7 +3443,7 @@ func (x *ResolveRequest) String() string {
 func (*ResolveRequest) ProtoMessage() {}
 
 func (x *ResolveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[58]
+	mi := &file_agen_v1_hub_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3309,7 +3456,7 @@ func (x *ResolveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveRequest.ProtoReflect.Descriptor instead.
 func (*ResolveRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{58}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ResolveRequest) GetRef() *DeploymentRef {
@@ -3342,7 +3489,7 @@ type ResolveResponse struct {
 
 func (x *ResolveResponse) Reset() {
 	*x = ResolveResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[59]
+	mi := &file_agen_v1_hub_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3354,7 +3501,7 @@ func (x *ResolveResponse) String() string {
 func (*ResolveResponse) ProtoMessage() {}
 
 func (x *ResolveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[59]
+	mi := &file_agen_v1_hub_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3367,7 +3514,7 @@ func (x *ResolveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveResponse.ProtoReflect.Descriptor instead.
 func (*ResolveResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{59}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ResolveResponse) GetEndpoints() []string {
@@ -3407,7 +3554,7 @@ type RequestWakeRequest struct {
 
 func (x *RequestWakeRequest) Reset() {
 	*x = RequestWakeRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[60]
+	mi := &file_agen_v1_hub_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3419,7 +3566,7 @@ func (x *RequestWakeRequest) String() string {
 func (*RequestWakeRequest) ProtoMessage() {}
 
 func (x *RequestWakeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[60]
+	mi := &file_agen_v1_hub_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3432,7 +3579,7 @@ func (x *RequestWakeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestWakeRequest.ProtoReflect.Descriptor instead.
 func (*RequestWakeRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{60}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *RequestWakeRequest) GetRef() *DeploymentRef {
@@ -3451,7 +3598,7 @@ type RequestWakeResponse struct {
 
 func (x *RequestWakeResponse) Reset() {
 	*x = RequestWakeResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[61]
+	mi := &file_agen_v1_hub_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3463,7 +3610,7 @@ func (x *RequestWakeResponse) String() string {
 func (*RequestWakeResponse) ProtoMessage() {}
 
 func (x *RequestWakeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[61]
+	mi := &file_agen_v1_hub_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3476,7 +3623,7 @@ func (x *RequestWakeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestWakeResponse.ProtoReflect.Descriptor instead.
 func (*RequestWakeResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{61}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *RequestWakeResponse) GetDeployment() *Deployment {
@@ -3496,7 +3643,7 @@ type ListApprovalsRequest struct {
 
 func (x *ListApprovalsRequest) Reset() {
 	*x = ListApprovalsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[62]
+	mi := &file_agen_v1_hub_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3508,7 +3655,7 @@ func (x *ListApprovalsRequest) String() string {
 func (*ListApprovalsRequest) ProtoMessage() {}
 
 func (x *ListApprovalsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[62]
+	mi := &file_agen_v1_hub_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3521,7 +3668,7 @@ func (x *ListApprovalsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListApprovalsRequest.ProtoReflect.Descriptor instead.
 func (*ListApprovalsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{62}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *ListApprovalsRequest) GetNamespace() string {
@@ -3547,7 +3694,7 @@ type ListApprovalsResponse struct {
 
 func (x *ListApprovalsResponse) Reset() {
 	*x = ListApprovalsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[63]
+	mi := &file_agen_v1_hub_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3559,7 +3706,7 @@ func (x *ListApprovalsResponse) String() string {
 func (*ListApprovalsResponse) ProtoMessage() {}
 
 func (x *ListApprovalsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[63]
+	mi := &file_agen_v1_hub_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3572,7 +3719,7 @@ func (x *ListApprovalsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListApprovalsResponse.ProtoReflect.Descriptor instead.
 func (*ListApprovalsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{63}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ListApprovalsResponse) GetApprovals() []*Approval {
@@ -3592,7 +3739,7 @@ type DecideApprovalRequest struct {
 
 func (x *DecideApprovalRequest) Reset() {
 	*x = DecideApprovalRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[64]
+	mi := &file_agen_v1_hub_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3604,7 +3751,7 @@ func (x *DecideApprovalRequest) String() string {
 func (*DecideApprovalRequest) ProtoMessage() {}
 
 func (x *DecideApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[64]
+	mi := &file_agen_v1_hub_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3617,7 +3764,7 @@ func (x *DecideApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecideApprovalRequest.ProtoReflect.Descriptor instead.
 func (*DecideApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{64}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *DecideApprovalRequest) GetId() string {
@@ -3643,7 +3790,7 @@ type DecideApprovalResponse struct {
 
 func (x *DecideApprovalResponse) Reset() {
 	*x = DecideApprovalResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[65]
+	mi := &file_agen_v1_hub_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3655,7 +3802,7 @@ func (x *DecideApprovalResponse) String() string {
 func (*DecideApprovalResponse) ProtoMessage() {}
 
 func (x *DecideApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[65]
+	mi := &file_agen_v1_hub_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3668,7 +3815,7 @@ func (x *DecideApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecideApprovalResponse.ProtoReflect.Descriptor instead.
 func (*DecideApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{65}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *DecideApprovalResponse) GetApproval() *Approval {
@@ -3704,7 +3851,7 @@ type ListRunsRequest struct {
 
 func (x *ListRunsRequest) Reset() {
 	*x = ListRunsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[66]
+	mi := &file_agen_v1_hub_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3716,7 +3863,7 @@ func (x *ListRunsRequest) String() string {
 func (*ListRunsRequest) ProtoMessage() {}
 
 func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[66]
+	mi := &file_agen_v1_hub_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3729,7 +3876,7 @@ func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListRunsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{66}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ListRunsRequest) GetNamespace() string {
@@ -3806,7 +3953,7 @@ type ListRunsResponse struct {
 
 func (x *ListRunsResponse) Reset() {
 	*x = ListRunsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[67]
+	mi := &file_agen_v1_hub_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3818,7 +3965,7 @@ func (x *ListRunsResponse) String() string {
 func (*ListRunsResponse) ProtoMessage() {}
 
 func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[67]
+	mi := &file_agen_v1_hub_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3831,7 +3978,7 @@ func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListRunsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{67}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *ListRunsResponse) GetRuns() []*Run {
@@ -3860,7 +4007,7 @@ type GetTranscriptRequest struct {
 
 func (x *GetTranscriptRequest) Reset() {
 	*x = GetTranscriptRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[68]
+	mi := &file_agen_v1_hub_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3872,7 +4019,7 @@ func (x *GetTranscriptRequest) String() string {
 func (*GetTranscriptRequest) ProtoMessage() {}
 
 func (x *GetTranscriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[68]
+	mi := &file_agen_v1_hub_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3885,7 +4032,7 @@ func (x *GetTranscriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTranscriptRequest.ProtoReflect.Descriptor instead.
 func (*GetTranscriptRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{68}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *GetTranscriptRequest) GetRunId() string {
@@ -3913,7 +4060,7 @@ type ToolCallMessage struct {
 
 func (x *ToolCallMessage) Reset() {
 	*x = ToolCallMessage{}
-	mi := &file_agen_v1_hub_proto_msgTypes[69]
+	mi := &file_agen_v1_hub_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3925,7 +4072,7 @@ func (x *ToolCallMessage) String() string {
 func (*ToolCallMessage) ProtoMessage() {}
 
 func (x *ToolCallMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[69]
+	mi := &file_agen_v1_hub_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3938,7 +4085,7 @@ func (x *ToolCallMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallMessage.ProtoReflect.Descriptor instead.
 func (*ToolCallMessage) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{69}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ToolCallMessage) GetId() string {
@@ -3980,7 +4127,7 @@ type TranscriptMessage struct {
 
 func (x *TranscriptMessage) Reset() {
 	*x = TranscriptMessage{}
-	mi := &file_agen_v1_hub_proto_msgTypes[70]
+	mi := &file_agen_v1_hub_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3992,7 +4139,7 @@ func (x *TranscriptMessage) String() string {
 func (*TranscriptMessage) ProtoMessage() {}
 
 func (x *TranscriptMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[70]
+	mi := &file_agen_v1_hub_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4005,7 +4152,7 @@ func (x *TranscriptMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptMessage.ProtoReflect.Descriptor instead.
 func (*TranscriptMessage) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{70}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *TranscriptMessage) GetSeq() int64 {
@@ -4069,7 +4216,7 @@ type GetTranscriptResponse struct {
 
 func (x *GetTranscriptResponse) Reset() {
 	*x = GetTranscriptResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[71]
+	mi := &file_agen_v1_hub_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4081,7 +4228,7 @@ func (x *GetTranscriptResponse) String() string {
 func (*GetTranscriptResponse) ProtoMessage() {}
 
 func (x *GetTranscriptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[71]
+	mi := &file_agen_v1_hub_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4094,7 +4241,7 @@ func (x *GetTranscriptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTranscriptResponse.ProtoReflect.Descriptor instead.
 func (*GetTranscriptResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{71}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *GetTranscriptResponse) GetRun() *Run {
@@ -4132,7 +4279,7 @@ type GetMetricsRequest struct {
 
 func (x *GetMetricsRequest) Reset() {
 	*x = GetMetricsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[72]
+	mi := &file_agen_v1_hub_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4144,7 +4291,7 @@ func (x *GetMetricsRequest) String() string {
 func (*GetMetricsRequest) ProtoMessage() {}
 
 func (x *GetMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[72]
+	mi := &file_agen_v1_hub_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4157,7 +4304,7 @@ func (x *GetMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{72}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *GetMetricsRequest) GetNamespace() string {
@@ -4192,7 +4339,7 @@ type MetricsBucket struct {
 
 func (x *MetricsBucket) Reset() {
 	*x = MetricsBucket{}
-	mi := &file_agen_v1_hub_proto_msgTypes[73]
+	mi := &file_agen_v1_hub_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4204,7 +4351,7 @@ func (x *MetricsBucket) String() string {
 func (*MetricsBucket) ProtoMessage() {}
 
 func (x *MetricsBucket) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[73]
+	mi := &file_agen_v1_hub_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4217,7 +4364,7 @@ func (x *MetricsBucket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsBucket.ProtoReflect.Descriptor instead.
 func (*MetricsBucket) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{73}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *MetricsBucket) GetRuns() int32 {
@@ -4260,7 +4407,7 @@ type DeploymentMetrics struct {
 
 func (x *DeploymentMetrics) Reset() {
 	*x = DeploymentMetrics{}
-	mi := &file_agen_v1_hub_proto_msgTypes[74]
+	mi := &file_agen_v1_hub_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4272,7 +4419,7 @@ func (x *DeploymentMetrics) String() string {
 func (*DeploymentMetrics) ProtoMessage() {}
 
 func (x *DeploymentMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[74]
+	mi := &file_agen_v1_hub_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4285,7 +4432,7 @@ func (x *DeploymentMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeploymentMetrics.ProtoReflect.Descriptor instead.
 func (*DeploymentMetrics) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{74}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *DeploymentMetrics) GetRef() *DeploymentRef {
@@ -4368,7 +4515,7 @@ type CallEdge struct {
 
 func (x *CallEdge) Reset() {
 	*x = CallEdge{}
-	mi := &file_agen_v1_hub_proto_msgTypes[75]
+	mi := &file_agen_v1_hub_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4380,7 +4527,7 @@ func (x *CallEdge) String() string {
 func (*CallEdge) ProtoMessage() {}
 
 func (x *CallEdge) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[75]
+	mi := &file_agen_v1_hub_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4393,7 +4540,7 @@ func (x *CallEdge) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CallEdge.ProtoReflect.Descriptor instead.
 func (*CallEdge) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{75}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *CallEdge) GetFrom() *DeploymentRef {
@@ -4464,7 +4611,7 @@ type ModelMetrics struct {
 
 func (x *ModelMetrics) Reset() {
 	*x = ModelMetrics{}
-	mi := &file_agen_v1_hub_proto_msgTypes[76]
+	mi := &file_agen_v1_hub_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4476,7 +4623,7 @@ func (x *ModelMetrics) String() string {
 func (*ModelMetrics) ProtoMessage() {}
 
 func (x *ModelMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[76]
+	mi := &file_agen_v1_hub_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4489,7 +4636,7 @@ func (x *ModelMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelMetrics.ProtoReflect.Descriptor instead.
 func (*ModelMetrics) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{76}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *ModelMetrics) GetModel() string {
@@ -4566,7 +4713,7 @@ type GetMetricsResponse struct {
 
 func (x *GetMetricsResponse) Reset() {
 	*x = GetMetricsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[77]
+	mi := &file_agen_v1_hub_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4578,7 +4725,7 @@ func (x *GetMetricsResponse) String() string {
 func (*GetMetricsResponse) ProtoMessage() {}
 
 func (x *GetMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[77]
+	mi := &file_agen_v1_hub_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4591,7 +4738,7 @@ func (x *GetMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{77}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *GetMetricsResponse) GetDeployments() []*DeploymentMetrics {
@@ -4651,7 +4798,7 @@ type EntryEdge struct {
 
 func (x *EntryEdge) Reset() {
 	*x = EntryEdge{}
-	mi := &file_agen_v1_hub_proto_msgTypes[78]
+	mi := &file_agen_v1_hub_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4663,7 +4810,7 @@ func (x *EntryEdge) String() string {
 func (*EntryEdge) ProtoMessage() {}
 
 func (x *EntryEdge) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[78]
+	mi := &file_agen_v1_hub_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4676,7 +4823,7 @@ func (x *EntryEdge) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntryEdge.ProtoReflect.Descriptor instead.
 func (*EntryEdge) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{78}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *EntryEdge) GetSource() string {
@@ -4737,7 +4884,7 @@ type ListEventsRequest struct {
 
 func (x *ListEventsRequest) Reset() {
 	*x = ListEventsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[79]
+	mi := &file_agen_v1_hub_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4749,7 +4896,7 @@ func (x *ListEventsRequest) String() string {
 func (*ListEventsRequest) ProtoMessage() {}
 
 func (x *ListEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[79]
+	mi := &file_agen_v1_hub_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4762,7 +4909,7 @@ func (x *ListEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListEventsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{79}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ListEventsRequest) GetNamespace() string {
@@ -4832,7 +4979,7 @@ type ListEventsResponse struct {
 
 func (x *ListEventsResponse) Reset() {
 	*x = ListEventsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[80]
+	mi := &file_agen_v1_hub_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4844,7 +4991,7 @@ func (x *ListEventsResponse) String() string {
 func (*ListEventsResponse) ProtoMessage() {}
 
 func (x *ListEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[80]
+	mi := &file_agen_v1_hub_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4857,7 +5004,7 @@ func (x *ListEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListEventsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{80}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ListEventsResponse) GetEvents() []*Event {
@@ -4884,7 +5031,7 @@ type GetActivityRequest struct {
 
 func (x *GetActivityRequest) Reset() {
 	*x = GetActivityRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[81]
+	mi := &file_agen_v1_hub_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4896,7 +5043,7 @@ func (x *GetActivityRequest) String() string {
 func (*GetActivityRequest) ProtoMessage() {}
 
 func (x *GetActivityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[81]
+	mi := &file_agen_v1_hub_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4909,7 +5056,7 @@ func (x *GetActivityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetActivityRequest.ProtoReflect.Descriptor instead.
 func (*GetActivityRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{81}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *GetActivityRequest) GetNamespace() string {
@@ -4955,7 +5102,7 @@ type ActiveRun struct {
 
 func (x *ActiveRun) Reset() {
 	*x = ActiveRun{}
-	mi := &file_agen_v1_hub_proto_msgTypes[82]
+	mi := &file_agen_v1_hub_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4967,7 +5114,7 @@ func (x *ActiveRun) String() string {
 func (*ActiveRun) ProtoMessage() {}
 
 func (x *ActiveRun) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[82]
+	mi := &file_agen_v1_hub_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4980,7 +5127,7 @@ func (x *ActiveRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActiveRun.ProtoReflect.Descriptor instead.
 func (*ActiveRun) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{82}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *ActiveRun) GetRunId() string {
@@ -5130,7 +5277,7 @@ type QueueStatus struct {
 
 func (x *QueueStatus) Reset() {
 	*x = QueueStatus{}
-	mi := &file_agen_v1_hub_proto_msgTypes[83]
+	mi := &file_agen_v1_hub_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5142,7 +5289,7 @@ func (x *QueueStatus) String() string {
 func (*QueueStatus) ProtoMessage() {}
 
 func (x *QueueStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[83]
+	mi := &file_agen_v1_hub_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5155,7 +5302,7 @@ func (x *QueueStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueueStatus.ProtoReflect.Descriptor instead.
 func (*QueueStatus) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{83}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *QueueStatus) GetRef() *DeploymentRef {
@@ -5202,7 +5349,7 @@ type ActivityWarning struct {
 
 func (x *ActivityWarning) Reset() {
 	*x = ActivityWarning{}
-	mi := &file_agen_v1_hub_proto_msgTypes[84]
+	mi := &file_agen_v1_hub_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5214,7 +5361,7 @@ func (x *ActivityWarning) String() string {
 func (*ActivityWarning) ProtoMessage() {}
 
 func (x *ActivityWarning) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[84]
+	mi := &file_agen_v1_hub_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5227,7 +5374,7 @@ func (x *ActivityWarning) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivityWarning.ProtoReflect.Descriptor instead.
 func (*ActivityWarning) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{84}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *ActivityWarning) GetKind() string {
@@ -5277,7 +5424,7 @@ type GetActivityResponse struct {
 
 func (x *GetActivityResponse) Reset() {
 	*x = GetActivityResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[85]
+	mi := &file_agen_v1_hub_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5289,7 +5436,7 @@ func (x *GetActivityResponse) String() string {
 func (*GetActivityResponse) ProtoMessage() {}
 
 func (x *GetActivityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[85]
+	mi := &file_agen_v1_hub_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5302,7 +5449,7 @@ func (x *GetActivityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetActivityResponse.ProtoReflect.Descriptor instead.
 func (*GetActivityResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{85}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *GetActivityResponse) GetRuns() []*ActiveRun {
@@ -5342,7 +5489,7 @@ type GetTraceRequest struct {
 
 func (x *GetTraceRequest) Reset() {
 	*x = GetTraceRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[86]
+	mi := &file_agen_v1_hub_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5354,7 +5501,7 @@ func (x *GetTraceRequest) String() string {
 func (*GetTraceRequest) ProtoMessage() {}
 
 func (x *GetTraceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[86]
+	mi := &file_agen_v1_hub_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5367,7 +5514,7 @@ func (x *GetTraceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTraceRequest.ProtoReflect.Descriptor instead.
 func (*GetTraceRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{86}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *GetTraceRequest) GetTraceId() string {
@@ -5387,7 +5534,7 @@ type GetTraceResponse struct {
 
 func (x *GetTraceResponse) Reset() {
 	*x = GetTraceResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[87]
+	mi := &file_agen_v1_hub_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5399,7 +5546,7 @@ func (x *GetTraceResponse) String() string {
 func (*GetTraceResponse) ProtoMessage() {}
 
 func (x *GetTraceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[87]
+	mi := &file_agen_v1_hub_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5412,7 +5559,7 @@ func (x *GetTraceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTraceResponse.ProtoReflect.Descriptor instead.
 func (*GetTraceResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{87}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *GetTraceResponse) GetSpans() []*Span {
@@ -5441,7 +5588,7 @@ type ListDefinitionsRequest struct {
 
 func (x *ListDefinitionsRequest) Reset() {
 	*x = ListDefinitionsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[88]
+	mi := &file_agen_v1_hub_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5453,7 +5600,7 @@ func (x *ListDefinitionsRequest) String() string {
 func (*ListDefinitionsRequest) ProtoMessage() {}
 
 func (x *ListDefinitionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[88]
+	mi := &file_agen_v1_hub_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5466,7 +5613,7 @@ func (x *ListDefinitionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDefinitionsRequest.ProtoReflect.Descriptor instead.
 func (*ListDefinitionsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{88}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *ListDefinitionsRequest) GetName() string {
@@ -5493,7 +5640,7 @@ type ListDefinitionsResponse struct {
 
 func (x *ListDefinitionsResponse) Reset() {
 	*x = ListDefinitionsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[89]
+	mi := &file_agen_v1_hub_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5505,7 +5652,7 @@ func (x *ListDefinitionsResponse) String() string {
 func (*ListDefinitionsResponse) ProtoMessage() {}
 
 func (x *ListDefinitionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[89]
+	mi := &file_agen_v1_hub_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5518,7 +5665,7 @@ func (x *ListDefinitionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDefinitionsResponse.ProtoReflect.Descriptor instead.
 func (*ListDefinitionsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{89}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *ListDefinitionsResponse) GetDefinitions() []*Definition {
@@ -5537,7 +5684,7 @@ type GetDefinitionRequest struct {
 
 func (x *GetDefinitionRequest) Reset() {
 	*x = GetDefinitionRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[90]
+	mi := &file_agen_v1_hub_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5549,7 +5696,7 @@ func (x *GetDefinitionRequest) String() string {
 func (*GetDefinitionRequest) ProtoMessage() {}
 
 func (x *GetDefinitionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[90]
+	mi := &file_agen_v1_hub_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5562,7 +5709,7 @@ func (x *GetDefinitionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDefinitionRequest.ProtoReflect.Descriptor instead.
 func (*GetDefinitionRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{90}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *GetDefinitionRequest) GetDigest() string {
@@ -5584,7 +5731,7 @@ type GetDefinitionResponse struct {
 
 func (x *GetDefinitionResponse) Reset() {
 	*x = GetDefinitionResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[91]
+	mi := &file_agen_v1_hub_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5596,7 +5743,7 @@ func (x *GetDefinitionResponse) String() string {
 func (*GetDefinitionResponse) ProtoMessage() {}
 
 func (x *GetDefinitionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[91]
+	mi := &file_agen_v1_hub_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5609,7 +5756,7 @@ func (x *GetDefinitionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDefinitionResponse.ProtoReflect.Descriptor instead.
 func (*GetDefinitionResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{91}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *GetDefinitionResponse) GetDefinition() *Definition {
@@ -5639,7 +5786,7 @@ type SetSecretRequest struct {
 
 func (x *SetSecretRequest) Reset() {
 	*x = SetSecretRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[92]
+	mi := &file_agen_v1_hub_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5651,7 +5798,7 @@ func (x *SetSecretRequest) String() string {
 func (*SetSecretRequest) ProtoMessage() {}
 
 func (x *SetSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[92]
+	mi := &file_agen_v1_hub_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5664,7 +5811,7 @@ func (x *SetSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSecretRequest.ProtoReflect.Descriptor instead.
 func (*SetSecretRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{92}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *SetSecretRequest) GetNamespace() string {
@@ -5703,7 +5850,7 @@ type SetSecretResponse struct {
 
 func (x *SetSecretResponse) Reset() {
 	*x = SetSecretResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[93]
+	mi := &file_agen_v1_hub_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5715,7 +5862,7 @@ func (x *SetSecretResponse) String() string {
 func (*SetSecretResponse) ProtoMessage() {}
 
 func (x *SetSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[93]
+	mi := &file_agen_v1_hub_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5728,7 +5875,7 @@ func (x *SetSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSecretResponse.ProtoReflect.Descriptor instead.
 func (*SetSecretResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{93}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{95}
 }
 
 type ListSecretsRequest struct {
@@ -5740,7 +5887,7 @@ type ListSecretsRequest struct {
 
 func (x *ListSecretsRequest) Reset() {
 	*x = ListSecretsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[94]
+	mi := &file_agen_v1_hub_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5752,7 +5899,7 @@ func (x *ListSecretsRequest) String() string {
 func (*ListSecretsRequest) ProtoMessage() {}
 
 func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[94]
+	mi := &file_agen_v1_hub_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5765,7 +5912,7 @@ func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecretsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecretsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{94}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *ListSecretsRequest) GetNamespace() string {
@@ -5787,7 +5934,7 @@ type SecretInfo struct {
 
 func (x *SecretInfo) Reset() {
 	*x = SecretInfo{}
-	mi := &file_agen_v1_hub_proto_msgTypes[95]
+	mi := &file_agen_v1_hub_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5799,7 +5946,7 @@ func (x *SecretInfo) String() string {
 func (*SecretInfo) ProtoMessage() {}
 
 func (x *SecretInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[95]
+	mi := &file_agen_v1_hub_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5812,7 +5959,7 @@ func (x *SecretInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretInfo.ProtoReflect.Descriptor instead.
 func (*SecretInfo) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{95}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *SecretInfo) GetNamespace() string {
@@ -5852,7 +5999,7 @@ type ListSecretsResponse struct {
 
 func (x *ListSecretsResponse) Reset() {
 	*x = ListSecretsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[96]
+	mi := &file_agen_v1_hub_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5864,7 +6011,7 @@ func (x *ListSecretsResponse) String() string {
 func (*ListSecretsResponse) ProtoMessage() {}
 
 func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[96]
+	mi := &file_agen_v1_hub_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5877,7 +6024,7 @@ func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecretsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecretsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{96}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *ListSecretsResponse) GetSecrets() []*SecretInfo {
@@ -5897,7 +6044,7 @@ type DeleteSecretRequest struct {
 
 func (x *DeleteSecretRequest) Reset() {
 	*x = DeleteSecretRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[97]
+	mi := &file_agen_v1_hub_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5909,7 +6056,7 @@ func (x *DeleteSecretRequest) String() string {
 func (*DeleteSecretRequest) ProtoMessage() {}
 
 func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[97]
+	mi := &file_agen_v1_hub_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5922,7 +6069,7 @@ func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecretRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecretRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{97}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *DeleteSecretRequest) GetNamespace() string {
@@ -5947,7 +6094,7 @@ type DeleteSecretResponse struct {
 
 func (x *DeleteSecretResponse) Reset() {
 	*x = DeleteSecretResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[98]
+	mi := &file_agen_v1_hub_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5959,7 +6106,7 @@ func (x *DeleteSecretResponse) String() string {
 func (*DeleteSecretResponse) ProtoMessage() {}
 
 func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[98]
+	mi := &file_agen_v1_hub_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5972,7 +6119,7 @@ func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecretResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSecretResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{98}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{100}
 }
 
 type CreateWebhookSecretRequest struct {
@@ -5985,7 +6132,7 @@ type CreateWebhookSecretRequest struct {
 
 func (x *CreateWebhookSecretRequest) Reset() {
 	*x = CreateWebhookSecretRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[99]
+	mi := &file_agen_v1_hub_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5997,7 +6144,7 @@ func (x *CreateWebhookSecretRequest) String() string {
 func (*CreateWebhookSecretRequest) ProtoMessage() {}
 
 func (x *CreateWebhookSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[99]
+	mi := &file_agen_v1_hub_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6010,7 +6157,7 @@ func (x *CreateWebhookSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWebhookSecretRequest.ProtoReflect.Descriptor instead.
 func (*CreateWebhookSecretRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{99}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *CreateWebhookSecretRequest) GetRef() *DeploymentRef {
@@ -6039,7 +6186,7 @@ type CreateWebhookSecretResponse struct {
 
 func (x *CreateWebhookSecretResponse) Reset() {
 	*x = CreateWebhookSecretResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[100]
+	mi := &file_agen_v1_hub_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6051,7 +6198,7 @@ func (x *CreateWebhookSecretResponse) String() string {
 func (*CreateWebhookSecretResponse) ProtoMessage() {}
 
 func (x *CreateWebhookSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[100]
+	mi := &file_agen_v1_hub_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6064,7 +6211,7 @@ func (x *CreateWebhookSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWebhookSecretResponse.ProtoReflect.Descriptor instead.
 func (*CreateWebhookSecretResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{100}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *CreateWebhookSecretResponse) GetSecret() string {
@@ -6094,7 +6241,7 @@ type ListTriggerEventsRequest struct {
 
 func (x *ListTriggerEventsRequest) Reset() {
 	*x = ListTriggerEventsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[101]
+	mi := &file_agen_v1_hub_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6106,7 +6253,7 @@ func (x *ListTriggerEventsRequest) String() string {
 func (*ListTriggerEventsRequest) ProtoMessage() {}
 
 func (x *ListTriggerEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[101]
+	mi := &file_agen_v1_hub_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6119,7 +6266,7 @@ func (x *ListTriggerEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggerEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListTriggerEventsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{101}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *ListTriggerEventsRequest) GetRef() *DeploymentRef {
@@ -6152,7 +6299,7 @@ type ListTriggerEventsResponse struct {
 
 func (x *ListTriggerEventsResponse) Reset() {
 	*x = ListTriggerEventsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[102]
+	mi := &file_agen_v1_hub_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6164,7 +6311,7 @@ func (x *ListTriggerEventsResponse) String() string {
 func (*ListTriggerEventsResponse) ProtoMessage() {}
 
 func (x *ListTriggerEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[102]
+	mi := &file_agen_v1_hub_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6177,7 +6324,7 @@ func (x *ListTriggerEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggerEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListTriggerEventsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{102}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *ListTriggerEventsResponse) GetEvents() []*TriggerEvent {
@@ -6200,7 +6347,7 @@ type GetLogsRequest struct {
 
 func (x *GetLogsRequest) Reset() {
 	*x = GetLogsRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[103]
+	mi := &file_agen_v1_hub_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6212,7 +6359,7 @@ func (x *GetLogsRequest) String() string {
 func (*GetLogsRequest) ProtoMessage() {}
 
 func (x *GetLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[103]
+	mi := &file_agen_v1_hub_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6225,7 +6372,7 @@ func (x *GetLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLogsRequest.ProtoReflect.Descriptor instead.
 func (*GetLogsRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{103}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *GetLogsRequest) GetRef() *DeploymentRef {
@@ -6265,7 +6412,7 @@ type GetLogsResponse struct {
 
 func (x *GetLogsResponse) Reset() {
 	*x = GetLogsResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[104]
+	mi := &file_agen_v1_hub_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6277,7 +6424,7 @@ func (x *GetLogsResponse) String() string {
 func (*GetLogsResponse) ProtoMessage() {}
 
 func (x *GetLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[104]
+	mi := &file_agen_v1_hub_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6290,7 +6437,7 @@ func (x *GetLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLogsResponse.ProtoReflect.Descriptor instead.
 func (*GetLogsResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{104}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *GetLogsResponse) GetLines() []*LogLine {
@@ -6320,7 +6467,7 @@ type CreateApiTokenRequest struct {
 
 func (x *CreateApiTokenRequest) Reset() {
 	*x = CreateApiTokenRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[105]
+	mi := &file_agen_v1_hub_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6332,7 +6479,7 @@ func (x *CreateApiTokenRequest) String() string {
 func (*CreateApiTokenRequest) ProtoMessage() {}
 
 func (x *CreateApiTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[105]
+	mi := &file_agen_v1_hub_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6345,7 +6492,7 @@ func (x *CreateApiTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApiTokenRequest.ProtoReflect.Descriptor instead.
 func (*CreateApiTokenRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{105}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *CreateApiTokenRequest) GetName() string {
@@ -6401,7 +6548,7 @@ type CreateApiTokenResponse struct {
 
 func (x *CreateApiTokenResponse) Reset() {
 	*x = CreateApiTokenResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[106]
+	mi := &file_agen_v1_hub_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6413,7 +6560,7 @@ func (x *CreateApiTokenResponse) String() string {
 func (*CreateApiTokenResponse) ProtoMessage() {}
 
 func (x *CreateApiTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[106]
+	mi := &file_agen_v1_hub_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6426,7 +6573,7 @@ func (x *CreateApiTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApiTokenResponse.ProtoReflect.Descriptor instead.
 func (*CreateApiTokenResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{106}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *CreateApiTokenResponse) GetToken() *ApiToken {
@@ -6451,7 +6598,7 @@ type ListApiTokensRequest struct {
 
 func (x *ListApiTokensRequest) Reset() {
 	*x = ListApiTokensRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[107]
+	mi := &file_agen_v1_hub_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6463,7 +6610,7 @@ func (x *ListApiTokensRequest) String() string {
 func (*ListApiTokensRequest) ProtoMessage() {}
 
 func (x *ListApiTokensRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[107]
+	mi := &file_agen_v1_hub_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6476,7 +6623,7 @@ func (x *ListApiTokensRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListApiTokensRequest.ProtoReflect.Descriptor instead.
 func (*ListApiTokensRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{107}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{109}
 }
 
 type ListApiTokensResponse struct {
@@ -6488,7 +6635,7 @@ type ListApiTokensResponse struct {
 
 func (x *ListApiTokensResponse) Reset() {
 	*x = ListApiTokensResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[108]
+	mi := &file_agen_v1_hub_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6500,7 +6647,7 @@ func (x *ListApiTokensResponse) String() string {
 func (*ListApiTokensResponse) ProtoMessage() {}
 
 func (x *ListApiTokensResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[108]
+	mi := &file_agen_v1_hub_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6513,7 +6660,7 @@ func (x *ListApiTokensResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListApiTokensResponse.ProtoReflect.Descriptor instead.
 func (*ListApiTokensResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{108}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *ListApiTokensResponse) GetTokens() []*ApiToken {
@@ -6532,7 +6679,7 @@ type RevokeApiTokenRequest struct {
 
 func (x *RevokeApiTokenRequest) Reset() {
 	*x = RevokeApiTokenRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[109]
+	mi := &file_agen_v1_hub_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6544,7 +6691,7 @@ func (x *RevokeApiTokenRequest) String() string {
 func (*RevokeApiTokenRequest) ProtoMessage() {}
 
 func (x *RevokeApiTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[109]
+	mi := &file_agen_v1_hub_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6557,7 +6704,7 @@ func (x *RevokeApiTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeApiTokenRequest.ProtoReflect.Descriptor instead.
 func (*RevokeApiTokenRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{109}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *RevokeApiTokenRequest) GetId() string {
@@ -6575,7 +6722,7 @@ type RevokeApiTokenResponse struct {
 
 func (x *RevokeApiTokenResponse) Reset() {
 	*x = RevokeApiTokenResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[110]
+	mi := &file_agen_v1_hub_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6587,7 +6734,7 @@ func (x *RevokeApiTokenResponse) String() string {
 func (*RevokeApiTokenResponse) ProtoMessage() {}
 
 func (x *RevokeApiTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[110]
+	mi := &file_agen_v1_hub_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6600,7 +6747,7 @@ func (x *RevokeApiTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeApiTokenResponse.ProtoReflect.Descriptor instead.
 func (*RevokeApiTokenResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{110}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{112}
 }
 
 type RevokeNestRequest struct {
@@ -6612,7 +6759,7 @@ type RevokeNestRequest struct {
 
 func (x *RevokeNestRequest) Reset() {
 	*x = RevokeNestRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[111]
+	mi := &file_agen_v1_hub_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6624,7 +6771,7 @@ func (x *RevokeNestRequest) String() string {
 func (*RevokeNestRequest) ProtoMessage() {}
 
 func (x *RevokeNestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[111]
+	mi := &file_agen_v1_hub_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6637,7 +6784,7 @@ func (x *RevokeNestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeNestRequest.ProtoReflect.Descriptor instead.
 func (*RevokeNestRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{111}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *RevokeNestRequest) GetId() string {
@@ -6655,7 +6802,7 @@ type RevokeNestResponse struct {
 
 func (x *RevokeNestResponse) Reset() {
 	*x = RevokeNestResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[112]
+	mi := &file_agen_v1_hub_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6667,7 +6814,7 @@ func (x *RevokeNestResponse) String() string {
 func (*RevokeNestResponse) ProtoMessage() {}
 
 func (x *RevokeNestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[112]
+	mi := &file_agen_v1_hub_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6680,7 +6827,7 @@ func (x *RevokeNestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeNestResponse.ProtoReflect.Descriptor instead.
 func (*RevokeNestResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{112}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{114}
 }
 
 type CreateJoinTokenRequest struct {
@@ -6692,7 +6839,7 @@ type CreateJoinTokenRequest struct {
 
 func (x *CreateJoinTokenRequest) Reset() {
 	*x = CreateJoinTokenRequest{}
-	mi := &file_agen_v1_hub_proto_msgTypes[113]
+	mi := &file_agen_v1_hub_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6704,7 +6851,7 @@ func (x *CreateJoinTokenRequest) String() string {
 func (*CreateJoinTokenRequest) ProtoMessage() {}
 
 func (x *CreateJoinTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[113]
+	mi := &file_agen_v1_hub_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6717,7 +6864,7 @@ func (x *CreateJoinTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateJoinTokenRequest.ProtoReflect.Descriptor instead.
 func (*CreateJoinTokenRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{113}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *CreateJoinTokenRequest) GetTtlSeconds() int32 {
@@ -6739,7 +6886,7 @@ type CreateJoinTokenResponse struct {
 
 func (x *CreateJoinTokenResponse) Reset() {
 	*x = CreateJoinTokenResponse{}
-	mi := &file_agen_v1_hub_proto_msgTypes[114]
+	mi := &file_agen_v1_hub_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6751,7 +6898,7 @@ func (x *CreateJoinTokenResponse) String() string {
 func (*CreateJoinTokenResponse) ProtoMessage() {}
 
 func (x *CreateJoinTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_hub_proto_msgTypes[114]
+	mi := &file_agen_v1_hub_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6764,7 +6911,7 @@ func (x *CreateJoinTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateJoinTokenResponse.ProtoReflect.Descriptor instead.
 func (*CreateJoinTokenResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_hub_proto_rawDescGZIP(), []int{114}
+	return file_agen_v1_hub_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *CreateJoinTokenResponse) GetToken() string {
@@ -7027,7 +7174,18 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\x12GetTaskTreeRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\":\n" +
 	"\x13GetTaskTreeResponse\x12#\n" +
-	"\x05tasks\x18\x01 \x03(\v2\r.agen.v1.TaskR\x05tasks\"\xae\x01\n" +
+	"\x05tasks\x18\x01 \x03(\v2\r.agen.v1.TaskR\x05tasks\"\"\n" +
+	"\x10QueryTaskRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xd3\x02\n" +
+	"\x11QueryTaskResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12(\n" +
+	"\x05state\x18\x02 \x01(\x0e2\x12.agen.v1.TaskStateR\x05state\x12*\n" +
+	"\aoutcome\x18\x03 \x01(\v2\x10.agen.v1.OutcomeR\aoutcome\x121\n" +
+	"\bprogress\x18\x04 \x01(\v2\x15.agen.v1.TaskProgressR\bprogress\x12\x1a\n" +
+	"\bactivity\x18\x05 \x01(\tR\bactivity\x12\x16\n" +
+	"\x06detail\x18\x06 \x01(\tR\x06detail\x12A\n" +
+	"\x0eactivity_since\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\ractivitySince\x12.\n" +
+	"\x13pending_approval_id\x18\b \x01(\tR\x11pendingApprovalId\"\xae\x01\n" +
 	"\x10ListTasksRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1e\n" +
 	"\n" +
@@ -7307,7 +7465,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"ttlSeconds\"H\n" +
 	"\x17CreateJoinTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
-	"\aca_hash\x18\x02 \x01(\tR\x06caHash2\xf6\x1f\n" +
+	"\aca_hash\x18\x02 \x01(\tR\x06caHash2\xba \n" +
 	"\n" +
 	"HubService\x12W\n" +
 	"\x10CreateDeployment\x12 .agen.v1.CreateDeploymentRequest\x1a!.agen.v1.CreateDeploymentResponse\x12W\n" +
@@ -7325,7 +7483,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tListTasks\x12\x19.agen.v1.ListTasksRequest\x1a\x1a.agen.v1.ListTasksResponse\x12E\n" +
 	"\n" +
 	"CancelTask\x12\x1a.agen.v1.CancelTaskRequest\x1a\x1b.agen.v1.CancelTaskResponse\x12H\n" +
-	"\vGetTaskTree\x12\x1b.agen.v1.GetTaskTreeRequest\x1a\x1c.agen.v1.GetTaskTreeResponse\x12<\n" +
+	"\vGetTaskTree\x12\x1b.agen.v1.GetTaskTreeRequest\x1a\x1c.agen.v1.GetTaskTreeResponse\x12B\n" +
+	"\tQueryTask\x12\x19.agen.v1.QueryTaskRequest\x1a\x1a.agen.v1.QueryTaskResponse\x12<\n" +
 	"\aResolve\x12\x17.agen.v1.ResolveRequest\x1a\x18.agen.v1.ResolveResponse\x12H\n" +
 	"\vRequestWake\x12\x1b.agen.v1.RequestWakeRequest\x1a\x1c.agen.v1.RequestWakeResponse\x12N\n" +
 	"\rListApprovals\x12\x1d.agen.v1.ListApprovalsRequest\x1a\x1e.agen.v1.ListApprovalsResponse\x12Q\n" +
@@ -7379,7 +7538,7 @@ func file_agen_v1_hub_proto_rawDescGZIP() []byte {
 	return file_agen_v1_hub_proto_rawDescData
 }
 
-var file_agen_v1_hub_proto_msgTypes = make([]protoimpl.MessageInfo, 129)
+var file_agen_v1_hub_proto_msgTypes = make([]protoimpl.MessageInfo, 131)
 var file_agen_v1_hub_proto_goTypes = []any{
 	(*RecordFeedbackRequest)(nil),            // 0: agen.v1.RecordFeedbackRequest
 	(*RecordFeedbackResponse)(nil),           // 1: agen.v1.RecordFeedbackResponse
@@ -7435,343 +7594,353 @@ var file_agen_v1_hub_proto_goTypes = []any{
 	(*GetTaskResponse)(nil),                  // 51: agen.v1.GetTaskResponse
 	(*GetTaskTreeRequest)(nil),               // 52: agen.v1.GetTaskTreeRequest
 	(*GetTaskTreeResponse)(nil),              // 53: agen.v1.GetTaskTreeResponse
-	(*ListTasksRequest)(nil),                 // 54: agen.v1.ListTasksRequest
-	(*ListTasksResponse)(nil),                // 55: agen.v1.ListTasksResponse
-	(*CancelTaskRequest)(nil),                // 56: agen.v1.CancelTaskRequest
-	(*CancelTaskResponse)(nil),               // 57: agen.v1.CancelTaskResponse
-	(*ResolveRequest)(nil),                   // 58: agen.v1.ResolveRequest
-	(*ResolveResponse)(nil),                  // 59: agen.v1.ResolveResponse
-	(*RequestWakeRequest)(nil),               // 60: agen.v1.RequestWakeRequest
-	(*RequestWakeResponse)(nil),              // 61: agen.v1.RequestWakeResponse
-	(*ListApprovalsRequest)(nil),             // 62: agen.v1.ListApprovalsRequest
-	(*ListApprovalsResponse)(nil),            // 63: agen.v1.ListApprovalsResponse
-	(*DecideApprovalRequest)(nil),            // 64: agen.v1.DecideApprovalRequest
-	(*DecideApprovalResponse)(nil),           // 65: agen.v1.DecideApprovalResponse
-	(*ListRunsRequest)(nil),                  // 66: agen.v1.ListRunsRequest
-	(*ListRunsResponse)(nil),                 // 67: agen.v1.ListRunsResponse
-	(*GetTranscriptRequest)(nil),             // 68: agen.v1.GetTranscriptRequest
-	(*ToolCallMessage)(nil),                  // 69: agen.v1.ToolCallMessage
-	(*TranscriptMessage)(nil),                // 70: agen.v1.TranscriptMessage
-	(*GetTranscriptResponse)(nil),            // 71: agen.v1.GetTranscriptResponse
-	(*GetMetricsRequest)(nil),                // 72: agen.v1.GetMetricsRequest
-	(*MetricsBucket)(nil),                    // 73: agen.v1.MetricsBucket
-	(*DeploymentMetrics)(nil),                // 74: agen.v1.DeploymentMetrics
-	(*CallEdge)(nil),                         // 75: agen.v1.CallEdge
-	(*ModelMetrics)(nil),                     // 76: agen.v1.ModelMetrics
-	(*GetMetricsResponse)(nil),               // 77: agen.v1.GetMetricsResponse
-	(*EntryEdge)(nil),                        // 78: agen.v1.EntryEdge
-	(*ListEventsRequest)(nil),                // 79: agen.v1.ListEventsRequest
-	(*ListEventsResponse)(nil),               // 80: agen.v1.ListEventsResponse
-	(*GetActivityRequest)(nil),               // 81: agen.v1.GetActivityRequest
-	(*ActiveRun)(nil),                        // 82: agen.v1.ActiveRun
-	(*QueueStatus)(nil),                      // 83: agen.v1.QueueStatus
-	(*ActivityWarning)(nil),                  // 84: agen.v1.ActivityWarning
-	(*GetActivityResponse)(nil),              // 85: agen.v1.GetActivityResponse
-	(*GetTraceRequest)(nil),                  // 86: agen.v1.GetTraceRequest
-	(*GetTraceResponse)(nil),                 // 87: agen.v1.GetTraceResponse
-	(*ListDefinitionsRequest)(nil),           // 88: agen.v1.ListDefinitionsRequest
-	(*ListDefinitionsResponse)(nil),          // 89: agen.v1.ListDefinitionsResponse
-	(*GetDefinitionRequest)(nil),             // 90: agen.v1.GetDefinitionRequest
-	(*GetDefinitionResponse)(nil),            // 91: agen.v1.GetDefinitionResponse
-	(*SetSecretRequest)(nil),                 // 92: agen.v1.SetSecretRequest
-	(*SetSecretResponse)(nil),                // 93: agen.v1.SetSecretResponse
-	(*ListSecretsRequest)(nil),               // 94: agen.v1.ListSecretsRequest
-	(*SecretInfo)(nil),                       // 95: agen.v1.SecretInfo
-	(*ListSecretsResponse)(nil),              // 96: agen.v1.ListSecretsResponse
-	(*DeleteSecretRequest)(nil),              // 97: agen.v1.DeleteSecretRequest
-	(*DeleteSecretResponse)(nil),             // 98: agen.v1.DeleteSecretResponse
-	(*CreateWebhookSecretRequest)(nil),       // 99: agen.v1.CreateWebhookSecretRequest
-	(*CreateWebhookSecretResponse)(nil),      // 100: agen.v1.CreateWebhookSecretResponse
-	(*ListTriggerEventsRequest)(nil),         // 101: agen.v1.ListTriggerEventsRequest
-	(*ListTriggerEventsResponse)(nil),        // 102: agen.v1.ListTriggerEventsResponse
-	(*GetLogsRequest)(nil),                   // 103: agen.v1.GetLogsRequest
-	(*GetLogsResponse)(nil),                  // 104: agen.v1.GetLogsResponse
-	(*CreateApiTokenRequest)(nil),            // 105: agen.v1.CreateApiTokenRequest
-	(*CreateApiTokenResponse)(nil),           // 106: agen.v1.CreateApiTokenResponse
-	(*ListApiTokensRequest)(nil),             // 107: agen.v1.ListApiTokensRequest
-	(*ListApiTokensResponse)(nil),            // 108: agen.v1.ListApiTokensResponse
-	(*RevokeApiTokenRequest)(nil),            // 109: agen.v1.RevokeApiTokenRequest
-	(*RevokeApiTokenResponse)(nil),           // 110: agen.v1.RevokeApiTokenResponse
-	(*RevokeNestRequest)(nil),                // 111: agen.v1.RevokeNestRequest
-	(*RevokeNestResponse)(nil),               // 112: agen.v1.RevokeNestResponse
-	(*CreateJoinTokenRequest)(nil),           // 113: agen.v1.CreateJoinTokenRequest
-	(*CreateJoinTokenResponse)(nil),          // 114: agen.v1.CreateJoinTokenResponse
-	nil,                                      // 115: agen.v1.RecordFeedbackRequest.LabelsEntry
-	nil,                                      // 116: agen.v1.ListFeedbackRequest.LabelsEntry
-	nil,                                      // 117: agen.v1.Template.FilesEntry
-	nil,                                      // 118: agen.v1.NotificationTarget.LabelsEntry
-	nil,                                      // 119: agen.v1.GetBundleGuideResponse.SchemasEntry
-	nil,                                      // 120: agen.v1.GetBundleGuideResponse.ExampleEntry
-	nil,                                      // 121: agen.v1.CreateDeploymentRequest.BundleFilesEntry
-	nil,                                      // 122: agen.v1.CreateDeploymentRequest.BundleTextEntry
-	nil,                                      // 123: agen.v1.UpdateDeploymentRequest.BundleFilesEntry
-	nil,                                      // 124: agen.v1.UpdateDeploymentRequest.BundleTextEntry
-	nil,                                      // 125: agen.v1.SubmitTaskRequest.LabelsEntry
-	nil,                                      // 126: agen.v1.ListRunsRequest.LabelsEntry
-	nil,                                      // 127: agen.v1.ListEventsRequest.LabelsEntry
-	nil,                                      // 128: agen.v1.GetDefinitionResponse.TextFilesEntry
-	(*Feedback)(nil),                         // 129: agen.v1.Feedback
-	(*timestamppb.Timestamp)(nil),            // 130: google.protobuf.Timestamp
-	(*MemoryBlock)(nil),                      // 131: agen.v1.MemoryBlock
-	(*Artifact)(nil),                         // 132: agen.v1.Artifact
-	(*ProviderHold)(nil),                     // 133: agen.v1.ProviderHold
-	(DeploymentKind)(0),                      // 134: agen.v1.DeploymentKind
-	(*ScalePolicy)(nil),                      // 135: agen.v1.ScalePolicy
-	(*Placement)(nil),                        // 136: agen.v1.Placement
-	(*Budget)(nil),                           // 137: agen.v1.Budget
-	(*Limits)(nil),                           // 138: agen.v1.Limits
-	(*Trigger)(nil),                          // 139: agen.v1.Trigger
-	(*Deployment)(nil),                       // 140: agen.v1.Deployment
-	(*DeploymentRef)(nil),                    // 141: agen.v1.DeploymentRef
-	(*Instance)(nil),                         // 142: agen.v1.Instance
-	(*Nest)(nil),                             // 143: agen.v1.Nest
-	(*TaskOverrides)(nil),                    // 144: agen.v1.TaskOverrides
-	(*Task)(nil),                             // 145: agen.v1.Task
-	(TaskState)(0),                           // 146: agen.v1.TaskState
-	(ApprovalState)(0),                       // 147: agen.v1.ApprovalState
-	(*Approval)(nil),                         // 148: agen.v1.Approval
-	(*Run)(nil),                              // 149: agen.v1.Run
-	(*structpb.Value)(nil),                   // 150: google.protobuf.Value
-	(*Usage)(nil),                            // 151: agen.v1.Usage
-	(*Event)(nil),                            // 152: agen.v1.Event
-	(*Span)(nil),                             // 153: agen.v1.Span
-	(*Definition)(nil),                       // 154: agen.v1.Definition
-	(TriggerEventState)(0),                   // 155: agen.v1.TriggerEventState
-	(*TriggerEvent)(nil),                     // 156: agen.v1.TriggerEvent
-	(*LogLine)(nil),                          // 157: agen.v1.LogLine
-	(*ApiToken)(nil),                         // 158: agen.v1.ApiToken
+	(*QueryTaskRequest)(nil),                 // 54: agen.v1.QueryTaskRequest
+	(*QueryTaskResponse)(nil),                // 55: agen.v1.QueryTaskResponse
+	(*ListTasksRequest)(nil),                 // 56: agen.v1.ListTasksRequest
+	(*ListTasksResponse)(nil),                // 57: agen.v1.ListTasksResponse
+	(*CancelTaskRequest)(nil),                // 58: agen.v1.CancelTaskRequest
+	(*CancelTaskResponse)(nil),               // 59: agen.v1.CancelTaskResponse
+	(*ResolveRequest)(nil),                   // 60: agen.v1.ResolveRequest
+	(*ResolveResponse)(nil),                  // 61: agen.v1.ResolveResponse
+	(*RequestWakeRequest)(nil),               // 62: agen.v1.RequestWakeRequest
+	(*RequestWakeResponse)(nil),              // 63: agen.v1.RequestWakeResponse
+	(*ListApprovalsRequest)(nil),             // 64: agen.v1.ListApprovalsRequest
+	(*ListApprovalsResponse)(nil),            // 65: agen.v1.ListApprovalsResponse
+	(*DecideApprovalRequest)(nil),            // 66: agen.v1.DecideApprovalRequest
+	(*DecideApprovalResponse)(nil),           // 67: agen.v1.DecideApprovalResponse
+	(*ListRunsRequest)(nil),                  // 68: agen.v1.ListRunsRequest
+	(*ListRunsResponse)(nil),                 // 69: agen.v1.ListRunsResponse
+	(*GetTranscriptRequest)(nil),             // 70: agen.v1.GetTranscriptRequest
+	(*ToolCallMessage)(nil),                  // 71: agen.v1.ToolCallMessage
+	(*TranscriptMessage)(nil),                // 72: agen.v1.TranscriptMessage
+	(*GetTranscriptResponse)(nil),            // 73: agen.v1.GetTranscriptResponse
+	(*GetMetricsRequest)(nil),                // 74: agen.v1.GetMetricsRequest
+	(*MetricsBucket)(nil),                    // 75: agen.v1.MetricsBucket
+	(*DeploymentMetrics)(nil),                // 76: agen.v1.DeploymentMetrics
+	(*CallEdge)(nil),                         // 77: agen.v1.CallEdge
+	(*ModelMetrics)(nil),                     // 78: agen.v1.ModelMetrics
+	(*GetMetricsResponse)(nil),               // 79: agen.v1.GetMetricsResponse
+	(*EntryEdge)(nil),                        // 80: agen.v1.EntryEdge
+	(*ListEventsRequest)(nil),                // 81: agen.v1.ListEventsRequest
+	(*ListEventsResponse)(nil),               // 82: agen.v1.ListEventsResponse
+	(*GetActivityRequest)(nil),               // 83: agen.v1.GetActivityRequest
+	(*ActiveRun)(nil),                        // 84: agen.v1.ActiveRun
+	(*QueueStatus)(nil),                      // 85: agen.v1.QueueStatus
+	(*ActivityWarning)(nil),                  // 86: agen.v1.ActivityWarning
+	(*GetActivityResponse)(nil),              // 87: agen.v1.GetActivityResponse
+	(*GetTraceRequest)(nil),                  // 88: agen.v1.GetTraceRequest
+	(*GetTraceResponse)(nil),                 // 89: agen.v1.GetTraceResponse
+	(*ListDefinitionsRequest)(nil),           // 90: agen.v1.ListDefinitionsRequest
+	(*ListDefinitionsResponse)(nil),          // 91: agen.v1.ListDefinitionsResponse
+	(*GetDefinitionRequest)(nil),             // 92: agen.v1.GetDefinitionRequest
+	(*GetDefinitionResponse)(nil),            // 93: agen.v1.GetDefinitionResponse
+	(*SetSecretRequest)(nil),                 // 94: agen.v1.SetSecretRequest
+	(*SetSecretResponse)(nil),                // 95: agen.v1.SetSecretResponse
+	(*ListSecretsRequest)(nil),               // 96: agen.v1.ListSecretsRequest
+	(*SecretInfo)(nil),                       // 97: agen.v1.SecretInfo
+	(*ListSecretsResponse)(nil),              // 98: agen.v1.ListSecretsResponse
+	(*DeleteSecretRequest)(nil),              // 99: agen.v1.DeleteSecretRequest
+	(*DeleteSecretResponse)(nil),             // 100: agen.v1.DeleteSecretResponse
+	(*CreateWebhookSecretRequest)(nil),       // 101: agen.v1.CreateWebhookSecretRequest
+	(*CreateWebhookSecretResponse)(nil),      // 102: agen.v1.CreateWebhookSecretResponse
+	(*ListTriggerEventsRequest)(nil),         // 103: agen.v1.ListTriggerEventsRequest
+	(*ListTriggerEventsResponse)(nil),        // 104: agen.v1.ListTriggerEventsResponse
+	(*GetLogsRequest)(nil),                   // 105: agen.v1.GetLogsRequest
+	(*GetLogsResponse)(nil),                  // 106: agen.v1.GetLogsResponse
+	(*CreateApiTokenRequest)(nil),            // 107: agen.v1.CreateApiTokenRequest
+	(*CreateApiTokenResponse)(nil),           // 108: agen.v1.CreateApiTokenResponse
+	(*ListApiTokensRequest)(nil),             // 109: agen.v1.ListApiTokensRequest
+	(*ListApiTokensResponse)(nil),            // 110: agen.v1.ListApiTokensResponse
+	(*RevokeApiTokenRequest)(nil),            // 111: agen.v1.RevokeApiTokenRequest
+	(*RevokeApiTokenResponse)(nil),           // 112: agen.v1.RevokeApiTokenResponse
+	(*RevokeNestRequest)(nil),                // 113: agen.v1.RevokeNestRequest
+	(*RevokeNestResponse)(nil),               // 114: agen.v1.RevokeNestResponse
+	(*CreateJoinTokenRequest)(nil),           // 115: agen.v1.CreateJoinTokenRequest
+	(*CreateJoinTokenResponse)(nil),          // 116: agen.v1.CreateJoinTokenResponse
+	nil,                                      // 117: agen.v1.RecordFeedbackRequest.LabelsEntry
+	nil,                                      // 118: agen.v1.ListFeedbackRequest.LabelsEntry
+	nil,                                      // 119: agen.v1.Template.FilesEntry
+	nil,                                      // 120: agen.v1.NotificationTarget.LabelsEntry
+	nil,                                      // 121: agen.v1.GetBundleGuideResponse.SchemasEntry
+	nil,                                      // 122: agen.v1.GetBundleGuideResponse.ExampleEntry
+	nil,                                      // 123: agen.v1.CreateDeploymentRequest.BundleFilesEntry
+	nil,                                      // 124: agen.v1.CreateDeploymentRequest.BundleTextEntry
+	nil,                                      // 125: agen.v1.UpdateDeploymentRequest.BundleFilesEntry
+	nil,                                      // 126: agen.v1.UpdateDeploymentRequest.BundleTextEntry
+	nil,                                      // 127: agen.v1.SubmitTaskRequest.LabelsEntry
+	nil,                                      // 128: agen.v1.ListRunsRequest.LabelsEntry
+	nil,                                      // 129: agen.v1.ListEventsRequest.LabelsEntry
+	nil,                                      // 130: agen.v1.GetDefinitionResponse.TextFilesEntry
+	(*Feedback)(nil),                         // 131: agen.v1.Feedback
+	(*timestamppb.Timestamp)(nil),            // 132: google.protobuf.Timestamp
+	(*MemoryBlock)(nil),                      // 133: agen.v1.MemoryBlock
+	(*Artifact)(nil),                         // 134: agen.v1.Artifact
+	(*ProviderHold)(nil),                     // 135: agen.v1.ProviderHold
+	(DeploymentKind)(0),                      // 136: agen.v1.DeploymentKind
+	(*ScalePolicy)(nil),                      // 137: agen.v1.ScalePolicy
+	(*Placement)(nil),                        // 138: agen.v1.Placement
+	(*Budget)(nil),                           // 139: agen.v1.Budget
+	(*Limits)(nil),                           // 140: agen.v1.Limits
+	(*Trigger)(nil),                          // 141: agen.v1.Trigger
+	(*Deployment)(nil),                       // 142: agen.v1.Deployment
+	(*DeploymentRef)(nil),                    // 143: agen.v1.DeploymentRef
+	(*Instance)(nil),                         // 144: agen.v1.Instance
+	(*Nest)(nil),                             // 145: agen.v1.Nest
+	(*TaskOverrides)(nil),                    // 146: agen.v1.TaskOverrides
+	(*Task)(nil),                             // 147: agen.v1.Task
+	(TaskState)(0),                           // 148: agen.v1.TaskState
+	(*Outcome)(nil),                          // 149: agen.v1.Outcome
+	(*TaskProgress)(nil),                     // 150: agen.v1.TaskProgress
+	(ApprovalState)(0),                       // 151: agen.v1.ApprovalState
+	(*Approval)(nil),                         // 152: agen.v1.Approval
+	(*Run)(nil),                              // 153: agen.v1.Run
+	(*structpb.Value)(nil),                   // 154: google.protobuf.Value
+	(*Usage)(nil),                            // 155: agen.v1.Usage
+	(*Event)(nil),                            // 156: agen.v1.Event
+	(*Span)(nil),                             // 157: agen.v1.Span
+	(*Definition)(nil),                       // 158: agen.v1.Definition
+	(TriggerEventState)(0),                   // 159: agen.v1.TriggerEventState
+	(*TriggerEvent)(nil),                     // 160: agen.v1.TriggerEvent
+	(*LogLine)(nil),                          // 161: agen.v1.LogLine
+	(*ApiToken)(nil),                         // 162: agen.v1.ApiToken
 }
 var file_agen_v1_hub_proto_depIdxs = []int32{
-	115, // 0: agen.v1.RecordFeedbackRequest.labels:type_name -> agen.v1.RecordFeedbackRequest.LabelsEntry
-	129, // 1: agen.v1.RecordFeedbackResponse.feedback:type_name -> agen.v1.Feedback
-	116, // 2: agen.v1.ListFeedbackRequest.labels:type_name -> agen.v1.ListFeedbackRequest.LabelsEntry
-	130, // 3: agen.v1.ListFeedbackRequest.since:type_name -> google.protobuf.Timestamp
-	131, // 4: agen.v1.SetMemoryBlockResponse.block:type_name -> agen.v1.MemoryBlock
-	131, // 5: agen.v1.ListMemoryBlocksResponse.blocks:type_name -> agen.v1.MemoryBlock
-	132, // 6: agen.v1.GetArtifactResponse.artifact:type_name -> agen.v1.Artifact
-	132, // 7: agen.v1.ListArtifactsResponse.artifacts:type_name -> agen.v1.Artifact
-	129, // 8: agen.v1.ListFeedbackResponse.feedback:type_name -> agen.v1.Feedback
-	133, // 9: agen.v1.ListProviderHoldsResponse.holds:type_name -> agen.v1.ProviderHold
-	117, // 10: agen.v1.Template.files:type_name -> agen.v1.Template.FilesEntry
+	117, // 0: agen.v1.RecordFeedbackRequest.labels:type_name -> agen.v1.RecordFeedbackRequest.LabelsEntry
+	131, // 1: agen.v1.RecordFeedbackResponse.feedback:type_name -> agen.v1.Feedback
+	118, // 2: agen.v1.ListFeedbackRequest.labels:type_name -> agen.v1.ListFeedbackRequest.LabelsEntry
+	132, // 3: agen.v1.ListFeedbackRequest.since:type_name -> google.protobuf.Timestamp
+	133, // 4: agen.v1.SetMemoryBlockResponse.block:type_name -> agen.v1.MemoryBlock
+	133, // 5: agen.v1.ListMemoryBlocksResponse.blocks:type_name -> agen.v1.MemoryBlock
+	134, // 6: agen.v1.GetArtifactResponse.artifact:type_name -> agen.v1.Artifact
+	134, // 7: agen.v1.ListArtifactsResponse.artifacts:type_name -> agen.v1.Artifact
+	131, // 8: agen.v1.ListFeedbackResponse.feedback:type_name -> agen.v1.Feedback
+	135, // 9: agen.v1.ListProviderHoldsResponse.holds:type_name -> agen.v1.ProviderHold
+	119, // 10: agen.v1.Template.files:type_name -> agen.v1.Template.FilesEntry
 	17,  // 11: agen.v1.ListTemplatesResponse.templates:type_name -> agen.v1.Template
-	130, // 12: agen.v1.NotificationTarget.created_at:type_name -> google.protobuf.Timestamp
-	118, // 13: agen.v1.NotificationTarget.labels:type_name -> agen.v1.NotificationTarget.LabelsEntry
-	130, // 14: agen.v1.NotificationTarget.last_delivered_at:type_name -> google.protobuf.Timestamp
-	130, // 15: agen.v1.NotificationTarget.failing_since:type_name -> google.protobuf.Timestamp
+	132, // 12: agen.v1.NotificationTarget.created_at:type_name -> google.protobuf.Timestamp
+	120, // 13: agen.v1.NotificationTarget.labels:type_name -> agen.v1.NotificationTarget.LabelsEntry
+	132, // 14: agen.v1.NotificationTarget.last_delivered_at:type_name -> google.protobuf.Timestamp
+	132, // 15: agen.v1.NotificationTarget.failing_since:type_name -> google.protobuf.Timestamp
 	19,  // 16: agen.v1.SetNotificationTargetRequest.target:type_name -> agen.v1.NotificationTarget
 	19,  // 17: agen.v1.SetNotificationTargetResponse.target:type_name -> agen.v1.NotificationTarget
 	19,  // 18: agen.v1.ListNotificationTargetsResponse.targets:type_name -> agen.v1.NotificationTarget
-	119, // 19: agen.v1.GetBundleGuideResponse.schemas:type_name -> agen.v1.GetBundleGuideResponse.SchemasEntry
-	120, // 20: agen.v1.GetBundleGuideResponse.example:type_name -> agen.v1.GetBundleGuideResponse.ExampleEntry
-	121, // 21: agen.v1.CreateDeploymentRequest.bundle_files:type_name -> agen.v1.CreateDeploymentRequest.BundleFilesEntry
-	122, // 22: agen.v1.CreateDeploymentRequest.bundle_text:type_name -> agen.v1.CreateDeploymentRequest.BundleTextEntry
-	134, // 23: agen.v1.CreateDeploymentRequest.kind:type_name -> agen.v1.DeploymentKind
-	135, // 24: agen.v1.CreateDeploymentRequest.scale:type_name -> agen.v1.ScalePolicy
-	136, // 25: agen.v1.CreateDeploymentRequest.placement:type_name -> agen.v1.Placement
-	137, // 26: agen.v1.CreateDeploymentRequest.budget:type_name -> agen.v1.Budget
-	138, // 27: agen.v1.CreateDeploymentRequest.limits:type_name -> agen.v1.Limits
-	139, // 28: agen.v1.CreateDeploymentRequest.triggers:type_name -> agen.v1.Trigger
-	140, // 29: agen.v1.CreateDeploymentResponse.deployment:type_name -> agen.v1.Deployment
-	141, // 30: agen.v1.UpdateDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
-	123, // 31: agen.v1.UpdateDeploymentRequest.bundle_files:type_name -> agen.v1.UpdateDeploymentRequest.BundleFilesEntry
-	135, // 32: agen.v1.UpdateDeploymentRequest.scale:type_name -> agen.v1.ScalePolicy
-	137, // 33: agen.v1.UpdateDeploymentRequest.budget:type_name -> agen.v1.Budget
-	138, // 34: agen.v1.UpdateDeploymentRequest.limits:type_name -> agen.v1.Limits
-	139, // 35: agen.v1.UpdateDeploymentRequest.triggers:type_name -> agen.v1.Trigger
-	136, // 36: agen.v1.UpdateDeploymentRequest.placement:type_name -> agen.v1.Placement
-	124, // 37: agen.v1.UpdateDeploymentRequest.bundle_text:type_name -> agen.v1.UpdateDeploymentRequest.BundleTextEntry
-	140, // 38: agen.v1.UpdateDeploymentResponse.deployment:type_name -> agen.v1.Deployment
-	141, // 39: agen.v1.GetDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
-	140, // 40: agen.v1.GetDeploymentResponse.deployment:type_name -> agen.v1.Deployment
-	142, // 41: agen.v1.GetDeploymentResponse.instances:type_name -> agen.v1.Instance
-	140, // 42: agen.v1.ListDeploymentsResponse.deployments:type_name -> agen.v1.Deployment
-	141, // 43: agen.v1.ScaleDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
-	140, // 44: agen.v1.ScaleDeploymentResponse.deployment:type_name -> agen.v1.Deployment
-	141, // 45: agen.v1.DeleteDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
-	141, // 46: agen.v1.PauseDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
-	140, // 47: agen.v1.PauseDeploymentResponse.deployment:type_name -> agen.v1.Deployment
-	142, // 48: agen.v1.ListInstancesResponse.instances:type_name -> agen.v1.Instance
-	143, // 49: agen.v1.ListNestsResponse.nests:type_name -> agen.v1.Nest
-	141, // 50: agen.v1.SubmitTaskRequest.ref:type_name -> agen.v1.DeploymentRef
-	125, // 51: agen.v1.SubmitTaskRequest.labels:type_name -> agen.v1.SubmitTaskRequest.LabelsEntry
-	130, // 52: agen.v1.SubmitTaskRequest.not_before:type_name -> google.protobuf.Timestamp
-	144, // 53: agen.v1.SubmitTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
-	130, // 54: agen.v1.SubmitTaskRequest.not_after:type_name -> google.protobuf.Timestamp
-	145, // 55: agen.v1.SubmitTaskResponse.task:type_name -> agen.v1.Task
-	145, // 56: agen.v1.GetTaskResponse.task:type_name -> agen.v1.Task
-	145, // 57: agen.v1.GetTaskTreeResponse.tasks:type_name -> agen.v1.Task
-	146, // 58: agen.v1.ListTasksRequest.state:type_name -> agen.v1.TaskState
-	145, // 59: agen.v1.ListTasksResponse.tasks:type_name -> agen.v1.Task
-	145, // 60: agen.v1.CancelTaskResponse.task:type_name -> agen.v1.Task
-	145, // 61: agen.v1.CancelTaskResponse.cancelled:type_name -> agen.v1.Task
-	141, // 62: agen.v1.ResolveRequest.ref:type_name -> agen.v1.DeploymentRef
-	141, // 63: agen.v1.ResolveRequest.caller:type_name -> agen.v1.DeploymentRef
-	130, // 64: agen.v1.ResolveResponse.token_expires_at:type_name -> google.protobuf.Timestamp
-	141, // 65: agen.v1.RequestWakeRequest.ref:type_name -> agen.v1.DeploymentRef
-	140, // 66: agen.v1.RequestWakeResponse.deployment:type_name -> agen.v1.Deployment
-	147, // 67: agen.v1.ListApprovalsRequest.state:type_name -> agen.v1.ApprovalState
-	148, // 68: agen.v1.ListApprovalsResponse.approvals:type_name -> agen.v1.Approval
-	148, // 69: agen.v1.DecideApprovalResponse.approval:type_name -> agen.v1.Approval
-	126, // 70: agen.v1.ListRunsRequest.labels:type_name -> agen.v1.ListRunsRequest.LabelsEntry
-	130, // 71: agen.v1.ListRunsRequest.since:type_name -> google.protobuf.Timestamp
-	149, // 72: agen.v1.ListRunsResponse.runs:type_name -> agen.v1.Run
-	150, // 73: agen.v1.ToolCallMessage.arguments:type_name -> google.protobuf.Value
-	69,  // 74: agen.v1.TranscriptMessage.tool_calls:type_name -> agen.v1.ToolCallMessage
-	130, // 75: agen.v1.TranscriptMessage.created_at:type_name -> google.protobuf.Timestamp
-	149, // 76: agen.v1.GetTranscriptResponse.run:type_name -> agen.v1.Run
-	70,  // 77: agen.v1.GetTranscriptResponse.messages:type_name -> agen.v1.TranscriptMessage
-	141, // 78: agen.v1.DeploymentMetrics.ref:type_name -> agen.v1.DeploymentRef
-	151, // 79: agen.v1.DeploymentMetrics.usage:type_name -> agen.v1.Usage
-	73,  // 80: agen.v1.DeploymentMetrics.buckets:type_name -> agen.v1.MetricsBucket
-	141, // 81: agen.v1.CallEdge.from:type_name -> agen.v1.DeploymentRef
-	141, // 82: agen.v1.CallEdge.to:type_name -> agen.v1.DeploymentRef
-	151, // 83: agen.v1.ModelMetrics.usage:type_name -> agen.v1.Usage
-	74,  // 84: agen.v1.GetMetricsResponse.deployments:type_name -> agen.v1.DeploymentMetrics
-	75,  // 85: agen.v1.GetMetricsResponse.edges:type_name -> agen.v1.CallEdge
-	130, // 86: agen.v1.GetMetricsResponse.since:type_name -> google.protobuf.Timestamp
-	76,  // 87: agen.v1.GetMetricsResponse.models:type_name -> agen.v1.ModelMetrics
-	78,  // 88: agen.v1.GetMetricsResponse.entries:type_name -> agen.v1.EntryEdge
-	141, // 89: agen.v1.EntryEdge.from:type_name -> agen.v1.DeploymentRef
-	141, // 90: agen.v1.EntryEdge.to:type_name -> agen.v1.DeploymentRef
-	127, // 91: agen.v1.ListEventsRequest.labels:type_name -> agen.v1.ListEventsRequest.LabelsEntry
-	152, // 92: agen.v1.ListEventsResponse.events:type_name -> agen.v1.Event
-	141, // 93: agen.v1.ActiveRun.ref:type_name -> agen.v1.DeploymentRef
-	130, // 94: agen.v1.ActiveRun.started_at:type_name -> google.protobuf.Timestamp
-	151, // 95: agen.v1.ActiveRun.usage:type_name -> agen.v1.Usage
-	130, // 96: agen.v1.ActiveRun.activity_since:type_name -> google.protobuf.Timestamp
-	130, // 97: agen.v1.ActiveRun.last_step_at:type_name -> google.protobuf.Timestamp
-	141, // 98: agen.v1.ActiveRun.caller:type_name -> agen.v1.DeploymentRef
-	141, // 99: agen.v1.QueueStatus.ref:type_name -> agen.v1.DeploymentRef
-	130, // 100: agen.v1.QueueStatus.oldest_queued_at:type_name -> google.protobuf.Timestamp
-	141, // 101: agen.v1.ActivityWarning.ref:type_name -> agen.v1.DeploymentRef
-	82,  // 102: agen.v1.GetActivityResponse.runs:type_name -> agen.v1.ActiveRun
-	83,  // 103: agen.v1.GetActivityResponse.queues:type_name -> agen.v1.QueueStatus
-	84,  // 104: agen.v1.GetActivityResponse.warnings:type_name -> agen.v1.ActivityWarning
-	130, // 105: agen.v1.GetActivityResponse.now:type_name -> google.protobuf.Timestamp
-	153, // 106: agen.v1.GetTraceResponse.spans:type_name -> agen.v1.Span
-	149, // 107: agen.v1.GetTraceResponse.runs:type_name -> agen.v1.Run
-	141, // 108: agen.v1.ListDefinitionsRequest.ref:type_name -> agen.v1.DeploymentRef
-	154, // 109: agen.v1.ListDefinitionsResponse.definitions:type_name -> agen.v1.Definition
-	154, // 110: agen.v1.GetDefinitionResponse.definition:type_name -> agen.v1.Definition
-	128, // 111: agen.v1.GetDefinitionResponse.text_files:type_name -> agen.v1.GetDefinitionResponse.TextFilesEntry
-	130, // 112: agen.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
-	95,  // 113: agen.v1.ListSecretsResponse.secrets:type_name -> agen.v1.SecretInfo
-	141, // 114: agen.v1.CreateWebhookSecretRequest.ref:type_name -> agen.v1.DeploymentRef
-	141, // 115: agen.v1.ListTriggerEventsRequest.ref:type_name -> agen.v1.DeploymentRef
-	155, // 116: agen.v1.ListTriggerEventsRequest.state:type_name -> agen.v1.TriggerEventState
-	156, // 117: agen.v1.ListTriggerEventsResponse.events:type_name -> agen.v1.TriggerEvent
-	141, // 118: agen.v1.GetLogsRequest.ref:type_name -> agen.v1.DeploymentRef
-	130, // 119: agen.v1.GetLogsRequest.since:type_name -> google.protobuf.Timestamp
-	157, // 120: agen.v1.GetLogsResponse.lines:type_name -> agen.v1.LogLine
-	158, // 121: agen.v1.CreateApiTokenResponse.token:type_name -> agen.v1.ApiToken
-	158, // 122: agen.v1.ListApiTokensResponse.tokens:type_name -> agen.v1.ApiToken
-	30,  // 123: agen.v1.HubService.CreateDeployment:input_type -> agen.v1.CreateDeploymentRequest
-	32,  // 124: agen.v1.HubService.UpdateDeployment:input_type -> agen.v1.UpdateDeploymentRequest
-	34,  // 125: agen.v1.HubService.GetDeployment:input_type -> agen.v1.GetDeploymentRequest
-	36,  // 126: agen.v1.HubService.ListDeployments:input_type -> agen.v1.ListDeploymentsRequest
-	38,  // 127: agen.v1.HubService.ScaleDeployment:input_type -> agen.v1.ScaleDeploymentRequest
-	40,  // 128: agen.v1.HubService.DeleteDeployment:input_type -> agen.v1.DeleteDeploymentRequest
-	42,  // 129: agen.v1.HubService.PauseDeployment:input_type -> agen.v1.PauseDeploymentRequest
-	44,  // 130: agen.v1.HubService.ListInstances:input_type -> agen.v1.ListInstancesRequest
-	46,  // 131: agen.v1.HubService.ListNests:input_type -> agen.v1.ListNestsRequest
-	48,  // 132: agen.v1.HubService.SubmitTask:input_type -> agen.v1.SubmitTaskRequest
-	50,  // 133: agen.v1.HubService.GetTask:input_type -> agen.v1.GetTaskRequest
-	54,  // 134: agen.v1.HubService.ListTasks:input_type -> agen.v1.ListTasksRequest
-	56,  // 135: agen.v1.HubService.CancelTask:input_type -> agen.v1.CancelTaskRequest
-	52,  // 136: agen.v1.HubService.GetTaskTree:input_type -> agen.v1.GetTaskTreeRequest
-	58,  // 137: agen.v1.HubService.Resolve:input_type -> agen.v1.ResolveRequest
-	60,  // 138: agen.v1.HubService.RequestWake:input_type -> agen.v1.RequestWakeRequest
-	62,  // 139: agen.v1.HubService.ListApprovals:input_type -> agen.v1.ListApprovalsRequest
-	64,  // 140: agen.v1.HubService.DecideApproval:input_type -> agen.v1.DecideApprovalRequest
-	88,  // 141: agen.v1.HubService.ListDefinitions:input_type -> agen.v1.ListDefinitionsRequest
-	90,  // 142: agen.v1.HubService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
-	101, // 143: agen.v1.HubService.ListTriggerEvents:input_type -> agen.v1.ListTriggerEventsRequest
-	99,  // 144: agen.v1.HubService.CreateWebhookSecret:input_type -> agen.v1.CreateWebhookSecretRequest
-	92,  // 145: agen.v1.HubService.SetSecret:input_type -> agen.v1.SetSecretRequest
-	94,  // 146: agen.v1.HubService.ListSecrets:input_type -> agen.v1.ListSecretsRequest
-	97,  // 147: agen.v1.HubService.DeleteSecret:input_type -> agen.v1.DeleteSecretRequest
-	66,  // 148: agen.v1.HubService.ListRuns:input_type -> agen.v1.ListRunsRequest
-	86,  // 149: agen.v1.HubService.GetTrace:input_type -> agen.v1.GetTraceRequest
-	68,  // 150: agen.v1.HubService.GetTranscript:input_type -> agen.v1.GetTranscriptRequest
-	72,  // 151: agen.v1.HubService.GetMetrics:input_type -> agen.v1.GetMetricsRequest
-	81,  // 152: agen.v1.HubService.GetActivity:input_type -> agen.v1.GetActivityRequest
-	103, // 153: agen.v1.HubService.GetLogs:input_type -> agen.v1.GetLogsRequest
-	79,  // 154: agen.v1.HubService.ListEvents:input_type -> agen.v1.ListEventsRequest
-	12,  // 155: agen.v1.HubService.ListProviderHolds:input_type -> agen.v1.ListProviderHoldsRequest
-	14,  // 156: agen.v1.HubService.ResumeProvider:input_type -> agen.v1.ResumeProviderRequest
-	113, // 157: agen.v1.HubService.CreateJoinToken:input_type -> agen.v1.CreateJoinTokenRequest
-	105, // 158: agen.v1.HubService.CreateApiToken:input_type -> agen.v1.CreateApiTokenRequest
-	107, // 159: agen.v1.HubService.ListApiTokens:input_type -> agen.v1.ListApiTokensRequest
-	109, // 160: agen.v1.HubService.RevokeApiToken:input_type -> agen.v1.RevokeApiTokenRequest
-	111, // 161: agen.v1.HubService.RevokeNest:input_type -> agen.v1.RevokeNestRequest
-	26,  // 162: agen.v1.HubService.WhoAmI:input_type -> agen.v1.WhoAmIRequest
-	28,  // 163: agen.v1.HubService.GetBundleGuide:input_type -> agen.v1.GetBundleGuideRequest
-	16,  // 164: agen.v1.HubService.ListTemplates:input_type -> agen.v1.ListTemplatesRequest
-	20,  // 165: agen.v1.HubService.SetNotificationTarget:input_type -> agen.v1.SetNotificationTargetRequest
-	22,  // 166: agen.v1.HubService.ListNotificationTargets:input_type -> agen.v1.ListNotificationTargetsRequest
-	24,  // 167: agen.v1.HubService.DeleteNotificationTarget:input_type -> agen.v1.DeleteNotificationTargetRequest
-	0,   // 168: agen.v1.HubService.RecordFeedback:input_type -> agen.v1.RecordFeedbackRequest
-	2,   // 169: agen.v1.HubService.ListFeedback:input_type -> agen.v1.ListFeedbackRequest
-	3,   // 170: agen.v1.HubService.SetMemoryBlock:input_type -> agen.v1.SetMemoryBlockRequest
-	5,   // 171: agen.v1.HubService.ListMemoryBlocks:input_type -> agen.v1.ListMemoryBlocksRequest
-	7,   // 172: agen.v1.HubService.GetArtifact:input_type -> agen.v1.GetArtifactRequest
-	9,   // 173: agen.v1.HubService.ListArtifacts:input_type -> agen.v1.ListArtifactsRequest
-	31,  // 174: agen.v1.HubService.CreateDeployment:output_type -> agen.v1.CreateDeploymentResponse
-	33,  // 175: agen.v1.HubService.UpdateDeployment:output_type -> agen.v1.UpdateDeploymentResponse
-	35,  // 176: agen.v1.HubService.GetDeployment:output_type -> agen.v1.GetDeploymentResponse
-	37,  // 177: agen.v1.HubService.ListDeployments:output_type -> agen.v1.ListDeploymentsResponse
-	39,  // 178: agen.v1.HubService.ScaleDeployment:output_type -> agen.v1.ScaleDeploymentResponse
-	41,  // 179: agen.v1.HubService.DeleteDeployment:output_type -> agen.v1.DeleteDeploymentResponse
-	43,  // 180: agen.v1.HubService.PauseDeployment:output_type -> agen.v1.PauseDeploymentResponse
-	45,  // 181: agen.v1.HubService.ListInstances:output_type -> agen.v1.ListInstancesResponse
-	47,  // 182: agen.v1.HubService.ListNests:output_type -> agen.v1.ListNestsResponse
-	49,  // 183: agen.v1.HubService.SubmitTask:output_type -> agen.v1.SubmitTaskResponse
-	51,  // 184: agen.v1.HubService.GetTask:output_type -> agen.v1.GetTaskResponse
-	55,  // 185: agen.v1.HubService.ListTasks:output_type -> agen.v1.ListTasksResponse
-	57,  // 186: agen.v1.HubService.CancelTask:output_type -> agen.v1.CancelTaskResponse
-	53,  // 187: agen.v1.HubService.GetTaskTree:output_type -> agen.v1.GetTaskTreeResponse
-	59,  // 188: agen.v1.HubService.Resolve:output_type -> agen.v1.ResolveResponse
-	61,  // 189: agen.v1.HubService.RequestWake:output_type -> agen.v1.RequestWakeResponse
-	63,  // 190: agen.v1.HubService.ListApprovals:output_type -> agen.v1.ListApprovalsResponse
-	65,  // 191: agen.v1.HubService.DecideApproval:output_type -> agen.v1.DecideApprovalResponse
-	89,  // 192: agen.v1.HubService.ListDefinitions:output_type -> agen.v1.ListDefinitionsResponse
-	91,  // 193: agen.v1.HubService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
-	102, // 194: agen.v1.HubService.ListTriggerEvents:output_type -> agen.v1.ListTriggerEventsResponse
-	100, // 195: agen.v1.HubService.CreateWebhookSecret:output_type -> agen.v1.CreateWebhookSecretResponse
-	93,  // 196: agen.v1.HubService.SetSecret:output_type -> agen.v1.SetSecretResponse
-	96,  // 197: agen.v1.HubService.ListSecrets:output_type -> agen.v1.ListSecretsResponse
-	98,  // 198: agen.v1.HubService.DeleteSecret:output_type -> agen.v1.DeleteSecretResponse
-	67,  // 199: agen.v1.HubService.ListRuns:output_type -> agen.v1.ListRunsResponse
-	87,  // 200: agen.v1.HubService.GetTrace:output_type -> agen.v1.GetTraceResponse
-	71,  // 201: agen.v1.HubService.GetTranscript:output_type -> agen.v1.GetTranscriptResponse
-	77,  // 202: agen.v1.HubService.GetMetrics:output_type -> agen.v1.GetMetricsResponse
-	85,  // 203: agen.v1.HubService.GetActivity:output_type -> agen.v1.GetActivityResponse
-	104, // 204: agen.v1.HubService.GetLogs:output_type -> agen.v1.GetLogsResponse
-	80,  // 205: agen.v1.HubService.ListEvents:output_type -> agen.v1.ListEventsResponse
-	13,  // 206: agen.v1.HubService.ListProviderHolds:output_type -> agen.v1.ListProviderHoldsResponse
-	15,  // 207: agen.v1.HubService.ResumeProvider:output_type -> agen.v1.ResumeProviderResponse
-	114, // 208: agen.v1.HubService.CreateJoinToken:output_type -> agen.v1.CreateJoinTokenResponse
-	106, // 209: agen.v1.HubService.CreateApiToken:output_type -> agen.v1.CreateApiTokenResponse
-	108, // 210: agen.v1.HubService.ListApiTokens:output_type -> agen.v1.ListApiTokensResponse
-	110, // 211: agen.v1.HubService.RevokeApiToken:output_type -> agen.v1.RevokeApiTokenResponse
-	112, // 212: agen.v1.HubService.RevokeNest:output_type -> agen.v1.RevokeNestResponse
-	27,  // 213: agen.v1.HubService.WhoAmI:output_type -> agen.v1.WhoAmIResponse
-	29,  // 214: agen.v1.HubService.GetBundleGuide:output_type -> agen.v1.GetBundleGuideResponse
-	18,  // 215: agen.v1.HubService.ListTemplates:output_type -> agen.v1.ListTemplatesResponse
-	21,  // 216: agen.v1.HubService.SetNotificationTarget:output_type -> agen.v1.SetNotificationTargetResponse
-	23,  // 217: agen.v1.HubService.ListNotificationTargets:output_type -> agen.v1.ListNotificationTargetsResponse
-	25,  // 218: agen.v1.HubService.DeleteNotificationTarget:output_type -> agen.v1.DeleteNotificationTargetResponse
-	1,   // 219: agen.v1.HubService.RecordFeedback:output_type -> agen.v1.RecordFeedbackResponse
-	11,  // 220: agen.v1.HubService.ListFeedback:output_type -> agen.v1.ListFeedbackResponse
-	4,   // 221: agen.v1.HubService.SetMemoryBlock:output_type -> agen.v1.SetMemoryBlockResponse
-	6,   // 222: agen.v1.HubService.ListMemoryBlocks:output_type -> agen.v1.ListMemoryBlocksResponse
-	8,   // 223: agen.v1.HubService.GetArtifact:output_type -> agen.v1.GetArtifactResponse
-	10,  // 224: agen.v1.HubService.ListArtifacts:output_type -> agen.v1.ListArtifactsResponse
-	174, // [174:225] is the sub-list for method output_type
-	123, // [123:174] is the sub-list for method input_type
-	123, // [123:123] is the sub-list for extension type_name
-	123, // [123:123] is the sub-list for extension extendee
-	0,   // [0:123] is the sub-list for field type_name
+	121, // 19: agen.v1.GetBundleGuideResponse.schemas:type_name -> agen.v1.GetBundleGuideResponse.SchemasEntry
+	122, // 20: agen.v1.GetBundleGuideResponse.example:type_name -> agen.v1.GetBundleGuideResponse.ExampleEntry
+	123, // 21: agen.v1.CreateDeploymentRequest.bundle_files:type_name -> agen.v1.CreateDeploymentRequest.BundleFilesEntry
+	124, // 22: agen.v1.CreateDeploymentRequest.bundle_text:type_name -> agen.v1.CreateDeploymentRequest.BundleTextEntry
+	136, // 23: agen.v1.CreateDeploymentRequest.kind:type_name -> agen.v1.DeploymentKind
+	137, // 24: agen.v1.CreateDeploymentRequest.scale:type_name -> agen.v1.ScalePolicy
+	138, // 25: agen.v1.CreateDeploymentRequest.placement:type_name -> agen.v1.Placement
+	139, // 26: agen.v1.CreateDeploymentRequest.budget:type_name -> agen.v1.Budget
+	140, // 27: agen.v1.CreateDeploymentRequest.limits:type_name -> agen.v1.Limits
+	141, // 28: agen.v1.CreateDeploymentRequest.triggers:type_name -> agen.v1.Trigger
+	142, // 29: agen.v1.CreateDeploymentResponse.deployment:type_name -> agen.v1.Deployment
+	143, // 30: agen.v1.UpdateDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
+	125, // 31: agen.v1.UpdateDeploymentRequest.bundle_files:type_name -> agen.v1.UpdateDeploymentRequest.BundleFilesEntry
+	137, // 32: agen.v1.UpdateDeploymentRequest.scale:type_name -> agen.v1.ScalePolicy
+	139, // 33: agen.v1.UpdateDeploymentRequest.budget:type_name -> agen.v1.Budget
+	140, // 34: agen.v1.UpdateDeploymentRequest.limits:type_name -> agen.v1.Limits
+	141, // 35: agen.v1.UpdateDeploymentRequest.triggers:type_name -> agen.v1.Trigger
+	138, // 36: agen.v1.UpdateDeploymentRequest.placement:type_name -> agen.v1.Placement
+	126, // 37: agen.v1.UpdateDeploymentRequest.bundle_text:type_name -> agen.v1.UpdateDeploymentRequest.BundleTextEntry
+	142, // 38: agen.v1.UpdateDeploymentResponse.deployment:type_name -> agen.v1.Deployment
+	143, // 39: agen.v1.GetDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
+	142, // 40: agen.v1.GetDeploymentResponse.deployment:type_name -> agen.v1.Deployment
+	144, // 41: agen.v1.GetDeploymentResponse.instances:type_name -> agen.v1.Instance
+	142, // 42: agen.v1.ListDeploymentsResponse.deployments:type_name -> agen.v1.Deployment
+	143, // 43: agen.v1.ScaleDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
+	142, // 44: agen.v1.ScaleDeploymentResponse.deployment:type_name -> agen.v1.Deployment
+	143, // 45: agen.v1.DeleteDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
+	143, // 46: agen.v1.PauseDeploymentRequest.ref:type_name -> agen.v1.DeploymentRef
+	142, // 47: agen.v1.PauseDeploymentResponse.deployment:type_name -> agen.v1.Deployment
+	144, // 48: agen.v1.ListInstancesResponse.instances:type_name -> agen.v1.Instance
+	145, // 49: agen.v1.ListNestsResponse.nests:type_name -> agen.v1.Nest
+	143, // 50: agen.v1.SubmitTaskRequest.ref:type_name -> agen.v1.DeploymentRef
+	127, // 51: agen.v1.SubmitTaskRequest.labels:type_name -> agen.v1.SubmitTaskRequest.LabelsEntry
+	132, // 52: agen.v1.SubmitTaskRequest.not_before:type_name -> google.protobuf.Timestamp
+	146, // 53: agen.v1.SubmitTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
+	132, // 54: agen.v1.SubmitTaskRequest.not_after:type_name -> google.protobuf.Timestamp
+	147, // 55: agen.v1.SubmitTaskResponse.task:type_name -> agen.v1.Task
+	147, // 56: agen.v1.GetTaskResponse.task:type_name -> agen.v1.Task
+	147, // 57: agen.v1.GetTaskTreeResponse.tasks:type_name -> agen.v1.Task
+	148, // 58: agen.v1.QueryTaskResponse.state:type_name -> agen.v1.TaskState
+	149, // 59: agen.v1.QueryTaskResponse.outcome:type_name -> agen.v1.Outcome
+	150, // 60: agen.v1.QueryTaskResponse.progress:type_name -> agen.v1.TaskProgress
+	132, // 61: agen.v1.QueryTaskResponse.activity_since:type_name -> google.protobuf.Timestamp
+	148, // 62: agen.v1.ListTasksRequest.state:type_name -> agen.v1.TaskState
+	147, // 63: agen.v1.ListTasksResponse.tasks:type_name -> agen.v1.Task
+	147, // 64: agen.v1.CancelTaskResponse.task:type_name -> agen.v1.Task
+	147, // 65: agen.v1.CancelTaskResponse.cancelled:type_name -> agen.v1.Task
+	143, // 66: agen.v1.ResolveRequest.ref:type_name -> agen.v1.DeploymentRef
+	143, // 67: agen.v1.ResolveRequest.caller:type_name -> agen.v1.DeploymentRef
+	132, // 68: agen.v1.ResolveResponse.token_expires_at:type_name -> google.protobuf.Timestamp
+	143, // 69: agen.v1.RequestWakeRequest.ref:type_name -> agen.v1.DeploymentRef
+	142, // 70: agen.v1.RequestWakeResponse.deployment:type_name -> agen.v1.Deployment
+	151, // 71: agen.v1.ListApprovalsRequest.state:type_name -> agen.v1.ApprovalState
+	152, // 72: agen.v1.ListApprovalsResponse.approvals:type_name -> agen.v1.Approval
+	152, // 73: agen.v1.DecideApprovalResponse.approval:type_name -> agen.v1.Approval
+	128, // 74: agen.v1.ListRunsRequest.labels:type_name -> agen.v1.ListRunsRequest.LabelsEntry
+	132, // 75: agen.v1.ListRunsRequest.since:type_name -> google.protobuf.Timestamp
+	153, // 76: agen.v1.ListRunsResponse.runs:type_name -> agen.v1.Run
+	154, // 77: agen.v1.ToolCallMessage.arguments:type_name -> google.protobuf.Value
+	71,  // 78: agen.v1.TranscriptMessage.tool_calls:type_name -> agen.v1.ToolCallMessage
+	132, // 79: agen.v1.TranscriptMessage.created_at:type_name -> google.protobuf.Timestamp
+	153, // 80: agen.v1.GetTranscriptResponse.run:type_name -> agen.v1.Run
+	72,  // 81: agen.v1.GetTranscriptResponse.messages:type_name -> agen.v1.TranscriptMessage
+	143, // 82: agen.v1.DeploymentMetrics.ref:type_name -> agen.v1.DeploymentRef
+	155, // 83: agen.v1.DeploymentMetrics.usage:type_name -> agen.v1.Usage
+	75,  // 84: agen.v1.DeploymentMetrics.buckets:type_name -> agen.v1.MetricsBucket
+	143, // 85: agen.v1.CallEdge.from:type_name -> agen.v1.DeploymentRef
+	143, // 86: agen.v1.CallEdge.to:type_name -> agen.v1.DeploymentRef
+	155, // 87: agen.v1.ModelMetrics.usage:type_name -> agen.v1.Usage
+	76,  // 88: agen.v1.GetMetricsResponse.deployments:type_name -> agen.v1.DeploymentMetrics
+	77,  // 89: agen.v1.GetMetricsResponse.edges:type_name -> agen.v1.CallEdge
+	132, // 90: agen.v1.GetMetricsResponse.since:type_name -> google.protobuf.Timestamp
+	78,  // 91: agen.v1.GetMetricsResponse.models:type_name -> agen.v1.ModelMetrics
+	80,  // 92: agen.v1.GetMetricsResponse.entries:type_name -> agen.v1.EntryEdge
+	143, // 93: agen.v1.EntryEdge.from:type_name -> agen.v1.DeploymentRef
+	143, // 94: agen.v1.EntryEdge.to:type_name -> agen.v1.DeploymentRef
+	129, // 95: agen.v1.ListEventsRequest.labels:type_name -> agen.v1.ListEventsRequest.LabelsEntry
+	156, // 96: agen.v1.ListEventsResponse.events:type_name -> agen.v1.Event
+	143, // 97: agen.v1.ActiveRun.ref:type_name -> agen.v1.DeploymentRef
+	132, // 98: agen.v1.ActiveRun.started_at:type_name -> google.protobuf.Timestamp
+	155, // 99: agen.v1.ActiveRun.usage:type_name -> agen.v1.Usage
+	132, // 100: agen.v1.ActiveRun.activity_since:type_name -> google.protobuf.Timestamp
+	132, // 101: agen.v1.ActiveRun.last_step_at:type_name -> google.protobuf.Timestamp
+	143, // 102: agen.v1.ActiveRun.caller:type_name -> agen.v1.DeploymentRef
+	143, // 103: agen.v1.QueueStatus.ref:type_name -> agen.v1.DeploymentRef
+	132, // 104: agen.v1.QueueStatus.oldest_queued_at:type_name -> google.protobuf.Timestamp
+	143, // 105: agen.v1.ActivityWarning.ref:type_name -> agen.v1.DeploymentRef
+	84,  // 106: agen.v1.GetActivityResponse.runs:type_name -> agen.v1.ActiveRun
+	85,  // 107: agen.v1.GetActivityResponse.queues:type_name -> agen.v1.QueueStatus
+	86,  // 108: agen.v1.GetActivityResponse.warnings:type_name -> agen.v1.ActivityWarning
+	132, // 109: agen.v1.GetActivityResponse.now:type_name -> google.protobuf.Timestamp
+	157, // 110: agen.v1.GetTraceResponse.spans:type_name -> agen.v1.Span
+	153, // 111: agen.v1.GetTraceResponse.runs:type_name -> agen.v1.Run
+	143, // 112: agen.v1.ListDefinitionsRequest.ref:type_name -> agen.v1.DeploymentRef
+	158, // 113: agen.v1.ListDefinitionsResponse.definitions:type_name -> agen.v1.Definition
+	158, // 114: agen.v1.GetDefinitionResponse.definition:type_name -> agen.v1.Definition
+	130, // 115: agen.v1.GetDefinitionResponse.text_files:type_name -> agen.v1.GetDefinitionResponse.TextFilesEntry
+	132, // 116: agen.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
+	97,  // 117: agen.v1.ListSecretsResponse.secrets:type_name -> agen.v1.SecretInfo
+	143, // 118: agen.v1.CreateWebhookSecretRequest.ref:type_name -> agen.v1.DeploymentRef
+	143, // 119: agen.v1.ListTriggerEventsRequest.ref:type_name -> agen.v1.DeploymentRef
+	159, // 120: agen.v1.ListTriggerEventsRequest.state:type_name -> agen.v1.TriggerEventState
+	160, // 121: agen.v1.ListTriggerEventsResponse.events:type_name -> agen.v1.TriggerEvent
+	143, // 122: agen.v1.GetLogsRequest.ref:type_name -> agen.v1.DeploymentRef
+	132, // 123: agen.v1.GetLogsRequest.since:type_name -> google.protobuf.Timestamp
+	161, // 124: agen.v1.GetLogsResponse.lines:type_name -> agen.v1.LogLine
+	162, // 125: agen.v1.CreateApiTokenResponse.token:type_name -> agen.v1.ApiToken
+	162, // 126: agen.v1.ListApiTokensResponse.tokens:type_name -> agen.v1.ApiToken
+	30,  // 127: agen.v1.HubService.CreateDeployment:input_type -> agen.v1.CreateDeploymentRequest
+	32,  // 128: agen.v1.HubService.UpdateDeployment:input_type -> agen.v1.UpdateDeploymentRequest
+	34,  // 129: agen.v1.HubService.GetDeployment:input_type -> agen.v1.GetDeploymentRequest
+	36,  // 130: agen.v1.HubService.ListDeployments:input_type -> agen.v1.ListDeploymentsRequest
+	38,  // 131: agen.v1.HubService.ScaleDeployment:input_type -> agen.v1.ScaleDeploymentRequest
+	40,  // 132: agen.v1.HubService.DeleteDeployment:input_type -> agen.v1.DeleteDeploymentRequest
+	42,  // 133: agen.v1.HubService.PauseDeployment:input_type -> agen.v1.PauseDeploymentRequest
+	44,  // 134: agen.v1.HubService.ListInstances:input_type -> agen.v1.ListInstancesRequest
+	46,  // 135: agen.v1.HubService.ListNests:input_type -> agen.v1.ListNestsRequest
+	48,  // 136: agen.v1.HubService.SubmitTask:input_type -> agen.v1.SubmitTaskRequest
+	50,  // 137: agen.v1.HubService.GetTask:input_type -> agen.v1.GetTaskRequest
+	56,  // 138: agen.v1.HubService.ListTasks:input_type -> agen.v1.ListTasksRequest
+	58,  // 139: agen.v1.HubService.CancelTask:input_type -> agen.v1.CancelTaskRequest
+	52,  // 140: agen.v1.HubService.GetTaskTree:input_type -> agen.v1.GetTaskTreeRequest
+	54,  // 141: agen.v1.HubService.QueryTask:input_type -> agen.v1.QueryTaskRequest
+	60,  // 142: agen.v1.HubService.Resolve:input_type -> agen.v1.ResolveRequest
+	62,  // 143: agen.v1.HubService.RequestWake:input_type -> agen.v1.RequestWakeRequest
+	64,  // 144: agen.v1.HubService.ListApprovals:input_type -> agen.v1.ListApprovalsRequest
+	66,  // 145: agen.v1.HubService.DecideApproval:input_type -> agen.v1.DecideApprovalRequest
+	90,  // 146: agen.v1.HubService.ListDefinitions:input_type -> agen.v1.ListDefinitionsRequest
+	92,  // 147: agen.v1.HubService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
+	103, // 148: agen.v1.HubService.ListTriggerEvents:input_type -> agen.v1.ListTriggerEventsRequest
+	101, // 149: agen.v1.HubService.CreateWebhookSecret:input_type -> agen.v1.CreateWebhookSecretRequest
+	94,  // 150: agen.v1.HubService.SetSecret:input_type -> agen.v1.SetSecretRequest
+	96,  // 151: agen.v1.HubService.ListSecrets:input_type -> agen.v1.ListSecretsRequest
+	99,  // 152: agen.v1.HubService.DeleteSecret:input_type -> agen.v1.DeleteSecretRequest
+	68,  // 153: agen.v1.HubService.ListRuns:input_type -> agen.v1.ListRunsRequest
+	88,  // 154: agen.v1.HubService.GetTrace:input_type -> agen.v1.GetTraceRequest
+	70,  // 155: agen.v1.HubService.GetTranscript:input_type -> agen.v1.GetTranscriptRequest
+	74,  // 156: agen.v1.HubService.GetMetrics:input_type -> agen.v1.GetMetricsRequest
+	83,  // 157: agen.v1.HubService.GetActivity:input_type -> agen.v1.GetActivityRequest
+	105, // 158: agen.v1.HubService.GetLogs:input_type -> agen.v1.GetLogsRequest
+	81,  // 159: agen.v1.HubService.ListEvents:input_type -> agen.v1.ListEventsRequest
+	12,  // 160: agen.v1.HubService.ListProviderHolds:input_type -> agen.v1.ListProviderHoldsRequest
+	14,  // 161: agen.v1.HubService.ResumeProvider:input_type -> agen.v1.ResumeProviderRequest
+	115, // 162: agen.v1.HubService.CreateJoinToken:input_type -> agen.v1.CreateJoinTokenRequest
+	107, // 163: agen.v1.HubService.CreateApiToken:input_type -> agen.v1.CreateApiTokenRequest
+	109, // 164: agen.v1.HubService.ListApiTokens:input_type -> agen.v1.ListApiTokensRequest
+	111, // 165: agen.v1.HubService.RevokeApiToken:input_type -> agen.v1.RevokeApiTokenRequest
+	113, // 166: agen.v1.HubService.RevokeNest:input_type -> agen.v1.RevokeNestRequest
+	26,  // 167: agen.v1.HubService.WhoAmI:input_type -> agen.v1.WhoAmIRequest
+	28,  // 168: agen.v1.HubService.GetBundleGuide:input_type -> agen.v1.GetBundleGuideRequest
+	16,  // 169: agen.v1.HubService.ListTemplates:input_type -> agen.v1.ListTemplatesRequest
+	20,  // 170: agen.v1.HubService.SetNotificationTarget:input_type -> agen.v1.SetNotificationTargetRequest
+	22,  // 171: agen.v1.HubService.ListNotificationTargets:input_type -> agen.v1.ListNotificationTargetsRequest
+	24,  // 172: agen.v1.HubService.DeleteNotificationTarget:input_type -> agen.v1.DeleteNotificationTargetRequest
+	0,   // 173: agen.v1.HubService.RecordFeedback:input_type -> agen.v1.RecordFeedbackRequest
+	2,   // 174: agen.v1.HubService.ListFeedback:input_type -> agen.v1.ListFeedbackRequest
+	3,   // 175: agen.v1.HubService.SetMemoryBlock:input_type -> agen.v1.SetMemoryBlockRequest
+	5,   // 176: agen.v1.HubService.ListMemoryBlocks:input_type -> agen.v1.ListMemoryBlocksRequest
+	7,   // 177: agen.v1.HubService.GetArtifact:input_type -> agen.v1.GetArtifactRequest
+	9,   // 178: agen.v1.HubService.ListArtifacts:input_type -> agen.v1.ListArtifactsRequest
+	31,  // 179: agen.v1.HubService.CreateDeployment:output_type -> agen.v1.CreateDeploymentResponse
+	33,  // 180: agen.v1.HubService.UpdateDeployment:output_type -> agen.v1.UpdateDeploymentResponse
+	35,  // 181: agen.v1.HubService.GetDeployment:output_type -> agen.v1.GetDeploymentResponse
+	37,  // 182: agen.v1.HubService.ListDeployments:output_type -> agen.v1.ListDeploymentsResponse
+	39,  // 183: agen.v1.HubService.ScaleDeployment:output_type -> agen.v1.ScaleDeploymentResponse
+	41,  // 184: agen.v1.HubService.DeleteDeployment:output_type -> agen.v1.DeleteDeploymentResponse
+	43,  // 185: agen.v1.HubService.PauseDeployment:output_type -> agen.v1.PauseDeploymentResponse
+	45,  // 186: agen.v1.HubService.ListInstances:output_type -> agen.v1.ListInstancesResponse
+	47,  // 187: agen.v1.HubService.ListNests:output_type -> agen.v1.ListNestsResponse
+	49,  // 188: agen.v1.HubService.SubmitTask:output_type -> agen.v1.SubmitTaskResponse
+	51,  // 189: agen.v1.HubService.GetTask:output_type -> agen.v1.GetTaskResponse
+	57,  // 190: agen.v1.HubService.ListTasks:output_type -> agen.v1.ListTasksResponse
+	59,  // 191: agen.v1.HubService.CancelTask:output_type -> agen.v1.CancelTaskResponse
+	53,  // 192: agen.v1.HubService.GetTaskTree:output_type -> agen.v1.GetTaskTreeResponse
+	55,  // 193: agen.v1.HubService.QueryTask:output_type -> agen.v1.QueryTaskResponse
+	61,  // 194: agen.v1.HubService.Resolve:output_type -> agen.v1.ResolveResponse
+	63,  // 195: agen.v1.HubService.RequestWake:output_type -> agen.v1.RequestWakeResponse
+	65,  // 196: agen.v1.HubService.ListApprovals:output_type -> agen.v1.ListApprovalsResponse
+	67,  // 197: agen.v1.HubService.DecideApproval:output_type -> agen.v1.DecideApprovalResponse
+	91,  // 198: agen.v1.HubService.ListDefinitions:output_type -> agen.v1.ListDefinitionsResponse
+	93,  // 199: agen.v1.HubService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
+	104, // 200: agen.v1.HubService.ListTriggerEvents:output_type -> agen.v1.ListTriggerEventsResponse
+	102, // 201: agen.v1.HubService.CreateWebhookSecret:output_type -> agen.v1.CreateWebhookSecretResponse
+	95,  // 202: agen.v1.HubService.SetSecret:output_type -> agen.v1.SetSecretResponse
+	98,  // 203: agen.v1.HubService.ListSecrets:output_type -> agen.v1.ListSecretsResponse
+	100, // 204: agen.v1.HubService.DeleteSecret:output_type -> agen.v1.DeleteSecretResponse
+	69,  // 205: agen.v1.HubService.ListRuns:output_type -> agen.v1.ListRunsResponse
+	89,  // 206: agen.v1.HubService.GetTrace:output_type -> agen.v1.GetTraceResponse
+	73,  // 207: agen.v1.HubService.GetTranscript:output_type -> agen.v1.GetTranscriptResponse
+	79,  // 208: agen.v1.HubService.GetMetrics:output_type -> agen.v1.GetMetricsResponse
+	87,  // 209: agen.v1.HubService.GetActivity:output_type -> agen.v1.GetActivityResponse
+	106, // 210: agen.v1.HubService.GetLogs:output_type -> agen.v1.GetLogsResponse
+	82,  // 211: agen.v1.HubService.ListEvents:output_type -> agen.v1.ListEventsResponse
+	13,  // 212: agen.v1.HubService.ListProviderHolds:output_type -> agen.v1.ListProviderHoldsResponse
+	15,  // 213: agen.v1.HubService.ResumeProvider:output_type -> agen.v1.ResumeProviderResponse
+	116, // 214: agen.v1.HubService.CreateJoinToken:output_type -> agen.v1.CreateJoinTokenResponse
+	108, // 215: agen.v1.HubService.CreateApiToken:output_type -> agen.v1.CreateApiTokenResponse
+	110, // 216: agen.v1.HubService.ListApiTokens:output_type -> agen.v1.ListApiTokensResponse
+	112, // 217: agen.v1.HubService.RevokeApiToken:output_type -> agen.v1.RevokeApiTokenResponse
+	114, // 218: agen.v1.HubService.RevokeNest:output_type -> agen.v1.RevokeNestResponse
+	27,  // 219: agen.v1.HubService.WhoAmI:output_type -> agen.v1.WhoAmIResponse
+	29,  // 220: agen.v1.HubService.GetBundleGuide:output_type -> agen.v1.GetBundleGuideResponse
+	18,  // 221: agen.v1.HubService.ListTemplates:output_type -> agen.v1.ListTemplatesResponse
+	21,  // 222: agen.v1.HubService.SetNotificationTarget:output_type -> agen.v1.SetNotificationTargetResponse
+	23,  // 223: agen.v1.HubService.ListNotificationTargets:output_type -> agen.v1.ListNotificationTargetsResponse
+	25,  // 224: agen.v1.HubService.DeleteNotificationTarget:output_type -> agen.v1.DeleteNotificationTargetResponse
+	1,   // 225: agen.v1.HubService.RecordFeedback:output_type -> agen.v1.RecordFeedbackResponse
+	11,  // 226: agen.v1.HubService.ListFeedback:output_type -> agen.v1.ListFeedbackResponse
+	4,   // 227: agen.v1.HubService.SetMemoryBlock:output_type -> agen.v1.SetMemoryBlockResponse
+	6,   // 228: agen.v1.HubService.ListMemoryBlocks:output_type -> agen.v1.ListMemoryBlocksResponse
+	8,   // 229: agen.v1.HubService.GetArtifact:output_type -> agen.v1.GetArtifactResponse
+	10,  // 230: agen.v1.HubService.ListArtifacts:output_type -> agen.v1.ListArtifactsResponse
+	179, // [179:231] is the sub-list for method output_type
+	127, // [127:179] is the sub-list for method input_type
+	127, // [127:127] is the sub-list for extension type_name
+	127, // [127:127] is the sub-list for extension extendee
+	0,   // [0:127] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_hub_proto_init() }
@@ -7786,7 +7955,7 @@ func file_agen_v1_hub_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_hub_proto_rawDesc), len(file_agen_v1_hub_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   129,
+			NumMessages:   131,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

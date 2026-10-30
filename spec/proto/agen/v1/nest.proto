@@ -31,6 +31,12 @@ service NestService {
   // terminal state, up to wait_seconds (3.3: call_agent's inline wait before
   // it suspends instead of erroring).
   rpc WaitTask(NestWaitTaskRequest) returns (NestWaitTaskResponse);
+  // Reports progress on a task this Nest currently leases (3.4, part).
+  // Low-stakes by design: unlike CompleteTask/SuspendTask there is no lease
+  // fencing (the engine does not carry its own lease id), so a stale or
+  // duplicate instance reporting progress after being fenced off is a
+  // harmless cosmetic race, not a correctness issue.
+  rpc ReportProgress(NestReportProgressRequest) returns (NestReportProgressResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -179,6 +185,13 @@ message NestWaitTaskRequest {
 message NestWaitTaskResponse {
   Task task = 1;
 }
+
+message NestReportProgressRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  TaskProgress progress = 3;
+}
+message NestReportProgressResponse {}
 
 message CreateApprovalRequest {
   Approval approval = 1;

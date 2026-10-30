@@ -36,6 +36,9 @@ service ManagerService {
   // (3.3: call_agent's unified delegation path starts a child task via
   // StartTask, then waits here before suspending instead of erroring).
   rpc WaitTask(WaitTaskRequest) returns (WaitTaskResponse);
+  // Reports progress on the calling instance's own current task (3.4,
+  // part: the report_progress built-in), not one it started.
+  rpc ReportProgress(ReportProgressRequest) returns (ReportProgressResponse);
 }
 
 message StartTaskRequest {
@@ -66,6 +69,12 @@ message WaitTaskRequest {
 message WaitTaskResponse {
   Task task = 1;
 }
+
+message ReportProgressRequest {
+  string task_id = 1;
+  TaskProgress progress = 2;
+}
+message ReportProgressResponse {}
 
 message RequestApprovalRequest {
   string instance_id = 1;

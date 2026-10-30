@@ -56,6 +56,9 @@ const (
 	ManagerServiceStartTaskProcedure = "/agen.v1.ManagerService/StartTask"
 	// ManagerServiceWaitTaskProcedure is the fully-qualified name of the ManagerService's WaitTask RPC.
 	ManagerServiceWaitTaskProcedure = "/agen.v1.ManagerService/WaitTask"
+	// ManagerServiceReportProgressProcedure is the fully-qualified name of the ManagerService's
+	// ReportProgress RPC.
+	ManagerServiceReportProgressProcedure = "/agen.v1.ManagerService/ReportProgress"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -226,6 +229,9 @@ type ManagerServiceClient interface {
 	// (3.3: call_agent's unified delegation path starts a child task via
 	// StartTask, then waits here before suspending instead of erroring).
 	WaitTask(context.Context, *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error)
+	// Reports progress on the calling instance's own current task (3.4,
+	// part: the report_progress built-in), not one it started.
+	ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -269,6 +275,12 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("WaitTask")),
 			connect.WithClientOptions(opts...),
 		),
+		reportProgress: connect.NewClient[v1.ReportProgressRequest, v1.ReportProgressResponse](
+			httpClient,
+			baseURL+ManagerServiceReportProgressProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("ReportProgress")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -279,6 +291,7 @@ type managerServiceClient struct {
 	resolve         *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
 	startTask       *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
 	waitTask        *connect.Client[v1.WaitTaskRequest, v1.WaitTaskResponse]
+	reportProgress  *connect.Client[v1.ReportProgressRequest, v1.ReportProgressResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -306,6 +319,11 @@ func (c *managerServiceClient) WaitTask(ctx context.Context, req *connect.Reques
 	return c.waitTask.CallUnary(ctx, req)
 }
 
+// ReportProgress calls agen.v1.ManagerService.ReportProgress.
+func (c *managerServiceClient) ReportProgress(ctx context.Context, req *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error) {
+	return c.reportProgress.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -322,6 +340,9 @@ type ManagerServiceHandler interface {
 	// (3.3: call_agent's unified delegation path starts a child task via
 	// StartTask, then waits here before suspending instead of erroring).
 	WaitTask(context.Context, *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error)
+	// Reports progress on the calling instance's own current task (3.4,
+	// part: the report_progress built-in), not one it started.
+	ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -361,6 +382,12 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("WaitTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceReportProgressHandler := connect.NewUnaryHandler(
+		ManagerServiceReportProgressProcedure,
+		svc.ReportProgress,
+		connect.WithSchema(managerServiceMethods.ByName("ReportProgress")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -373,6 +400,8 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceStartTaskHandler.ServeHTTP(w, r)
 		case ManagerServiceWaitTaskProcedure:
 			managerServiceWaitTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceReportProgressProcedure:
+			managerServiceReportProgressHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -400,4 +429,8 @@ func (UnimplementedManagerServiceHandler) StartTask(context.Context, *connect.Re
 
 func (UnimplementedManagerServiceHandler) WaitTask(context.Context, *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.WaitTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.ReportProgress is not implemented"))
 }

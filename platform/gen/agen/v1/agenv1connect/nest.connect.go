@@ -54,6 +54,9 @@ const (
 	NestServiceSuspendTaskProcedure = "/agen.v1.NestService/SuspendTask"
 	// NestServiceWaitTaskProcedure is the fully-qualified name of the NestService's WaitTask RPC.
 	NestServiceWaitTaskProcedure = "/agen.v1.NestService/WaitTask"
+	// NestServiceReportProgressProcedure is the fully-qualified name of the NestService's
+	// ReportProgress RPC.
+	NestServiceReportProgressProcedure = "/agen.v1.NestService/ReportProgress"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -104,6 +107,12 @@ type NestServiceClient interface {
 	// terminal state, up to wait_seconds (3.3: call_agent's inline wait before
 	// it suspends instead of erroring).
 	WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error)
+	// Reports progress on a task this Nest currently leases (3.4, part).
+	// Low-stakes by design: unlike CompleteTask/SuspendTask there is no lease
+	// fencing (the engine does not carry its own lease id), so a stale or
+	// duplicate instance reporting progress after being fenced off is a
+	// harmless cosmetic race, not a correctness issue.
+	ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -191,6 +200,12 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("WaitTask")),
 			connect.WithClientOptions(opts...),
 		),
+		reportProgress: connect.NewClient[v1.NestReportProgressRequest, v1.NestReportProgressResponse](
+			httpClient,
+			baseURL+NestServiceReportProgressProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("ReportProgress")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -259,6 +274,7 @@ type nestServiceClient struct {
 	releaseTask       *connect.Client[v1.ReleaseTaskRequest, v1.ReleaseTaskResponse]
 	suspendTask       *connect.Client[v1.SuspendTaskRequest, v1.SuspendTaskResponse]
 	waitTask          *connect.Client[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse]
+	reportProgress    *connect.Client[v1.NestReportProgressRequest, v1.NestReportProgressResponse]
 	createApproval    *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval       *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity    *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -313,6 +329,11 @@ func (c *nestServiceClient) SuspendTask(ctx context.Context, req *connect.Reques
 // WaitTask calls agen.v1.NestService.WaitTask.
 func (c *nestServiceClient) WaitTask(ctx context.Context, req *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error) {
 	return c.waitTask.CallUnary(ctx, req)
+}
+
+// ReportProgress calls agen.v1.NestService.ReportProgress.
+func (c *nestServiceClient) ReportProgress(ctx context.Context, req *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error) {
+	return c.reportProgress.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -383,6 +404,12 @@ type NestServiceHandler interface {
 	// terminal state, up to wait_seconds (3.3: call_agent's inline wait before
 	// it suspends instead of erroring).
 	WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error)
+	// Reports progress on a task this Nest currently leases (3.4, part).
+	// Low-stakes by design: unlike CompleteTask/SuspendTask there is no lease
+	// fencing (the engine does not carry its own lease id), so a stale or
+	// duplicate instance reporting progress after being fenced off is a
+	// harmless cosmetic race, not a correctness issue.
+	ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -466,6 +493,12 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("WaitTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceReportProgressHandler := connect.NewUnaryHandler(
+		NestServiceReportProgressProcedure,
+		svc.ReportProgress,
+		connect.WithSchema(nestServiceMethods.ByName("ReportProgress")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -540,6 +573,8 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceSuspendTaskHandler.ServeHTTP(w, r)
 		case NestServiceWaitTaskProcedure:
 			nestServiceWaitTaskHandler.ServeHTTP(w, r)
+		case NestServiceReportProgressProcedure:
+			nestServiceReportProgressHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -601,6 +636,10 @@ func (UnimplementedNestServiceHandler) SuspendTask(context.Context, *connect.Req
 
 func (UnimplementedNestServiceHandler) WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.WaitTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReportProgress is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

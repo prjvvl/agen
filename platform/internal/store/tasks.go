@@ -91,6 +91,9 @@ type Task struct {
 	// parent is its own root; set by SubmitTask when empty (so it is always
 	// populated, unlike RootRunID).
 	RootTaskID string
+	// Progress (3.4, part): the latest report_progress call, a JSON object
+	// ({step, done, total, note, artifacts}); "" if never called.
+	Progress string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -273,14 +276,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for, on_parent_end, root_task_id"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for, on_parent_end, root_task_id, progress"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels, locks string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor, &t.OnParentEnd, &t.RootTaskID)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor, &t.OnParentEnd, &t.RootTaskID, &t.Progress)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -424,6 +427,17 @@ func (s *Store) ListTaskTree(ctx context.Context, namespace, rootTaskID string) 
 		return nil, err
 	}
 	return scanTasks(rows)
+}
+
+// SetTaskProgress records a task's latest report_progress call (3.4,
+// part). A terminal or already-gone task is left alone: progress reported
+// after the fact is stale, not an error worth surfacing to the instance
+// that reported it (ReportProgress has no lease fencing).
+func (s *Store) SetTaskProgress(ctx context.Context, taskID, progressJSON string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET progress = $1, updated_ms = $2 WHERE id = $3 AND state IN ('queued', 'leased', 'running', 'waiting')",
+		progressJSON, NowMs(), taskID)
+	return err
 }
 
 // ListTasks filters by namespace, deployment and state ("" = any), newest first.

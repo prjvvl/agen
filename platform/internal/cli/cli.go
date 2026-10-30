@@ -67,6 +67,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
   agen tree <task-id>              every task of the tree it belongs to
+  agen query <task-id>             its progress, current activity and outcome, without waiting on it
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
   agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
@@ -107,7 +108,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		"run": e.cmdRun, "wait": e.cmdWait, "cancel": e.cmdCancel, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
 		"runs": e.cmdRuns, "providers": e.cmdProviders, "mcp": e.cmdMCP, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
-		"events": e.cmdEvents, "feedback": e.cmdFeedback, "memory": e.cmdMemory, "artifacts": e.cmdArtifacts, "tree": e.cmdTree,
+		"events": e.cmdEvents, "feedback": e.cmdFeedback, "memory": e.cmdMemory, "artifacts": e.cmdArtifacts, "tree": e.cmdTree, "query": e.cmdQuery,
 	}
 	switch args[0] {
 	case "version", "--version":

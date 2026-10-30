@@ -415,6 +415,20 @@ message Task {
   // (which names a run and is empty until that run starts), this is always
   // set, so GetTaskTree can resolve a tree from any task in it right away.
   string root_task_id = 40;
+  // The latest report_progress call (3.4, part); unset if the agent never
+  // called it.
+  TaskProgress progress = 41;
+}
+
+// A task's self-reported progress (3.4, part), from the built-in
+// report_progress tool. Only the latest value is kept here; task.progress
+// events are the history.
+message TaskProgress {
+  string step = 1;
+  bool done = 2;
+  int32 total = 3;
+  string note = 4;
+  repeated string artifacts = 5;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

@@ -102,6 +102,9 @@ pub trait TaskStarter: Send + Sync {
     /// reach a terminal state (3.3, part: `call_agent`'s unified delegation
     /// path, before it suspends instead of blocking indefinitely).
     async fn wait(&self, task_id: &str, wait: Duration) -> Result<WaitOutcome, String>;
+    /// Reports progress on the current task (3.4, part: the `report_progress`
+    /// built-in), not one it started.
+    async fn report_progress(&self, task_id: &str, progress: Value) -> Result<(), String>;
 }
 
 /// What waiting for a task found.
@@ -209,6 +212,26 @@ impl TaskStarter for ManagerResolver {
             }),
             _ => Ok(WaitOutcome::Pending),
         }
+    }
+
+    async fn report_progress(&self, task_id: &str, progress: Value) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/ReportProgress", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "progress": progress}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        if !resp.status().is_success() {
+            let v: Value = resp.json().await.unwrap_or(Value::Null);
+            return Err(format!(
+                "report progress for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(())
     }
 }
 

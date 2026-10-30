@@ -475,9 +475,32 @@ each run a last report turn, the Hub finishing stragglers after a grace
 period) is not built yet, nor is `tree=true` wired into `agen cancel`'s A2A
 counterpart.
 
-The rest of the "Tree" design (join/suspend-on-children, `detach`, hold,
-signals and progress) is not built yet — these three (parent-close,
-`GetTaskTree`, tree-wide cancel) are its first pieces.
+**Progress and query** (3.4, part: 2.33's query half and 2.34): the
+built-in `report_progress(step, done?, total?, note?, artifacts?)` tool —
+registered unconditionally in `AgentBuilder::build()`, like `finish` and
+`save_artifact` — calls out to the Manager (`ManagerService.ReportProgress`
+→ `NestService.ReportProgress`, mirroring `WaitTask`'s engine-initiated
+round trip) when one is configured (`AgentBuilder::task_starter`; outside
+managed mode the tool no-ops with a friendly result instead of erroring).
+`NestAPI.ReportProgress` is deliberately low-stakes: unlike
+`CompleteTask`/`SuspendTask` there is no lease fencing (the engine has no
+lease id to send), just `requireNest` and a no-op on an already-terminal
+task, since the engine has no way to know that before calling. It stores
+the latest value on `Task.progress` and appends a `task.progress` event,
+rate-limited to one per 10-second bucket per task (`AppendEventOnce` with
+a `progress:<task>:<bucket>` dedupe key) — the event log is the history,
+the column only ever holds the latest. `QueryTask(id)` reads it back
+alongside a simplified cut of `GetActivity`'s own per-run activity
+(`model`/`tool`/`idle`/`approval`, from the task's open span and pending
+approval; not `agent` for one waiting on a delegate, and none of
+`GetActivity`'s fleet-wide warnings) and the outcome, without `GetTask`'s
+`wait_seconds` — a lighter read for a caller or a person checking in on
+long work. `signal_agent`/`query_agent` (2.33's other half, `SignalTask`)
+are not built yet.
+
+The rest of the "Tree" design (join/suspend-on-children, `detach`, hold
+and signals) is not built yet — these four (parent-close, `GetTaskTree`,
+tree-wide cancel, progress/query) are its first pieces.
 
 ## 7. Engine model
 

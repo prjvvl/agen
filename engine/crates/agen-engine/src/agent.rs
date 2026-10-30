@@ -263,6 +263,9 @@ pub struct AgentBuilder {
     approver: Arc<dyn Approver>,
     owner: Option<String>,
     mcp: Option<crate::mcp::McpConnections>,
+    /// Backs the always-on `report_progress` tool (3.4, part): reports to
+    /// the Manager when set, no-ops with a friendly message otherwise.
+    task_starter: Option<Arc<dyn crate::delegate::TaskStarter>>,
 }
 
 impl AgentBuilder {
@@ -297,6 +300,11 @@ impl AgentBuilder {
         self.owner = Some(owner.into());
         self
     }
+    /// Backs `report_progress` (3.4, part); unset: it no-ops.
+    pub fn task_starter(mut self, s: Arc<dyn crate::delegate::TaskStarter>) -> Self {
+        self.task_starter = Some(s);
+        self
+    }
     pub fn build(mut self) -> Result<Agent, AgentError> {
         let provider = self
             .provider
@@ -326,6 +334,15 @@ impl AgentBuilder {
         {
             self.tools
                 .push(Arc::new(crate::artifacts::ReadArtifact::new(self.store.clone())));
+        }
+        if !self
+            .tools
+            .iter()
+            .any(|t| t.spec().name == crate::progress::REPORT_PROGRESS)
+        {
+            self.tools.push(Arc::new(crate::progress::ReportProgress::new(
+                self.task_starter.clone(),
+            )));
         }
         let mut wire: std::collections::BTreeMap<String, String> = Default::default();
         for t in self.tools {
@@ -446,6 +463,7 @@ impl Agent {
             approver: Arc::new(DenyAll),
             owner: None,
             mcp: None,
+            task_starter: None,
         }
     }
 
@@ -554,6 +572,9 @@ impl Agent {
                     )));
                 }
             }
+        }
+        if let Some(starter) = opts.task_starter.clone() {
+            b = b.task_starter(starter);
         }
         if !bundle.config.memory.is_empty() {
             b = b.tool(Arc::new(crate::memory::MemoryUpdate::new(

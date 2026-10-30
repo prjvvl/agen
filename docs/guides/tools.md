@@ -151,6 +151,26 @@ does not crowd out everything else the model is holding onto.
   over-long result as an artifact on its own, and carrying artifacts over
   A2A.
 
+## Progress
+
+Every agent in a fleet (not standalone or embedded use, which have no
+platform to report to) has a built-in `report_progress(step, done?,
+total?, note?, artifacts?)` tool, same as `save_artifact`: not gated by
+config or permissions. Use it for work with several steps or an
+open-ended duration, so whoever is watching the task sees more than
+"running".
+
+```json
+{ "name": "report_progress", "arguments": { "step": "reading page 3 of 12", "total": 12 } }
+```
+
+- Only the latest call is kept on the task; each call is also a
+  rate-limited `task.progress` event (at most one every 10 seconds), so
+  the event log has the history even though the task does not.
+- People read it with `agen query <task-id>` (progress, current activity
+  and outcome, without waiting like `agen wait` does) or `QueryTask`.
+- It does not end the run — keep working, or call `finish` when done.
+
 ## What a tool server is told
 
 Every call carries the work it belongs to in the MCP request's `_meta`, so a
