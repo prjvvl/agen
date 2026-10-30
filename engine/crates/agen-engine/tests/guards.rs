@@ -161,6 +161,7 @@ async fn denied_tools_are_hidden() {
     cfg.permissions.rules = vec![PermissionRule {
         tool: "danger".into(),
         action: Action::Deny,
+        when: None,
     }];
     let p = Arc::new(FakeProvider::new(vec![
         call("danger", json!({})),

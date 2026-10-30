@@ -227,6 +227,8 @@ message WhoAmIResponse {
   repeated string scopes = 3;
   // Empty means every namespace.
   repeated string namespaces = 4;
+  // The trust tasks submitted with this token get (3.7).
+  string trust = 5;
 }
 
 message GetBundleGuideRequest {}
@@ -360,6 +362,9 @@ message SubmitTaskRequest {
   // Lease order within this deployment's queue: urgent, high, normal or
   // background. Empty: normal.
   string priority = 11;
+  // A trust at most this high (3.7): narrows the submitting principal's
+  // own trust, never raises it. Empty: the principal's trust as is.
+  string trust = 12;
 }
 message SubmitTaskResponse {
   Task task = 1;
@@ -744,6 +749,9 @@ message CreateApiTokenRequest {
   // with the scopes and namespaces that both this token and the task's
   // submitter hold. It can never decide approvals.
   bool on_behalf = 5;
+  // The trust tasks submitted with this token get (3.7): operator, trusted
+  // (default) or untrusted.
+  string trust = 6;
 }
 message CreateApiTokenResponse {
   ApiToken token = 1;

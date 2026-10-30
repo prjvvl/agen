@@ -738,12 +738,22 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	if err := validateOverrides(m.Overrides); err != nil {
 		return nil, invalid(err.Error())
 	}
+	if err := checkTrust(m.Trust); err != nil {
+		return nil, invalid(err.Error())
+	}
+	trust := m.Trust
+	if trust == "" {
+		trust = "trusted"
+	}
+	// Never more trusted than the parent's own task, even if a stale
+	// caller reports a higher trust than it was started with.
+	trust = narrowTrust(trust, parent.Trust)
 	parentOv, _ := store.ParseOverrides(parent.Overrides)
 	effective := store.CombineOverrides(parentOv, overridesFromProto(m.Overrides))
 	child := store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
 		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
 		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks),
-		ModelTier: m.ModelTier, Overrides: effective.JSON()}
+		ModelTier: m.ModelTier, Overrides: effective.JSON(), Trust: trust}
 	if m.ReplyConversationKey != "" {
 		child.ReplyDeployment, child.ReplyConversationKey = parent.Deployment, m.ReplyConversationKey
 	}

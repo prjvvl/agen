@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::bundle::{Delegate, Limits};
+use crate::bundle::{Delegate, Limits, Trust};
 use crate::provider::ToolSpec;
 use crate::store::Store;
 use crate::tools::{Tool, ToolContext, ToolError};
@@ -112,6 +112,9 @@ pub struct StartRequest<'a> {
     /// Narrows what the child may do (only for delegates with `overrides: true`).
     pub overrides: Option<&'a crate::overrides::TaskOverrides>,
     pub model_tier: &'a str,
+    /// The caller's trust right now; the child inherits it as is (a child
+    /// never has higher trust than its caller's current state).
+    pub trust: Trust,
 }
 
 #[async_trait]
@@ -130,6 +133,7 @@ impl TaskStarter for ManagerResolver {
                 "idempotencyKey": req.idempotency_key,
                 "overrides": req.overrides,
                 "modelTier": req.model_tier,
+                "trust": req.trust.as_str(),
             }))
             .timeout(Duration::from_secs(60))
             .send()
@@ -321,6 +325,7 @@ impl Tool for StartAgent {
                 idempotency_key: &format!("start:{call_key}"),
                 overrides: overrides.as_ref(),
                 model_tier,
+                trust: ctx.trust,
             })
             .await
             .map_err(ToolError::new)?;

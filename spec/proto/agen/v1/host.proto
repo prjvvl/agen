@@ -48,6 +48,8 @@ message StartTaskRequest {
   TaskOverrides overrides = 7;
   // Cost tier for a routing model.
   string model_tier = 8;
+  // The caller's trust right now (3.7); the child inherits it as is.
+  string trust = 9;
 }
 message StartTaskResponse {
   Task task = 1;

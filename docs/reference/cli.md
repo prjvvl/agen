@@ -366,6 +366,8 @@ Usage of run:
     	how long to wait for the result (0: no limit); the task keeps running after it (default 10m0s)
   -token string
     	API token
+  -trust string
+    	a trust at most this high: operator, trusted or untrusted (default: the token's own)
 ```
 
 ## agen wait
@@ -697,6 +699,8 @@ Usage of token create:
     	scope (repeatable)
   -token string
     	API token
+  -trust string
+    	trust tasks submitted with this token get: operator, trusted (default) or untrusted
   -ttl duration
     	validity (0 = no expiry)
 ```

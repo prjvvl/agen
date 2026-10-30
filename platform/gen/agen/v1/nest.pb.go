@@ -1529,8 +1529,10 @@ type SubmitChildTaskRequest struct {
 	// deployment with this conversation key once the child ends.
 	ReplyConversationKey string `protobuf:"bytes,11,opt,name=reply_conversation_key,json=replyConversationKey,proto3" json:"reply_conversation_key,omitempty"`
 	// The child's overrides (combined with the parent's by the Hub).
-	Overrides     *TaskOverrides `protobuf:"bytes,12,opt,name=overrides,proto3" json:"overrides,omitempty"`
-	ModelTier     string         `protobuf:"bytes,13,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
+	Overrides *TaskOverrides `protobuf:"bytes,12,opt,name=overrides,proto3" json:"overrides,omitempty"`
+	ModelTier string         `protobuf:"bytes,13,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
+	// The caller's trust right now (3.7); the child inherits it as is.
+	Trust         string `protobuf:"bytes,14,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1652,6 +1654,13 @@ func (x *SubmitChildTaskRequest) GetOverrides() *TaskOverrides {
 func (x *SubmitChildTaskRequest) GetModelTier() string {
 	if x != nil {
 		return x.ModelTier
+	}
+	return ""
+}
+
+func (x *SubmitChildTaskRequest) GetTrust() string {
+	if x != nil {
+		return x.Trust
 	}
 	return ""
 }
@@ -1807,7 +1816,7 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\x15ReportActivityRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x1c\n" +
 	"\tsaturated\x18\x02 \x01(\bR\tsaturated\"\x18\n" +
-	"\x16ReportActivityResponse\"\xe8\x03\n" +
+	"\x16ReportActivityResponse\"\xfe\x03\n" +
 	"\x16SubmitChildTaskRequest\x12\x17\n" +
 	"\anest_id\x18\x01 \x01(\tR\x06nestId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -1824,7 +1833,8 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\x16reply_conversation_key\x18\v \x01(\tR\x14replyConversationKey\x124\n" +
 	"\toverrides\x18\f \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x12\x1d\n" +
 	"\n" +
-	"model_tier\x18\r \x01(\tR\tmodelTier\"<\n" +
+	"model_tier\x18\r \x01(\tR\tmodelTier\x12\x14\n" +
+	"\x05trust\x18\x0e \x01(\tR\x05trust\"<\n" +
 	"\x17SubmitChildTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task2\xee\t\n" +
 	"\vNestService\x129\n" +

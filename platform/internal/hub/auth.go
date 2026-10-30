@@ -38,6 +38,9 @@ type Principal struct {
 	// resolved for a call, ActingFor names the token it acted through.
 	OnBehalf  bool
 	ActingFor string
+	// Trust (3.7): the trust tasks it submits get. "operator" for the
+	// admin bearer token; a stored token's own Trust, or "trusted" if unset.
+	Trust string
 }
 
 // Can reports whether the principal holds scope (directly or implied).
@@ -118,13 +121,17 @@ func (a *Auth) Authenticate(ctx context.Context, secret string) (Principal, erro
 		return Principal{}, errors.New("missing bearer token")
 	}
 	if a.AdminToken != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(a.AdminToken)) == 1 {
-		return Principal{ID: "admin", Scopes: map[string]bool{ScopeAdmin: true}}, nil
+		return Principal{ID: "admin", Scopes: map[string]bool{ScopeAdmin: true}, Trust: "operator"}, nil
 	}
 	t, err := a.Store.LookupAPIToken(ctx, secret)
 	if err != nil {
 		return Principal{}, errors.New("invalid or revoked token")
 	}
-	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces, OnBehalf: t.OnBehalf}
+	trust := t.Trust
+	if trust == "" {
+		trust = "trusted"
+	}
+	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces, OnBehalf: t.OnBehalf, Trust: trust}
 	for _, s := range t.Scopes {
 		p.Scopes[s] = true
 	}

@@ -35,7 +35,9 @@ type StartTaskRequest struct {
 	// Narrow what the child may do (only for delegates with overrides on).
 	Overrides *TaskOverrides `protobuf:"bytes,7,opt,name=overrides,proto3" json:"overrides,omitempty"`
 	// Cost tier for a routing model.
-	ModelTier     string `protobuf:"bytes,8,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
+	ModelTier string `protobuf:"bytes,8,opt,name=model_tier,json=modelTier,proto3" json:"model_tier,omitempty"`
+	// The caller's trust right now (3.7); the child inherits it as is.
+	Trust         string `protobuf:"bytes,9,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,6 +124,13 @@ func (x *StartTaskRequest) GetOverrides() *TaskOverrides {
 func (x *StartTaskRequest) GetModelTier() string {
 	if x != nil {
 		return x.ModelTier
+	}
+	return ""
+}
+
+func (x *StartTaskRequest) GetTrust() string {
+	if x != nil {
+		return x.Trust
 	}
 	return ""
 }
@@ -792,7 +801,7 @@ var File_agen_v1_host_proto protoreflect.FileDescriptor
 
 const file_agen_v1_host_proto_rawDesc = "" +
 	"\n" +
-	"\x12agen/v1/host.proto\x12\aagen.v1\x1a\x11agen/v1/hub.proto\x1a\x17agen/v1/resources.proto\"\xbf\x02\n" +
+	"\x12agen/v1/host.proto\x12\aagen.v1\x1a\x11agen/v1/hub.proto\x1a\x17agen/v1/resources.proto\"\xd5\x02\n" +
 	"\x10StartTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12\x15\n" +
@@ -802,7 +811,8 @@ const file_agen_v1_host_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\x124\n" +
 	"\toverrides\x18\a \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x12\x1d\n" +
 	"\n" +
-	"model_tier\x18\b \x01(\tR\tmodelTier\"6\n" +
+	"model_tier\x18\b \x01(\tR\tmodelTier\x12\x14\n" +
+	"\x05trust\x18\t \x01(\tR\x05trust\"6\n" +
 	"\x11StartTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\"\xac\x01\n" +
 	"\x16RequestApprovalRequest\x12\x1f\n" +

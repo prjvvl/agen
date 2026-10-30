@@ -132,6 +132,7 @@ async fn permissions_deny_ask_allow() {
         rules: vec![PermissionRule {
             tool: "add".into(),
             action: Action::Deny,
+            when: None,
         }],
     };
     let p = Arc::new(FakeProvider::new(vec![

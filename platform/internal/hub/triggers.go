@@ -114,6 +114,9 @@ func validateWebhook(t *agenv1.Trigger) error {
 			return fmt.Errorf("auth type must be bearer or hmac, not %q", a.Type)
 		}
 	}
+	if err := checkTrust(t.Trust); err != nil {
+		return err
+	}
 	return store.CheckLabels(t.Labels)
 }
 
@@ -333,7 +336,7 @@ func (s *Scheduler) fire(ctx context.Context, d store.Deployment, t *agenv1.Trig
 	st := s.Hub.Store
 	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: t.Input, Source: "cron:" + t.Name,
 		IdempotencyKey: fmt.Sprintf("cron:%s:%d", t.Name, at.UnixMilli()), SubmittedBy: "trigger:cron:" + t.Name, Labels: t.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), Trust: "trusted"})
 	if err != nil {
 		return err
 	}
@@ -449,9 +452,13 @@ func (h *Hub) WebhookHandler() (string, http.Handler) {
 		}
 		key := scopedKey("webhook:"+trig+":", k)
 		conversation := scopedKey("webhook:"+trig+":", ck)
+		trust := t.Trust
+		if trust == "" {
+			trust = "untrusted"
+		}
 		task, err := h.Store.SubmitTask(ctx, store.Task{Namespace: ns, Deployment: name, Input: input, Source: "webhook:" + trig,
 			IdempotencyKey: key, SubmittedBy: "trigger:webhook:" + trig, ConversationKey: conversation, Labels: t.Labels,
-			MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+			MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), Trust: trust})
 		if errors.Is(err, store.ErrQueueFull) {
 			reply(http.StatusTooManyRequests, map[string]string{"error": err.Error()})
 			return

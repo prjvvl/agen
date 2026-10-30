@@ -21,7 +21,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use crate::bundle::{default_limits, Action, Budget, Bundle, Limits, PermissionRule, Permissions, Skill};
+use crate::bundle::{default_limits, Action, Budget, Bundle, Limits, PermissionRule, Permissions, Skill, Trust};
 use crate::outcome::RunOutcome;
 use crate::permissions;
 use crate::provider::{self, Message, ModelProvider, ModelRequest, ProviderError, Role, ToolCall, Usage};
@@ -197,6 +197,10 @@ pub struct RunOptions {
     /// What this run may do, narrower than the bundle (already combined
     /// with every ancestor task's overrides, if any).
     pub overrides: Option<crate::overrides::TaskOverrides>,
+    /// The task's trust at the start of the run (a child's is its caller's
+    /// *current* trust, already lowered by any taint the caller picked up).
+    /// Never raised during the run, only lowered by taint.
+    pub trust: Trust,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -362,10 +366,13 @@ struct Live {
     turns: Vec<u64>,
     /// The run was told once that it repeats itself.
     stuck_nudged: bool,
+    /// The run's trust right now: starts at the task's and only ever drops,
+    /// when a tool whose result may carry untrusted content is called.
+    current_trust: Mutex<Trust>,
 }
 
 impl Live {
-    fn new(rec: RunRecord, epoch: i64) -> Self {
+    fn new(rec: RunRecord, epoch: i64, trust: Trust) -> Self {
         Self {
             rec,
             epoch,
@@ -376,7 +383,24 @@ impl Live {
             errors: Default::default(),
             turns: vec![],
             stuck_nudged: false,
+            current_trust: Mutex::new(trust),
         }
+    }
+
+    /// The run's trust right now.
+    fn trust(&self) -> Trust {
+        *self.current_trust.lock().unwrap()
+    }
+
+    /// Lowers the run's trust to untrusted if it isn't already, returning
+    /// true the first time (so the caller logs it once).
+    fn lower_trust(&self) -> bool {
+        let mut t = self.current_trust.lock().unwrap();
+        if *t == Trust::Untrusted {
+            return false;
+        }
+        *t = Trust::Untrusted;
+        true
     }
 
     /// Time the run has worked, excluding approval waits.
@@ -675,7 +699,8 @@ impl Agent {
         self.store
             .checkpoint(&run_id, epoch, &conversation_id, Some(&first), None)
             .await?;
-        self.drive(Live::new(rec, epoch), &parent, "agen.run", opts).await
+        self.drive(Live::new(rec, epoch, opts.trust), &parent, "agen.run", opts)
+            .await
     }
 
     /// Take ownership of an unfinished run and continue it from its last
@@ -701,7 +726,7 @@ impl Agent {
             self.store.insert_span(&old).await?;
             parent.span_id = old.span_id;
         }
-        self.drive(Live::new(rec, epoch), &parent, "agen.run.resume", &opts)
+        self.drive(Live::new(rec, epoch, opts.trust), &parent, "agen.run.resume", &opts)
             .await
     }
 
@@ -903,8 +928,10 @@ impl Agent {
             }
             // Calls that may wait for an approval run one at a time, so the
             // run's waiting state and the approval order stay simple.
-            let concurrent =
-                self.cfg.parallel_tool_calls && pending.iter().all(|c| self.policy(opts, &c.name) != Action::Ask);
+            let concurrent = self.cfg.parallel_tool_calls
+                && pending
+                    .iter()
+                    .all(|c| self.policy(opts, &c.name, live.trust()) != Action::Ask);
             let width = if concurrent { pending.len().max(1) } else { 1 };
             let shared: &Live = live;
             let mut results = futures_util::stream::iter(pending.into_iter().map(|call| async move {
@@ -982,7 +1009,7 @@ impl Agent {
                 model: self.cfg.model.clone(),
                 system: self.redactor.redact(&self.system_prompt(opts)),
                 messages: self.request_messages(&live.rec).await?,
-                tools: self.visible_tools(opts),
+                tools: self.visible_tools(live, opts),
                 temperature: self.cfg.temperature,
                 max_output_tokens: self.output_cap(opts, &live.rec.usage),
                 extra: Default::default(),
@@ -1088,11 +1115,11 @@ impl Agent {
     }
 
     /// The tools the model is offered: all but those its permissions deny.
-    fn visible_tools(&self, opts: &RunOptions) -> Vec<crate::provider::ToolSpec> {
+    fn visible_tools(&self, live: &Live, opts: &RunOptions) -> Vec<crate::provider::ToolSpec> {
         self.tools
             .specs()
             .into_iter()
-            .filter(|t| self.policy(opts, &t.name) != Action::Deny)
+            .filter(|t| self.policy(opts, &t.name, live.trust()) != Action::Deny)
             .collect()
     }
 
@@ -1133,18 +1160,18 @@ impl Agent {
     /// a tool outside its `tools` allowlist is denied outright, and its
     /// extra `permissions` rules (deny/ask only) are checked alongside the
     /// bundle's own.
-    fn policy(&self, opts: &RunOptions, tool: &str) -> Action {
+    fn policy(&self, opts: &RunOptions, tool: &str, trust: Trust) -> Action {
         if self.finish && tool == crate::outcome::FINISH {
             return Action::Allow;
         }
         let Some(ov) = &opts.overrides else {
-            return permissions::evaluate(&self.cfg.permissions, tool);
+            return permissions::evaluate(&self.cfg.permissions, tool, trust);
         };
         if !override_allows_tool(ov, tool) {
             return Action::Deny;
         }
         if ov.permissions.is_empty() {
-            return permissions::evaluate(&self.cfg.permissions, tool);
+            return permissions::evaluate(&self.cfg.permissions, tool, trust);
         }
         let mut rules: Vec<PermissionRule> = ov
             .permissions
@@ -1158,6 +1185,7 @@ impl Agent {
                 action.map(|action| PermissionRule {
                     tool: r.tool.clone(),
                     action,
+                    when: None,
                 })
             })
             .collect();
@@ -1167,7 +1195,7 @@ impl Agent {
             rules,
             approval_timeout: self.cfg.permissions.approval_timeout.clone(),
         };
-        permissions::evaluate(&combined, tool)
+        permissions::evaluate(&combined, tool, trust)
     }
 
     /// The outcome of an accepted `finish` call in the run's last turn.
@@ -1240,7 +1268,7 @@ impl Agent {
             model: self.cfg.model.clone(),
             system: self.redactor.redact(&self.system_prompt(opts)),
             messages: self.request_messages(&live.rec).await?,
-            tools: self.visible_tools(opts),
+            tools: self.visible_tools(live, opts),
             temperature: self.cfg.temperature,
             max_output_tokens: Some(self.cfg.report_tokens),
             extra,
@@ -1711,7 +1739,7 @@ impl Agent {
                 ));
             }
         }
-        let decision = self.policy(opts, &call.name);
+        let decision = self.policy(opts, &call.name, live.trust());
         span.set("agen.permission.action", format!("{decision:?}").to_lowercase());
         match decision {
             Action::Deny => {
@@ -1767,6 +1795,14 @@ impl Agent {
             }
             Action::Allow => {}
         }
+        if tool.untrusted_output() && live.lower_trust() {
+            span.set("agen.trust.lowered", call.name.clone());
+            self.log(
+                "warn",
+                &format!("run {}: trust lowered to untrusted after calling {}", run.id, call.name),
+            )
+            .await;
+        }
         let tctx = ToolContext {
             namespace: self.cfg.namespace.clone(),
             deployment: self.cfg.deployment.clone(),
@@ -1786,6 +1822,7 @@ impl Agent {
                 run.root_run_id.clone()
             },
             depth: opts.depth,
+            trust: live.trust(),
         };
         if !tool.side_effect() {
             let r = self.invoke(tool.as_ref(), call, tctx).await;

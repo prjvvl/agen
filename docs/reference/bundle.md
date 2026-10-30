@@ -136,11 +136,11 @@ See [Giving agents tools](../guides/tools.md).
 | `scale` | `min`, `max`, `targetQueuePerInstance`, `idleTimeout` (`30s`, `5m`, ...), `maxConcurrency` (tasks per instance). |
 | `budget` | `maxTokensPerRun`, `maxUsdPerRun`, `maxUsdPerDay`. See [Budgets and limits](../guides/budgets.md). |
 | `limits` | `maxRunDuration`, `maxIdenticalToolCalls`, `modelRequestTimeout`, `toolTimeout`, `maxQueuedTasks`, `maxDelegationDepth`, `maxFanOut`, `maxTotalDelegations`, `reportTokens`, `stuckRepeats`, each with a default. See [Budgets and limits](../guides/budgets.md#limits). |
-| `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action"}]`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
-| `triggers` | Cron and webhook triggers. See [Triggers](../guides/triggers.md). |
+| `permissions` | `default` (`allow`, `ask`, `deny`; default `ask`), `rules` (`[{"tool", "action", "when"}]`, `when`: `{"trust", "trustBelow"}`), `approvalTimeout`, `notify` (`url`, `secret`). See [Permissions](../guides/permissions.md). |
+| `triggers` | Cron and webhook triggers (webhooks also take `trust`, cron takes `jitter`, `catchUpWindow`, `overlap`, `minStartSpacing`). See [Triggers](../guides/triggers.md). |
 | `alerts` | `quietRun`, `waitingApproval`, `queueWaiting` (`10m`, ...): when the Hub warns about this deployment. See [Events](../guides/events.md). |
 | `delegates` | `[{"name", "namespace", "url", "description", "overrides"}]`: deployments the agent may call. `overrides: true` lets `start_agent` narrow this delegate's brief (see [Connecting agents](../guides/agents.md#narrowing-a-workers-brief)). |
-| `tools` | Per tool (`"<server>.<tool>"`): `sideEffect`, `idempotent`. See [Giving agents tools](../guides/tools.md#side-effects-and-retries). |
+| `tools` | Per tool (`"<server>.<tool>"`): `sideEffect`, `idempotent`, `untrustedOutput`. See [Giving agents tools](../guides/tools.md#side-effects-and-retries) and [Trust and taint](../guides/permissions.md#trust-and-taint). |
 | `workspace` | Reserved. |
 
 Deploy-time settings (`kind`, `scale`, `budget`, `limits`, `triggers`) can be

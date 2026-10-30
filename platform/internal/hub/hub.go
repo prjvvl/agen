@@ -439,13 +439,20 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkPriority(req.Msg.Priority); err != nil {
 		return nil, err
 	}
+	if err := checkTrust(req.Msg.Trust); err != nil {
+		return nil, err
+	}
 	if err := validateOverrides(req.Msg.Overrides); err != nil {
 		return nil, invalid(err.Error())
+	}
+	trust := PrincipalFrom(ctx).Trust
+	if req.Msg.Trust != "" {
+		trust = narrowTrust(trust, req.Msg.Trust)
 	}
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
 		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier, Overrides: overridesFromProto(req.Msg.Overrides).JSON(),
-		ScheduleKey: req.Msg.ScheduleKey, Priority: req.Msg.Priority}
+		ScheduleKey: req.Msg.ScheduleKey, Priority: req.Msg.Priority, Trust: trust}
 	if nb := req.Msg.GetNotBefore(); nb != nil {
 		at := nb.AsTime()
 		if at.After(time.Now().Add(maxScheduleAhead)) {
@@ -498,6 +505,10 @@ func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deploym
 	parentOv, _ := store.ParseOverrides(parent.Overrides)
 	childOv, _ := store.ParseOverrides(t.Overrides)
 	t.Overrides = store.CombineOverrides(parentOv, childOv).JSON()
+	// Never more trusted than the parent's own task (its stored trust; a
+	// live run further tainted mid-run reports that directly through
+	// start_agent/call_agent instead, which this header-based path is not).
+	t.Trust = narrowTrust(t.Trust, parent.Trust)
 	if runID := hdr.Get(RunHeader); runID != "" {
 		if run, err := h.Store.GetRun(ctx, runID); err == nil && run.TaskID == parent.ID {
 			t.ParentRunID, t.Traceparent = run.ID, hdr.Get("Traceparent")
@@ -1051,7 +1062,10 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 	if !PrincipalFrom(ctx).AllowsAllOf(req.Msg.Namespaces) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("a token limited to namespaces can only create tokens limited to some of them"))
 	}
-	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf)
+	if err := checkTrust(req.Msg.Trust); err != nil {
+		return nil, err
+	}
+	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf, req.Msg.Trust)
 	if err != nil {
 		return nil, connectErr(err)
 	}
@@ -1059,7 +1073,7 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 }
 
 func tokenProto(t store.APIToken) *agenv1.ApiToken {
-	return &agenv1.ApiToken{Id: t.ID, Name: t.Name, Scopes: t.Scopes, Namespaces: t.Namespaces, CreatedAt: ms(t.CreatedMs), ExpiresAt: ms(t.ExpiresMs), Revoked: t.Revoked, OnBehalf: t.OnBehalf}
+	return &agenv1.ApiToken{Id: t.ID, Name: t.Name, Scopes: t.Scopes, Namespaces: t.Namespaces, CreatedAt: ms(t.CreatedMs), ExpiresAt: ms(t.ExpiresMs), Revoked: t.Revoked, OnBehalf: t.OnBehalf, Trust: t.Trust}
 }
 
 func (h *Hub) ListApiTokens(ctx context.Context, _ *connect.Request[agenv1.ListApiTokensRequest]) (*connect.Response[agenv1.ListApiTokensResponse], error) {

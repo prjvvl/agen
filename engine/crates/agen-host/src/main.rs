@@ -313,6 +313,9 @@ struct TaskIn {
     model_tier: String,
     budget_pressure: bool,
     overrides: Option<agen_engine::overrides::TaskOverrides>,
+    /// "operator", "trusted" or "untrusted"; "" (an older caller) means
+    /// trusted.
+    trust: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -553,6 +556,7 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         traceparent: (!traceparent.is_empty()).then_some(traceparent),
         cancel,
         overrides: req.task.overrides,
+        trust: agen_engine::bundle::Trust::parse(&req.task.trust),
         ..Default::default()
     };
     // Run detached from the request: if the caller disconnects, the run

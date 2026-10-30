@@ -12,7 +12,7 @@ use agen_engine::store::{RunStatus, Store};
 use async_trait::async_trait;
 use serde_json::json;
 
-type Recorded = (String, String, String, String, Option<TaskOverrides>, String);
+type Recorded = (String, String, String, String, Option<TaskOverrides>, String, String);
 
 #[derive(Default)]
 struct Recorder(Mutex<Vec<Recorded>>);
@@ -27,6 +27,7 @@ impl TaskStarter for Recorder {
             req.idempotency_key.to_string(),
             req.overrides.cloned(),
             req.model_tier.to_string(),
+            req.trust.as_str().to_string(),
         ));
         Ok("task-1".into())
     }
@@ -88,12 +89,13 @@ async fn start_agent_queues_and_returns_at_once() {
     assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
     let calls = rec.0.lock().unwrap().clone();
     assert_eq!(calls.len(), 1);
-    let (name, input, key, idem, overrides, tier) = &calls[0];
+    let (name, input, key, idem, overrides, tier, trust) = &calls[0];
     assert_eq!((name.as_str(), input.as_str()), ("writer", "do the long thing"));
     assert!(key.starts_with("async:"), "{key}");
     assert!(idem.starts_with(&format!("start:{}.", r.run_id)), "{idem}");
     assert_eq!(overrides, &None, "no overrides given, none sent");
     assert_eq!(tier, "");
+    assert_eq!(trust, "trusted", "the caller's own trust (no taint yet)");
     // The key is the session's from now on (a second ensure is the same).
     let again = store.ensure_conversation_key(&r.conversation_id).await.unwrap();
     assert_eq!(&again, key);
@@ -174,9 +176,75 @@ async fn start_agent_passes_overrides_only_to_delegates_that_accept_them() {
     assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
     let calls = rec.0.lock().unwrap().clone();
     assert_eq!(calls.len(), 1, "writer's call was refused before reaching the starter");
-    let (.., overrides, tier) = &calls[0];
+    let (.., overrides, tier, _trust) = &calls[0];
     let o = overrides.clone().expect("worker accepts overrides");
     assert_eq!(o.tools, vec!["read.*"]);
     assert_eq!(o.budget.unwrap().max_tokens, Some(2000));
     assert_eq!(tier, "low");
+}
+
+// A run that has been tainted (called an untrusted-output tool) starts its
+// child at its own current trust, not the task's original one.
+#[tokio::test]
+async fn start_agent_passes_the_callers_current_trust_not_its_original_one() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open_sqlite_path(&d.path().join("t.db")).await.unwrap());
+    let rec = Arc::new(Recorder::default());
+    let delegates = vec![agen_engine::bundle::Delegate {
+        name: "writer".into(),
+        ..Default::default()
+    }];
+    let tool = Arc::new(StartAgent::new(
+        delegates,
+        "default",
+        rec.clone(),
+        Limits::default(),
+        store.clone(),
+    ));
+    struct Fetch;
+    #[async_trait]
+    impl agen_engine::tools::Tool for Fetch {
+        fn spec(&self) -> agen_engine::provider::ToolSpec {
+            agen_engine::provider::ToolSpec {
+                name: "fetch".into(),
+                description: "Read a page".into(),
+                parameters: json!({"type": "object"}),
+            }
+        }
+        fn side_effect(&self) -> bool {
+            false
+        }
+        fn untrusted_output(&self) -> bool {
+            true
+        }
+        async fn call(
+            &self,
+            _args: serde_json::Value,
+            _ctx: agen_engine::tools::ToolContext,
+        ) -> Result<String, agen_engine::tools::ToolError> {
+            Ok("page content".into())
+        }
+    }
+    let p = Arc::new(FakeProvider::new(vec![
+        FakeResponse {
+            tool_calls: vec![ScriptedToolCall {
+                name: "fetch".into(),
+                arguments: json!({}),
+            }],
+            ..Default::default()
+        },
+        start("writer"),
+        say("started", "Started task task-1 on writer"),
+    ]));
+    let agent = Agent::builder(AgentConfig::new("lead", "Lead.", "fake-1"), store.clone())
+        .provider(p)
+        .tool(tool)
+        .tool(Arc::new(Fetch))
+        .build()
+        .unwrap();
+    let r = agent.run("go", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    let calls = rec.0.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].6, "untrusted", "tainted before starting the child");
 }

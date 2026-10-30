@@ -92,7 +92,7 @@ func (h *Hub) GetBundleGuide(context.Context, *connect.Request[agenv1.GetBundleG
 
 func (h *Hub) WhoAmI(ctx context.Context, _ *connect.Request[agenv1.WhoAmIRequest]) (*connect.Response[agenv1.WhoAmIResponse], error) {
 	p := PrincipalFrom(ctx)
-	out := &agenv1.WhoAmIResponse{Id: p.ID, Name: p.Name, Namespaces: p.Namespaces}
+	out := &agenv1.WhoAmIResponse{Id: p.ID, Name: p.Name, Namespaces: p.Namespaces, Trust: p.Trust}
 	for s := range p.Scopes {
 		out.Scopes = append(out.Scopes, s)
 	}
@@ -139,6 +139,35 @@ func checkPriority(p string) error {
 		return nil
 	}
 	return invalid(fmt.Sprintf("priority %q: use urgent, high, normal or background", p))
+}
+
+func checkTrust(t string) error {
+	switch t {
+	case "", "operator", "trusted", "untrusted":
+		return nil
+	}
+	return invalid(fmt.Sprintf("trust %q: use operator, trusted or untrusted", t))
+}
+
+// trustRank orders trust for narrowing: higher is more trusted. "" (unset)
+// is trusted.
+func trustRank(t string) int {
+	switch t {
+	case "operator":
+		return 2
+	case "untrusted":
+		return 0
+	default:
+		return 1
+	}
+}
+
+// narrowTrust returns the lower (less trusted) of a and b.
+func narrowTrust(a, b string) string {
+	if trustRank(a) <= trustRank(b) {
+		return a
+	}
+	return b
 }
 
 // bundleFiles merges binary and text bundle files; a path may be given once.

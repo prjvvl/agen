@@ -538,6 +538,7 @@ async fn secrets_in_side_effect_results_errors_and_approvals_are_redacted() {
         rules: vec![PermissionRule {
             tool: "migrate".into(),
             action: Action::Ask,
+            when: None,
         }],
     };
     let p = Arc::new(FakeProvider::new(vec![

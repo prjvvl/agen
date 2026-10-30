@@ -31,6 +31,43 @@ allowed, sent to a person for approval, or denied.
 - `agen deploy --validate` warns about a rule that names a server the bundle
   does not have.
 
+## Trust and taint
+
+Every task has a **trust**: `operator`, `trusted` or `untrusted`. It is set
+by the task's source and only ever narrows, never raises, down a
+delegation tree:
+
+- An API token's `trust` (`agen token create --trust`), default `trusted`.
+- A webhook trigger's `trust` (default `untrusted`); cron tasks are always
+  `trusted`.
+- A child task started with `start_agent` gets its caller's trust *at that
+  moment* — which may already be lower than the caller's own task, through
+  taint (below).
+
+A tool marks its result **untrusted output** when it may carry content from
+outside the agent's control — a page, a search result, an email:
+
+```json
+{ "tools": { "search.web": { "untrustedOutput": true } } }
+```
+
+An MCP tool's `openWorldHint` annotation sets this by default; the bundle
+can turn it off for a server it trusts. The first time a run calls such a
+tool, its trust drops to `untrusted` for the rest of the run (and for
+anything it starts from then on); the trace gets an `agen.trust.lowered`
+attribute naming the call.
+
+A permission rule can condition on trust with `when`:
+
+```json
+{ "tool": "*", "action": "ask", "when": { "trustBelow": "trusted" } }
+```
+
+This is the practical defence against the "lethal trifecta" (untrusted
+input, access to private data, a way to act outward): a run that has read
+something untrusted must ask before it does anything else. `when.trust`
+matches an exact trust instead of a ceiling.
+
 ## Approvals
 
 An `ask` creates a durable approval and the run waits (status

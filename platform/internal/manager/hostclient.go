@@ -76,6 +76,8 @@ type HostTask struct {
 	BudgetPressure bool `json:"budgetPressure,omitempty"`
 	// Overrides: what this task may do, narrower than its bundle.
 	Overrides *store.TaskOverrides `json:"overrides,omitempty"`
+	// Trust: "operator", "trusted" or "untrusted" (3.7).
+	Trust string `json:"trust,omitempty"`
 }
 
 // storeOverrides converts a task's API overrides to the plain JSON shape

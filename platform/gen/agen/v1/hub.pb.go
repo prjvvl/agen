@@ -1073,7 +1073,9 @@ type WhoAmIResponse struct {
 	Name   string   `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Scopes []string `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	// Empty means every namespace.
-	Namespaces    []string `protobuf:"bytes,4,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
+	Namespaces []string `protobuf:"bytes,4,rep,name=namespaces,proto3" json:"namespaces,omitempty"`
+	// The trust tasks submitted with this token get (3.7).
+	Trust         string `protobuf:"bytes,5,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1134,6 +1136,13 @@ func (x *WhoAmIResponse) GetNamespaces() []string {
 		return x.Namespaces
 	}
 	return nil
+}
+
+func (x *WhoAmIResponse) GetTrust() string {
+	if x != nil {
+		return x.Trust
+	}
+	return ""
 }
 
 type GetBundleGuideRequest struct {
@@ -2248,7 +2257,10 @@ type SubmitTaskRequest struct {
 	ScheduleKey string `protobuf:"bytes,10,opt,name=schedule_key,json=scheduleKey,proto3" json:"schedule_key,omitempty"`
 	// Lease order within this deployment's queue: urgent, high, normal or
 	// background. Empty: normal.
-	Priority      string `protobuf:"bytes,11,opt,name=priority,proto3" json:"priority,omitempty"`
+	Priority string `protobuf:"bytes,11,opt,name=priority,proto3" json:"priority,omitempty"`
+	// A trust at most this high (3.7): narrows the submitting principal's
+	// own trust, never raises it. Empty: the principal's trust as is.
+	Trust         string `protobuf:"bytes,12,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2356,6 +2368,13 @@ func (x *SubmitTaskRequest) GetScheduleKey() string {
 func (x *SubmitTaskRequest) GetPriority() string {
 	if x != nil {
 		return x.Priority
+	}
+	return ""
+}
+
+func (x *SubmitTaskRequest) GetTrust() string {
+	if x != nil {
+		return x.Trust
 	}
 	return ""
 }
@@ -5749,7 +5768,10 @@ type CreateApiTokenRequest struct {
 	// name the task it serves (_meta agen/taskId, which Agen sets), and runs
 	// with the scopes and namespaces that both this token and the task's
 	// submitter hold. It can never decide approvals.
-	OnBehalf      bool `protobuf:"varint,5,opt,name=on_behalf,json=onBehalf,proto3" json:"on_behalf,omitempty"`
+	OnBehalf bool `protobuf:"varint,5,opt,name=on_behalf,json=onBehalf,proto3" json:"on_behalf,omitempty"`
+	// The trust tasks submitted with this token get (3.7): operator, trusted
+	// (default) or untrusted.
+	Trust         string `protobuf:"bytes,6,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5817,6 +5839,13 @@ func (x *CreateApiTokenRequest) GetOnBehalf() bool {
 		return x.OnBehalf
 	}
 	return false
+}
+
+func (x *CreateApiTokenRequest) GetTrust() string {
+	if x != nil {
+		return x.Trust
+	}
+	return ""
 }
 
 type CreateApiTokenResponse struct {
@@ -6295,14 +6324,15 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"\"\n" +
 	" DeleteNotificationTargetResponse\"\x0f\n" +
-	"\rWhoAmIRequest\"l\n" +
+	"\rWhoAmIRequest\"\x82\x01\n" +
 	"\x0eWhoAmIResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
 	"\x06scopes\x18\x03 \x03(\tR\x06scopes\x12\x1e\n" +
 	"\n" +
 	"namespaces\x18\x04 \x03(\tR\n" +
-	"namespaces\"\x17\n" +
+	"namespaces\x12\x14\n" +
+	"\x05trust\x18\x05 \x01(\tR\x05trust\"\x17\n" +
 	"\x15GetBundleGuideRequest\"\xb6\x02\n" +
 	"\x16GetBundleGuideResponse\x12\x14\n" +
 	"\x05guide\x18\x01 \x01(\tR\x05guide\x12F\n" +
@@ -6399,7 +6429,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tinstances\x18\x01 \x03(\v2\x11.agen.v1.InstanceR\tinstances\"\x12\n" +
 	"\x10ListNestsRequest\"8\n" +
 	"\x11ListNestsResponse\x12#\n" +
-	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xaa\x04\n" +
+	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xc0\x04\n" +
 	"\x11SubmitTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12'\n" +
@@ -6414,7 +6444,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tnot_after\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\bnotAfter\x12!\n" +
 	"\fschedule_key\x18\n" +
 	" \x01(\tR\vscheduleKey\x12\x1a\n" +
-	"\bpriority\x18\v \x01(\tR\bpriority\x1a9\n" +
+	"\bpriority\x18\v \x01(\tR\bpriority\x12\x14\n" +
+	"\x05trust\x18\f \x01(\tR\x05trust\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +
@@ -6674,7 +6705,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\x120\n" +
 	"\x05since\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\"9\n" +
 	"\x0fGetLogsResponse\x12&\n" +
-	"\x05lines\x18\x01 \x03(\v2\x10.agen.v1.LogLineR\x05lines\"\xa1\x01\n" +
+	"\x05lines\x18\x01 \x03(\v2\x10.agen.v1.LogLineR\x05lines\"\xb7\x01\n" +
 	"\x15CreateApiTokenRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06scopes\x18\x02 \x03(\tR\x06scopes\x12\x1e\n" +
@@ -6683,7 +6714,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"namespaces\x12\x1f\n" +
 	"\vttl_seconds\x18\x04 \x01(\x05R\n" +
 	"ttlSeconds\x12\x1b\n" +
-	"\ton_behalf\x18\x05 \x01(\bR\bonBehalf\"Y\n" +
+	"\ton_behalf\x18\x05 \x01(\bR\bonBehalf\x12\x14\n" +
+	"\x05trust\x18\x06 \x01(\tR\x05trust\"Y\n" +
 	"\x16CreateApiTokenResponse\x12'\n" +
 	"\x05token\x18\x01 \x01(\v2\x11.agen.v1.ApiTokenR\x05token\x12\x16\n" +
 	"\x06secret\x18\x02 \x01(\tR\x06secret\"\x16\n" +

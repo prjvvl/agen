@@ -13,8 +13,8 @@
     },
     {
       "call": "SubmitTask",
-      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hi", "modelTier": "high", "priority": "high", "conversationKey": "c1", "labels": { "team": "a" } },
-      "expect": { "task.modelTier": "high", "task.priority": "high", "task.conversationKey": { "contains": "c1" }, "task.labels.team": "a" },
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hi", "modelTier": "high", "priority": "high", "trust": "untrusted", "conversationKey": "c1", "labels": { "team": "a" } },
+      "expect": { "task.modelTier": "high", "task.priority": "high", "task.trust": "untrusted", "task.conversationKey": { "contains": "c1" }, "task.labels.team": "a" },
       "save": { "t1": "task.id" }
     },
     {
@@ -53,6 +53,11 @@
       "call": "SubmitTask",
       "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "x", "priority": "whenever" },
       "error": "priority"
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "x", "trust": "whenever" },
+      "error": "trust"
     },
     {
       "call": "GetLogs",

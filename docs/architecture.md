@@ -497,6 +497,18 @@ Agent → Session → Conversation → Run → Span.
   Approval arguments are redacted before they are persisted or shown. With
   `permissions.notify`, the Hub POSTs each new pending approval to that URL,
   signed with a granted platform secret if one is named.
+- Trust (3.7): every task has one (`operator` > `trusted` > `untrusted`), set
+  by its source (an API token's `trust`, default `trusted`; a webhook
+  trigger's, default `untrusted`; cron, always `trusted`) and narrowed, never
+  raised, by a child (`start_agent` sends the caller's current trust). A tool
+  marked `untrustedOutput` (bundle config, or an MCP server's `openWorldHint`)
+  drops the run's trust to `untrusted` for the rest of the run the first time
+  it is called, logged as `agen.trust.lowered` on the tool span. A permission
+  rule's `when.trust` / `when.trustBelow` conditions it on the run's current
+  trust, evaluated alongside the plain deny → ask → allow match (the engine
+  tracks the run's trust in memory; it is not persisted, so a resumed run
+  restarts from the task's original trust). The fuller conditional rule
+  language (`args`, `labels`, `time`, `rate`) is not yet implemented.
 - Feedback: a judgement on how a task went (score 0.0-1.0, labels, a note, who
   gave it), recorded by `RecordFeedback` and read back by `ListFeedback`.
   `DecideApproval` records one too (`by: "approval"`, score 1.0/0.0), so

@@ -759,8 +759,11 @@ type Trigger struct {
 	// previous firing's; a closer window is skipped (recorded, not
 	// "missed"). Empty: no minimum.
 	MinStartSpacing string `protobuf:"bytes,18,opt,name=min_start_spacing,json=minStartSpacing,proto3" json:"min_start_spacing,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Webhooks (3.7): the trust of tasks this trigger submits. Empty:
+	// untrusted. Cron tasks are always trusted; this has no effect there.
+	Trust         string `protobuf:"bytes,19,opt,name=trust,proto3" json:"trust,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Trigger) Reset() {
@@ -915,6 +918,13 @@ func (x *Trigger) GetOverlap() string {
 func (x *Trigger) GetMinStartSpacing() string {
 	if x != nil {
 		return x.MinStartSpacing
+	}
+	return ""
+}
+
+func (x *Trigger) GetTrust() string {
+	if x != nil {
+		return x.Trust
 	}
 	return ""
 }
@@ -2090,7 +2100,13 @@ type Task struct {
 	// Lease order within a deployment's queue: urgent, high, normal or
 	// background (default normal). Does not cross deployments or affect
 	// scheduling otherwise; a conversation's own ordering still applies first.
-	Priority      string `protobuf:"bytes,35,opt,name=priority,proto3" json:"priority,omitempty"`
+	Priority string `protobuf:"bytes,35,opt,name=priority,proto3" json:"priority,omitempty"`
+	// operator, trusted or untrusted (3.7): set by the task's source (an API
+	// token's trust, a webhook trigger's, or trusted for cron), or for a
+	// child task, its caller's trust at the moment it started it (which may
+	// already be lower than the caller's own task, through taint). A caller
+	// may ask for a lower trust than its own; never higher.
+	Trust         string `protobuf:"bytes,36,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2366,6 +2382,13 @@ func (x *Task) GetScheduleKey() string {
 func (x *Task) GetPriority() string {
 	if x != nil {
 		return x.Priority
+	}
+	return ""
+}
+
+func (x *Task) GetTrust() string {
+	if x != nil {
+		return x.Trust
 	}
 	return ""
 }
@@ -3202,7 +3225,10 @@ type ApiToken struct {
 	ExpiresAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	Revoked    bool                   `protobuf:"varint,7,opt,name=revoked,proto3" json:"revoked,omitempty"`
 	// Acts for whoever submitted the task it works on (see CreateApiToken).
-	OnBehalf      bool `protobuf:"varint,8,opt,name=on_behalf,json=onBehalf,proto3" json:"on_behalf,omitempty"`
+	OnBehalf bool `protobuf:"varint,8,opt,name=on_behalf,json=onBehalf,proto3" json:"on_behalf,omitempty"`
+	// The trust tasks submitted with this token get (3.7): operator, trusted
+	// (default) or untrusted.
+	Trust         string `protobuf:"bytes,9,opt,name=trust,proto3" json:"trust,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3291,6 +3317,13 @@ func (x *ApiToken) GetOnBehalf() bool {
 		return x.OnBehalf
 	}
 	return false
+}
+
+func (x *ApiToken) GetTrust() string {
+	if x != nil {
+		return x.Trust
+	}
+	return ""
 }
 
 // A judgement on how a task went: a person, a check, or a judge model.
@@ -3654,7 +3687,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x14max_delegation_depth\x18\x01 \x01(\x05R\x12maxDelegationDepth\x12\x1e\n" +
 	"\vmax_fan_out\x18\x02 \x01(\x05R\tmaxFanOut\x122\n" +
 	"\x15max_total_delegations\x18\x03 \x01(\x05R\x13maxTotalDelegations\x12(\n" +
-	"\x10max_queued_tasks\x18\x04 \x01(\x05R\x0emaxQueuedTasks\"\x84\x06\n" +
+	"\x10max_queued_tasks\x18\x04 \x01(\x05R\x0emaxQueuedTasks\"\x9a\x06\n" +
 	"\aTrigger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -3674,7 +3707,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x06jitter\x18\x0f \x01(\tR\x06jitter\x12&\n" +
 	"\x0fcatch_up_window\x18\x10 \x01(\tR\rcatchUpWindow\x12\x18\n" +
 	"\aoverlap\x18\x11 \x01(\tR\aoverlap\x12*\n" +
-	"\x11min_start_spacing\x18\x12 \x01(\tR\x0fminStartSpacing\x1a9\n" +
+	"\x11min_start_spacing\x18\x12 \x01(\tR\x0fminStartSpacing\x12\x14\n" +
+	"\x05trust\x18\x13 \x01(\tR\x05trust\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x02\n" +
@@ -3804,8 +3838,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xea\n" +
-	"\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x80\v\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -3850,7 +3883,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\toverrides\x18  \x01(\v2\x16.agen.v1.TaskOverridesR\toverrides\x127\n" +
 	"\tnot_after\x18! \x01(\v2\x1a.google.protobuf.TimestampR\bnotAfter\x12!\n" +
 	"\fschedule_key\x18\" \x01(\tR\vscheduleKey\x12\x1a\n" +
-	"\bpriority\x18# \x01(\tR\bpriority\x1a9\n" +
+	"\bpriority\x18# \x01(\tR\bpriority\x12\x14\n" +
+	"\x05trust\x18$ \x01(\tR\x05trust\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +
@@ -3938,7 +3972,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"instanceId\x12.\n" +
 	"\x04time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"\x93\x02\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\xa9\x02\n" +
 	"\bApiToken\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -3951,7 +3985,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x18\n" +
 	"\arevoked\x18\a \x01(\bR\arevoked\x12\x1b\n" +
-	"\ton_behalf\x18\b \x01(\bR\bonBehalf\"\xd8\x02\n" +
+	"\ton_behalf\x18\b \x01(\bR\bonBehalf\x12\x14\n" +
+	"\x05trust\x18\t \x01(\tR\x05trust\"\xd8\x02\n" +
 	"\bFeedback\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +

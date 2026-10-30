@@ -244,6 +244,75 @@ func TestCronCatchUpWindow(t *testing.T) {
 	}
 }
 
+// Cron tasks are always trusted; a webhook trigger's tasks default to
+// untrusted, or whatever trust it names.
+// features: triggers
+func TestCronAndWebhookTrust(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t,
+		`[{"type":"cron","name":"tick","schedule":"* * * * *"},`+
+			`{"type":"webhook","name":"plain"},`+
+			`{"type":"webhook","name":"trusted-hook","trust":"trusted"}]`)})); err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, secret, body string) *http.Response {
+		req, _ := http.NewRequest(http.MethodPost, e.url+path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+secret)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	secretFor := func(trigger string) string {
+		r, err := c.CreateWebhookSecret(ctx, connect.NewRequest(&agenv1.CreateWebhookSecretRequest{Ref: ref("", "hello"), Trigger: trigger}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Msg.Secret
+	}
+	var out struct {
+		TaskID string `json:"task_id"`
+	}
+	resp := post("/hooks/default/hello/plain", secretFor("plain"), "x")
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	plain, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: out.TaskID}))
+	if err != nil || plain.Msg.Task.Trust != "untrusted" {
+		t.Fatalf("plain webhook: %v %v", plain, err)
+	}
+	resp2 := post("/hooks/default/hello/trusted-hook", secretFor("trusted-hook"), "x")
+	json.NewDecoder(resp2.Body).Decode(&out)
+	resp2.Body.Close()
+	trustedHook, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: out.TaskID}))
+	if err != nil || trustedHook.Msg.Task.Trust != "trusted" {
+		t.Fatalf("trusted webhook: %v %v", trustedHook, err)
+	}
+
+	created := time.UnixMilli(0)
+	d, _ := c.GetDeployment(ctx, connect.NewRequest(&agenv1.GetDeploymentRequest{Ref: ref("", "hello")}))
+	created = time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli())
+	first := created.Truncate(time.Minute).Add(time.Minute)
+	defer func(old func() int64) { store.NowMs = old }(store.NowMs)
+	store.NowMs = func() int64 { return first.Add(5 * time.Second).UnixMilli() }
+	e.scheduler().Step(ctx)
+	tasks, err := c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{Deployment: "hello", Limit: 100}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cronTask *agenv1.Task
+	for _, tk := range tasks.Msg.Tasks {
+		if tk.Source == "cron:tick" {
+			cronTask = tk
+		}
+	}
+	if cronTask == nil || cronTask.Trust != "trusted" {
+		t.Fatalf("cron task trust: %v", cronTask)
+	}
+}
+
 // features: triggers
 func TestWebhookTriggers(t *testing.T) {
 	e := setup(t)

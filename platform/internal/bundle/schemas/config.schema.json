@@ -16,7 +16,16 @@
             "required": ["tool", "action"],
             "properties": {
               "tool": { "type": "string", "description": "exact name or glob, e.g. exchange.*" },
-              "action": { "enum": ["allow", "ask", "deny"] }
+              "action": { "enum": ["allow", "ask", "deny"] },
+              "when": {
+                "type": "object",
+                "description": "The rule only matches when this holds too",
+                "properties": {
+                  "trust": { "enum": ["operator", "trusted", "untrusted"], "description": "The run's current trust is exactly this" },
+                  "trustBelow": { "enum": ["operator", "trusted", "untrusted"], "description": "The run's current trust is below this" }
+                },
+                "additionalProperties": false
+              }
             },
             "additionalProperties": false
           }
@@ -125,6 +134,7 @@
               },
               "idempotencyKey": { "$ref": "#/$defs/keySource", "description": "Where to read the duplicate-protection key (default: Idempotency-Key header)" },
               "conversationKey": { "$ref": "#/$defs/keySource", "description": "Where to read the conversation key" },
+              "trust": { "enum": ["operator", "trusted", "untrusted"], "description": "The trust of tasks this trigger submits (default untrusted)" },
               "labels": { "$ref": "#/$defs/labels" }
             },
             "required": ["name"],
@@ -181,7 +191,8 @@
         "type": "object",
         "properties": {
           "sideEffect": { "type": "boolean" },
-          "idempotent": { "type": "boolean", "description": "Repeating a call with the same arguments is safe, so an interrupted call is retried instead of ending as effect_unknown" }
+          "idempotent": { "type": "boolean", "description": "Repeating a call with the same arguments is safe, so an interrupted call is retried instead of ending as effect_unknown" },
+          "untrustedOutput": { "type": "boolean", "description": "The result may contain content from outside the agent's control (default: the MCP server's openWorldHint); a run that receives one drops to untrusted for the rest of the run" }
         },
         "additionalProperties": false
       }

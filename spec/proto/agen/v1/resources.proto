@@ -113,6 +113,9 @@ message Trigger {
   // previous firing's; a closer window is skipped (recorded, not
   // "missed"). Empty: no minimum.
   string min_start_spacing = 18;
+  // Webhooks (3.7): the trust of tasks this trigger submits. Empty:
+  // untrusted. Cron tasks are always trusted; this has no effect there.
+  string trust = 19;
 }
 
 // Which events fire an event trigger.
@@ -384,6 +387,12 @@ message Task {
   // background (default normal). Does not cross deployments or affect
   // scheduling otherwise; a conversation's own ordering still applies first.
   string priority = 35;
+  // operator, trusted or untrusted (3.7): set by the task's source (an API
+  // token's trust, a webhook trigger's, or trusted for cron), or for a
+  // child task, its caller's trust at the moment it started it (which may
+  // already be lower than the caller's own task, through taint). A caller
+  // may ask for a lower trust than its own; never higher.
+  string trust = 36;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child
@@ -521,6 +530,9 @@ message ApiToken {
   bool revoked = 7;
   // Acts for whoever submitted the task it works on (see CreateApiToken).
   bool on_behalf = 8;
+  // The trust tasks submitted with this token get (3.7): operator, trusted
+  // (default) or untrusted.
+  string trust = 9;
 }
 
 // A judgement on how a task went: a person, a check, or a judge model.

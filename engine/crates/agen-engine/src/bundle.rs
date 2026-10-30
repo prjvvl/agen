@@ -102,10 +102,69 @@ pub enum Action {
     Deny,
 }
 
+/// A task's trust, fixed in this release as operator > trusted > untrusted.
+/// Set by its source (an API token's `trust`, default trusted; a webhook
+/// trigger's, default untrusted; cron, always trusted) and never raised by
+/// a child or by taint: `Ord` reflects this ranking directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Trust {
+    Untrusted,
+    #[default]
+    Trusted,
+    Operator,
+}
+
+impl Trust {
+    /// Parses a stored or wire trust string; "" and anything unrecognized
+    /// mean the default, trusted.
+    pub fn parse(s: &str) -> Trust {
+        match s {
+            "untrusted" => Trust::Untrusted,
+            "operator" => Trust::Operator,
+            _ => Trust::Trusted,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Trust::Untrusted => "untrusted",
+            Trust::Trusted => "trusted",
+            Trust::Operator => "operator",
+        }
+    }
+}
+
+/// A permission rule's extra condition (a subset of the full conditional
+/// rule language: `args`/`labels`/`time`/`rate` matchers are not yet
+/// implemented).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct When {
+    /// The run's current trust is exactly this.
+    pub trust: Option<Trust>,
+    /// The run's current trust is below this.
+    #[serde(rename = "trustBelow")]
+    pub trust_below: Option<Trust>,
+}
+
+impl When {
+    fn matches(&self, trust: Trust) -> bool {
+        self.trust.is_none_or(|t| t == trust) && self.trust_below.is_none_or(|t| trust < t)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PermissionRule {
     pub tool: String,
     pub action: Action,
+    #[serde(default)]
+    pub when: Option<When>,
+}
+
+impl PermissionRule {
+    pub fn matches_trust(&self, trust: Trust) -> bool {
+        self.when.as_ref().is_none_or(|w| w.matches(trust))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -228,6 +287,10 @@ pub struct Delegate {
 pub struct ToolMeta {
     pub side_effect: Option<bool>,
     pub idempotent: Option<bool>,
+    /// The result may contain content from outside the agent's control
+    /// (default: the MCP server's `openWorldHint`). A run that receives one
+    /// drops to untrusted for the rest of the run.
+    pub untrusted_output: Option<bool>,
 }
 
 /// `x-agen/config.json`. Platform-only sections (scale, triggers, kind) are

@@ -203,6 +203,8 @@ message SubmitChildTaskRequest {
   // The child's overrides (combined with the parent's by the Hub).
   TaskOverrides overrides = 12;
   string model_tier = 13;
+  // The caller's trust right now (3.7); the child inherits it as is.
+  string trust = 14;
 }
 message SubmitChildTaskResponse {
   Task task = 1;

@@ -416,6 +416,7 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	fs.Var(labels, "label", "label the task, key=value (repeatable)")
 	tier := fs.String("tier", "", "cost tier for a routing model: low, medium, high, xhigh or max")
 	priority := fs.String("priority", "", "lease order within the deployment's queue: urgent, high, normal or background")
+	trust := fs.String("trust", "", "a trust at most this high: operator, trusted or untrusted (default: the token's own)")
 	at := fs.String("at", "", "run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)")
 	in := fs.Duration("in", 0, "run no earlier than this long from now (e.g. 30m)")
 	expiresIn := fs.Duration("expires-in", 0, "fail as expired if still queued this long from now, instead of waiting indefinitely")
@@ -425,7 +426,7 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--priority P] [--at TIME | --in D] [--expires-in D] [--schedule-key K] [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--priority P] [--trust T] [--at TIME | --in D] [--expires-in D] [--schedule-key K] [--no-wait] [--timeout D]")
 	}
 	var notBefore *timestamppb.Timestamp
 	switch {
@@ -449,7 +450,7 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		return err
 	}
 	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
-		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, Priority: *priority, NotBefore: notBefore, NotAfter: notAfter, ScheduleKey: *scheduleKey}))
+		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, Priority: *priority, Trust: *trust, NotBefore: notBefore, NotAfter: notAfter, ScheduleKey: *scheduleKey}))
 	if err != nil {
 		return err
 	}
@@ -811,7 +812,7 @@ func (l *listFlag) Set(v string) error { *l = append(*l, strings.Split(v, ",")..
 
 func (e *env) cmdToken(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "create" {
-		return usageErr("agen token create --name N --scope viewer|operator|approver|admin [--namespace NS] [--ttl D] [--on-behalf]")
+		return usageErr("agen token create --name N --scope viewer|operator|approver|admin [--namespace NS] [--ttl D] [--on-behalf] [--trust operator|trusted|untrusted]")
 	}
 	var cf clientFlags
 	fs := e.flags("token create", &cf)
@@ -821,6 +822,7 @@ func (e *env) cmdToken(ctx context.Context, args []string) error {
 	fs.Var(&namespaces, "namespace", "limit to namespace (repeatable)")
 	ttl := fs.Duration("ttl", 0, "validity (0 = no expiry)")
 	onBehalf := fs.Bool("on-behalf", false, "for an agent that works for people: it acts for whoever submitted its task (see the assistant template)")
+	trust := fs.String("trust", "", "trust tasks submitted with this token get: operator, trusted (default) or untrusted")
 	if _, err := parse(fs, args[1:]); err != nil {
 		return err
 	}
@@ -832,7 +834,7 @@ func (e *env) cmdToken(ctx context.Context, args []string) error {
 		return err
 	}
 	r, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: *name, Scopes: scopes, Namespaces: namespaces,
-		TtlSeconds: int32(ttl.Seconds()), OnBehalf: *onBehalf}))
+		TtlSeconds: int32(ttl.Seconds()), OnBehalf: *onBehalf, Trust: *trust}))
 	if err != nil {
 		return err
 	}

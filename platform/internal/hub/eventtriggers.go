@@ -186,7 +186,7 @@ func (s *Scheduler) fireEventTask(ctx context.Context, d store.Deployment, t *ag
 	}
 	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: b.String(), Source: "event:" + t.Name,
 		IdempotencyKey: fmt.Sprintf("event:%s:%d", t.Name, last.Seq), SubmittedBy: "trigger:event:" + t.Name, Labels: labels,
-		ConversationKey: conversation, EventChain: chain, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)})
+		ConversationKey: conversation, EventChain: chain, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), Trust: "trusted"})
 	if err != nil {
 		return err
 	}

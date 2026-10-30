@@ -147,7 +147,7 @@ features:
     title: Run tasks and wait for results
     contract: [rpc:SubmitTask, rpc:GetTask, rpc:ListTasks, field:SubmitTask.input, field:SubmitTask.idempotency_key,
       field:GetTask.wait_seconds, field:ListTasks.deployment, field:ListTasks.state, sdk:taskId, cli:run, cli:wait, cli:tasks,
-      field:SubmitTask.overrides, field:SubmitTask.priority]
+      field:SubmitTask.overrides, field:SubmitTask.priority, field:SubmitTask.trust]
     on: [rust, python, node, go, api, mcp, cli, console]
   - id: tasks.cancel
     title: Cancel a task or run
@@ -242,7 +242,8 @@ features:
   - id: access.tokens
     title: API tokens, scopes and namespaces
     contract: [rpc:CreateApiToken, rpc:ListApiTokens, rpc:RevokeApiToken, rpc:WhoAmI, field:CreateApiToken.scopes,
-      field:CreateApiToken.namespaces, field:CreateApiToken.ttl_seconds, field:CreateApiToken.on_behalf, cli:token, cli:whoami]
+      field:CreateApiToken.namespaces, field:CreateApiToken.ttl_seconds, field:CreateApiToken.on_behalf, field:CreateApiToken.trust,
+      cli:token, cli:whoami]
     on: [api, mcp, cli, console]
 
   # Fleet

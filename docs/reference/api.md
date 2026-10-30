@@ -33,6 +33,7 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/CreateApiToken` · MCP tool: `
 | `namespaces` | list of string |  |
 | `ttlSeconds` | int32 |  |
 | `onBehalf` | bool | For an agent that works for people (the assistant): each MCP call must name the task it serves (_meta agen/taskId, which Agen sets), and runs with the scopes and namespaces that both this token and the task's submitter hold. It can never decide approvals. |
+| `trust` | string | The trust tasks submitted with this token get (3.7): operator, trusted (default) or untrusted. |
 
 ## CreateDeployment
 
@@ -502,6 +503,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `notAfter` | Timestamp | Not leased after this time: fails as "expired" instead of waiting indefinitely for capacity. |
 | `scheduleKey` | string | At most one queued task per (deployment, schedule_key); submitting again with the same key cancels the queued task that already has it. |
 | `priority` | string | Lease order within this deployment's queue: urgent, high, normal or background. Empty: normal. |
+| `trust` | string | A trust at most this high (3.7): narrows the submitting principal's own trust, never raises it. Empty: the principal's trust as is. |
 
 ## UpdateDeployment
 

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::bundle::Trust;
 use crate::provider::ToolSpec;
 use crate::secrets::Secrets;
 
@@ -58,6 +59,9 @@ pub struct ToolContext {
     pub root_run_id: String,
     /// Delegation depth of this run (0 for a run nobody delegated).
     pub depth: u32,
+    /// The run's trust right now (already lowered by any taint picked up
+    /// earlier in the run); a child task started from here inherits it.
+    pub trust: Trust,
 }
 
 #[async_trait]
@@ -71,6 +75,12 @@ pub trait Tool: Send + Sync {
     /// A key that makes repeating this call safe (e.g. an order client id).
     fn idempotency_key(&self, _args: &Value) -> Option<String> {
         None
+    }
+    /// True if the result may contain content from outside the agent's
+    /// control (a page, a search result, an email); a run that calls it
+    /// drops to untrusted for the rest of the run.
+    fn untrusted_output(&self) -> bool {
+        false
     }
     async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError>;
 }

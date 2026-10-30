@@ -208,6 +208,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0032_task_priority.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0032_task_priority.sql"),
     },
+    Migration {
+        version: 33,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0033_trust.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0033_trust.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").

@@ -156,6 +156,9 @@ pub async fn connect(
             let idempotent = meta
                 .and_then(|m| m.idempotent)
                 .unwrap_or(hints.and_then(|a| a.idempotent_hint).unwrap_or(false));
+            let untrusted_output = meta
+                .and_then(|m| m.untrusted_output)
+                .unwrap_or(hints.and_then(|a| a.open_world_hint).unwrap_or(false));
             tools.push(Arc::new(McpTool {
                 spec: ToolSpec {
                     name: qualified,
@@ -165,6 +168,7 @@ pub async fn connect(
                 remote_name: t.name.to_string(),
                 side_effect,
                 idempotent,
+                untrusted_output,
                 peer: service.peer().clone(),
                 timeout: opts.call_timeout,
             }));
@@ -286,6 +290,7 @@ struct McpTool {
     remote_name: String,
     side_effect: bool,
     idempotent: bool,
+    untrusted_output: bool,
     peer: Peer<RoleClient>,
     timeout: Duration,
 }
@@ -302,6 +307,10 @@ impl Tool for McpTool {
 
     fn idempotency_key(&self, args: &Value) -> Option<String> {
         self.idempotent.then(|| crate::agent::args_hash(args))
+    }
+
+    fn untrusted_output(&self) -> bool {
+        self.untrusted_output
     }
 
     async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError> {

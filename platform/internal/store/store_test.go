@@ -465,7 +465,7 @@ func TestTriggerEventsAndTokens(t *testing.T) {
 			t.Fatalf("%+v", missed)
 		}
 
-		tok, secret, err := s.CreateAPIToken(ctx, uniq("ci"), []string{"operator"}, []string{ns}, 0, false)
+		tok, secret, err := s.CreateAPIToken(ctx, uniq("ci"), []string{"operator"}, []string{ns}, 0, false, "")
 		must(t, err)
 		got, err := s.LookupAPIToken(ctx, secret)
 		must(t, err)
