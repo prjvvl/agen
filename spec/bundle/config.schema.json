@@ -77,7 +77,8 @@
         "modelRequestTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one model request may take (default 10m, 0s = no limit)" },
         "toolTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long one tool call may take, except call_agent (default 10m, 0s = no limit)" },
         "reportTokens": { "type": "integer", "minimum": 0, "description": "Output limit of the last call a run gets to report when it stops at a limit (default 1024, 0 = no report call)" },
-        "stuckRepeats": { "type": "integer", "minimum": 0, "description": "Turns in a row with the same calls and results that count as stuck: the run is nudged once, then stops and reports (default 4, 0 = off)" }
+        "stuckRepeats": { "type": "integer", "minimum": 0, "description": "Turns in a row with the same calls and results that count as stuck: the run is nudged once, then stops and reports (default 4, 0 = off)" },
+        "inlineWait": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "How long call_agent's unified delegation (a platform delegate without via: \"a2a\") waits for the child task's answer before suspending the run instead of blocking on it (default 20s)" }
       },
       "additionalProperties": false
     },
@@ -179,7 +180,8 @@
           "namespace": { "type": "string" },
           "url": { "type": "string", "format": "uri" },
           "description": { "type": "string" },
-          "overrides": { "type": "boolean", "description": "Accept narrowing overrides (tools, skills, budget, ...) from the caller's brief (default false: only deployments meant as generic workers should set this)" }
+          "overrides": { "type": "boolean", "description": "Accept narrowing overrides (tools, skills, budget, ...) from the caller's brief (default false: only deployments meant as generic workers should set this)" },
+          "via": { "type": "string", "enum": ["a2a"], "description": "\"a2a\": call_agent always uses the plain synchronous A2A call for this delegate instead of its unified child-task path (ignored when url is set, which always uses A2A)" }
         },
         "additionalProperties": false
       }

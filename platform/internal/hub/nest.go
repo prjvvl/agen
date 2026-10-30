@@ -440,6 +440,58 @@ func (n *NestAPI) ReleaseTask(ctx context.Context, req *connect.Request[agenv1.R
 	return connect.NewResponse(&agenv1.ReleaseTaskResponse{}), nil
 }
 
+// SuspendTask moves a leased task to TASK_STATE_WAITING (3.3, part): the
+// instance running it gave up its lease to wait for something (today, only
+// a child task it started with call_agent). The lease is checked like
+// CompleteTask's.
+func (n *NestAPI) SuspendTask(ctx context.Context, req *connect.Request[agenv1.SuspendTaskRequest]) (*connect.Response[agenv1.SuspendTaskResponse], error) {
+	m := req.Msg
+	if _, err := n.requireNestTask(ctx, m.NestId, m.TaskId); err != nil {
+		return nil, err
+	}
+	if m.WaitFor == "" {
+		return nil, invalid("wait_for is required")
+	}
+	if err := n.hub.Store.SuspendTask(ctx, m.TaskId, m.LeaseId, m.WaitFor); err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.SuspendTaskResponse{}), nil
+}
+
+// maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
+// an HTTP connection to the Hub for the whole wait.
+const maxNestTaskWait = 60 * time.Second
+
+// WaitTask polls a task (typically one this Nest's instance started with
+// SubmitChildTask) until it reaches a terminal state or wait_seconds
+// elapses (3.3, part: call_agent's inline wait). Unlike requireNestTask,
+// the waited-for task need not be leased by this Nest — it may be running
+// anywhere.
+func (n *NestAPI) WaitTask(ctx context.Context, req *connect.Request[agenv1.NestWaitTaskRequest]) (*connect.Response[agenv1.NestWaitTaskResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	deadline := time.Now().Add(min(time.Duration(m.WaitSeconds)*time.Second, maxNestTaskWait))
+	for {
+		t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		if t.Terminal() || time.Now().After(deadline) {
+			return connect.NewResponse(&agenv1.NestWaitTaskResponse{Task: TaskProto(t)}), nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+		case <-time.After(n.hub.Poll):
+		}
+	}
+}
+
 // ---- approvals (raised by instances through their Manager) ----
 
 func (n *NestAPI) CreateApproval(ctx context.Context, req *connect.Request[agenv1.CreateApprovalRequest]) (*connect.Response[agenv1.CreateApprovalResponse], error) {

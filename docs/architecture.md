@@ -195,21 +195,25 @@ refreshed when the lease is extended, released when it ends
 granted, one task per namespace and name); a task waiting on one reports
 `wait_reason: "locks"`. The built-in `acquire_lock`/`release_lock` tools
 for locks named mid-run are not yet implemented. A task may be in state
-`waiting` (3.3, part): it holds no instance or lease and is not autoscaler
-load, and carries `wait_for` (`"<kind>:<ref>"`, e.g. `"child:<task id>"`)
+`waiting` (3.3): it holds no instance or lease and is not autoscaler load,
+and carries `wait_for` (`"<kind>:<ref>"`, e.g. `"child:<task id>"`)
 describing what it is waiting for — unlike `wait_reason`, which says why a
 still-queued task has not started, `wait_for` is set only while suspended
 and cleared on resume. `run_inbox` holds what has happened for a waiting
 task while it waits; writing a row whose kind and ref match a waiting
 task's `wait_for` requeues it at `urgent` priority without counting an
 attempt (`Store.WriteInbox`), and a child task finishing always writes its
-outcome into its parent's inbox (`Store.SuspendTask` moves a task into
-`waiting`). This is Go/Hub-side durable-state infrastructure only: nothing
-yet puts a task into `waiting` or drains a `run_inbox` row back into a
-resumed run — that needs the engine to actually suspend a run mid-tool-call
-(a new `Outcome::Suspended`, checkpoint and host RPC changes, and
-`call_agent` using it instead of erroring after its inline wait), which is
-not yet built.
+outcome into its parent's inbox. A tool call suspends a run by returning a
+`ToolError` carrying `suspend` instead of a result: the engine does not
+write a tool message for it (it stays pending, exactly as if the process
+had died there) and `RunTask` returns early with `wait_for` set instead of
+an outcome. The Manager then calls the Hub's `SuspendTask` (giving up the
+lease, `Store.SuspendTask`) instead of `CompleteTask`, freeing the instance
+for other work. Woken, the same task id is leased and dispatched again; the
+engine resumes from its last checkpoint, finds the same call still pending
+and retries it from scratch (not from a cached result) — which is why
+`call_agent`'s unified path (below) checks the child task's own status
+again on resume, rather than trusting the `run_inbox` payload directly.
 It may carry `model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
@@ -354,31 +358,61 @@ instances it already reported keep reporting while they drain. Approval
   fails with "conversation already has an unfinished run".
 
 **Delegation** (sub-agents): an agent delegates only to another Deployment,
-either synchronously over A2A (`message/send`/`message/stream`, the
-`call_agent` tool) or asynchronously as a child Task
-(`NestService.SubmitChildTask`, lineage derived by the Hub; the `start_agent`
-tool). There are no hidden in-process sub-agents; skills cover in-agent specialisation. Limits
-(`Limits` on the Deployment): `max_delegation_depth` is checked by the receiving
-Gateway/Hub from `agen.depth`; `max_fan_out` is checked by the calling engine
-per run; `max_total_delegations` is an atomic counter per `root_run_id` in the
-Store, checked by the calling engine before each delegation.
+either unified through a child Task that `call_agent` itself waits on
+(3.2b, the default for a platform delegate) or synchronously over A2A
+(`message/send`/`message/stream`, `call_agent`'s own older path, kept for
+embedded/standalone agents, a delegate with a fixed `url`, or one with
+`via: "a2a"`), or asynchronously as a fire-and-forget child Task that the
+caller never waits on (`NestService.SubmitChildTask`, lineage derived by
+the Hub; the `start_agent` tool). There are no hidden in-process sub-agents;
+skills cover in-agent specialisation. Limits (`Limits` on the Deployment):
+`max_delegation_depth` is checked by the receiving Gateway/Hub from
+`agen.depth` (A2A) or by the Hub at submission (a child task); `max_fan_out`
+is checked by the calling engine per run; `max_total_delegations` is an
+atomic counter per `root_run_id` in the Store, checked by the calling engine
+before each delegation (once per call, by its `<run>.<step>.<call>` key, so
+a retry, resume or suspend/resume cycle is never counted twice).
 
 A bundle lists the deployments it may call in `x-agen/config.json`
-`delegates` (`name`, optional `namespace`, `url`, `description`); the engine
-exposes them through the `call_agent` tool (and `start_agent`, below).
-Without a fixed `url` the target is resolved through the Nest Manager's localhost `ManagerService.Resolve`
+`delegates` (`name`, optional `namespace`, `url`, `description`, `via`); the
+engine exposes them through the `call_agent` tool (and `start_agent`,
+below).
+
+**Unified delegation** (`call_agent`, 3.2b, the default for a platform
+delegate without a fixed `url` and without `via: "a2a"`): the same
+`ManagerService.StartTask` path as `start_agent` (below), but with no
+`reply_conversation_key` — the child's result comes back as this call's
+own result, not as a new message — and `call_agent` then waits on the
+child inline, up to `limits.inlineWait` (default 20s, `ManagerService.WaitTask`
+proxying the Hub's `NestService.WaitTask`, which polls like `GetTask`,
+capped at 60s per call). A child that finishes within the wait answers
+normally: its outcome's status and reason prefix the text (`[partial:
+max_turns] <report>`; nothing for a plain `done`), followed by its
+structured `data` if any — the same formatting the A2A path below has
+always used. A child that does not finish within the wait makes the whole
+run suspend (3.3) instead of blocking the instance for it. `call_agent`'s idempotency
+key for the child start is `call:<run>.<step>.<call>`, so re-checking it
+on resume (after a suspend, or a retry) always finds the same child rather
+than starting another one.
+
+**Synchronous A2A** (`call_agent`'s exception path: `url` set, embedded or
+standalone use, or `via: "a2a"`): without a fixed `url` the target is
+resolved through the Nest Manager's localhost `ManagerService.Resolve`
 (each instance gets `AGEN_MANAGER_URL` and its own `AGEN_MANAGER_TOKEN`), which
 asks the Hub (`NestService.Resolve`) and caches the answer, so delegation
-keeps working from the cache while the Hub is down. `Resolve` accepts a
-caller deployment that is assigned to the asking Nest or still has a live
-instance there (starting, ready, busy or draining), so a run on an instance
-draining after a scale-down or redeploy can keep delegating. The A2A message id is
-`<run>.<step>.<call>` and Gateways run a repeated message id as the same task,
-so `call_agent` is safe to repeat on retry or resume. `call_agent` waits up to
-75 min for an answer (a Gateway lets a call wait 10 min for an instance and
-run for 1 h). The callee's run continues the caller's trace (the traceparent
-names the caller's `agen.tool` span, which records the target as
-`agen.delegate.target`) and records `parent_run_id` / `root_run_id`.
+keeps working from the cache while the Hub is down — the reason this path
+still exists once 3.2b's unified path, which needs the Hub throughout, is
+the default. `Resolve` accepts a caller deployment that is assigned to the
+asking Nest or still has a live instance there (starting, ready, busy or
+draining), so a run on an instance draining after a scale-down or redeploy
+can keep delegating. The A2A message id is `<run>.<step>.<call>` and
+Gateways run a repeated message id as the same task, so this path is safe
+to repeat on retry or resume too. It waits up to 75 min for an answer (a
+Gateway lets a call wait 10 min for an instance and run for 1 h), blocking
+the instance for the whole wait — no suspension. The callee's run continues
+the caller's trace (the traceparent names the caller's `agen.tool` span,
+which records the target as `agen.delegate.target`) and records
+`parent_run_id` / `root_run_id`.
 
 **Async delegation** (`start_agent`, managed mode, delegates without a fixed
 `url`): the engine asks its Manager (`ManagerService.StartTask`), which

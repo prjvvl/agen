@@ -62,15 +62,21 @@ arguments (see [below](#starting-work-without-waiting)). The descriptions are
 shown to the model, so write them for it. `agen deploy --validate` warns about
 a delegate that is not deployed in the namespace.
 
-- Delegates are resolved in the caller's namespace; a delegate with a fixed
-  `url` is called at that address instead.
-- A call wakes a sleeping delegate, waits for its answer and returns the
-  answer as the tool result. It waits up to 10 minutes for a free instance
-  of the delegate (asleep, starting, busy, or waiting for room on a full
-  Nest) and up to 75 minutes in all.
-- Repeating a call is safe: its A2A message id is derived from the run, the
-  turn and the call, so a retried or resumed call returns the same task
-  instead of running the delegate twice.
+- Delegates are resolved in the caller's namespace. `call_agent` starts the
+  delegate as a task and waits for it (in a fleet); a delegate with a fixed
+  `url`, or marked `"via": "a2a"`, is called directly instead over A2A.
+  Either way the model sees the same thing: a tool call that returns the
+  answer, however long the delegate took.
+- The unified path waits inline up to `limits.inlineWait` (default 20s); a
+  delegate slower than that does not time out — the caller's run pauses
+  (freeing its instance for other work, with no cost to the delegate's
+  own progress) and picks back up as soon as the delegate answers. The A2A
+  path instead waits up to 10 minutes for a free instance of the delegate
+  (asleep, starting, busy, or waiting for room on a full Nest) and 75
+  minutes in all, blocking the whole time.
+- Repeating a call is safe: it is keyed by the run, the turn and the call,
+  so a retried, resumed or paused-then-resumed call always finds the same
+  delegate task (or A2A task) instead of running the delegate twice.
 - The delegate's run joins the caller's trace (`agen trace` shows the whole
   tree) and inherits the task's labels.
 - The delegate's run is a fresh conversation each time; give it the context it
@@ -85,8 +91,10 @@ the researcher about all of them in the same turn."
 
 ## Starting work without waiting
 
-`call_agent` keeps the caller's run open until the delegate answers. For long
-work, `start_agent` queues a task on the delegate and returns at once with the
+`call_agent` waits for the delegate's answer (see above: it may pause the
+caller's run while it does, but the model still sees one ordinary tool
+call). For work the caller does not need an answer to before going on,
+`start_agent` queues a task on the delegate and returns at once with the
 task's id; the caller finishes its turn. When the task ends (succeeded,
 failed or cancelled), the Hub sends its result back into the caller's
 conversation as a new task, with input that starts
@@ -97,7 +105,7 @@ caller continues that conversation with it.
 |---|---|---|
 | The caller's run | waits for the answer | goes on and can finish |
 | The answer | the tool result | a new task in the caller's conversation (source `reply:<agent>`) |
-| The delegate's work | an A2A call | a queued task |
+| The delegate's work | a queued task it waits on (or an A2A call if `url`/`via: "a2a"`) | a queued task it never waits on |
 | Which delegates | all | in a fleet, those without a fixed `url` |
 
 - The result goes to the conversation the call came from. If that
@@ -151,6 +159,11 @@ bundle.
 
 Set a limit to `0` to turn it off. `call_agent` and `start_agent` count
 alike.
+
+`limits.inlineWait` (default `20s`) is how long `call_agent`'s unified path
+waits for a delegate inline before pausing the caller's run instead (see
+[above](#delegates)); it does not apply to a delegate called over A2A
+(fixed `url` or `via: "a2a"`), which always blocks for the whole call.
 
 Each delegate's own budget still applies to its runs.
 

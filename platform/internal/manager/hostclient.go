@@ -101,7 +101,12 @@ type HostRunResult struct {
 	Success bool   `json:"success"`
 	Output  string `json:"output"`
 	Error   string `json:"error"`
-	Run     struct {
+	// Suspended (3.3, part): the run gave up its instance slot to wait for
+	// something (WaitFor, "<kind>:<ref>") instead of finishing or failing.
+	// Success/Output/Error do not apply.
+	Suspended bool   `json:"suspended"`
+	WaitFor   string `json:"waitFor"`
+	Run       struct {
 		ID      string `json:"id"`
 		Status  string `json:"status"`
 		TraceID string `json:"traceId"`

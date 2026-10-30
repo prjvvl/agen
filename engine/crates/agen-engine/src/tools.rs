@@ -19,6 +19,12 @@ pub struct ToolError {
     /// Side-effecting calls with this error are reported as `effect_unknown`
     /// and never recorded as completed.
     pub outcome_unknown: bool,
+    /// Set instead of a normal error (3.3) when the tool is asking the
+    /// whole run to pause here rather than fail: what it is waiting for
+    /// ("<kind>:<ref>"). No tool message is written for this call; it is
+    /// retried from scratch (never from a cached result) the next time the
+    /// run is driven, which is expected to be after that happens.
+    pub suspend: Option<String>,
 }
 
 impl ToolError {
@@ -26,6 +32,7 @@ impl ToolError {
         Self {
             message: message.into(),
             outcome_unknown: false,
+            suspend: None,
         }
     }
 
@@ -33,6 +40,18 @@ impl ToolError {
         Self {
             message: message.into(),
             outcome_unknown: true,
+            suspend: None,
+        }
+    }
+
+    /// Asks the run to suspend here instead of treating this as a failure
+    /// (3.3): `wait_for` is `"<kind>:<ref>"`, e.g. `"child:<task id>"`.
+    pub fn suspend(wait_for: impl Into<String>) -> Self {
+        let wait_for = wait_for.into();
+        Self {
+            message: format!("suspended: waiting for {wait_for}"),
+            outcome_unknown: false,
+            suspend: Some(wait_for),
         }
     }
 }

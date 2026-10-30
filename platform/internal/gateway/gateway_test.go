@@ -176,7 +176,10 @@ func writerFiles(t *testing.T) map[string][]byte {
 
 // P6 + E6: an agent delegates to another over A2A through the Nest Gateway
 // (resolved via the Manager, not the Hub); the callee's run joins the
-// caller's trace; with the Hub gone, delegation still works.
+// caller's trace; with the Hub gone, delegation still works. via: "a2a"
+// opts out of call_agent's unified child-task path (3.2b), which needs the
+// Hub throughout, so this delegate keeps the plain synchronous A2A call
+// this test is about.
 // features: delegation
 func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	k := startStack(t)
@@ -187,7 +190,7 @@ func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	c, st, logs, hubSrv, gwURL := k.c, k.st, k.logs, k.hubSrv, k.gwURL
 	boss := testutil.BundleFiles(t, "hello")
 	boss["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},
-		"delegates":[{"name":"writer","description":"Writes drafts"}],
+		"delegates":[{"name":"writer","description":"Writes drafts","via":"a2a"}],
 		"permissions":{"default":"deny","rules":[{"tool":"call_agent","action":"allow"}]}}`)
 	boss["x-agen/fake-script.json"] = []byte(`{"cycle":true,"responses":[
 		{"toolCalls":[{"name":"call_agent","arguments":{"agent":"writer","message":"draft it"}}]},
@@ -283,6 +286,47 @@ func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	}
 	if writerRuns != 2 {
 		t.Fatalf("writer runs after outage call: %d", writerRuns)
+	}
+}
+
+// 3.2b/3.3: call_agent's unified path starts the delegate as a child task
+// and waits inline up to limits.inlineWait; a child slower than that
+// suspends the caller's task (TASK_STATE_WAITING, no instance, no lease)
+// instead of blocking it, and it is woken and resumed once the child ends.
+// features: delegation
+func TestCallAgentSuspendsWhenTheChildOutlastsInlineWait(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	boss := testutil.BundleFiles(t, "hello")
+	boss["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},
+		"delegates":[{"name":"writer","description":"Writes drafts"}],
+		"limits":{"inlineWait":"1s"},
+		"permissions":{"default":"deny","rules":[{"tool":"call_agent","action":"allow"}]}}`)
+	boss["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"call_agent","arguments":{"agent":"writer","message":"draft it"}}]},
+		{"text":"Boss: done","expect":"Draft ready."}]}`)
+	writer := testutil.BundleFiles(t, "hello")
+	writer["x-agen/fake-script.json"] = []byte(`{"responses":[{"text":"Draft ready.","delayMs":4000}]}`)
+	k.deploy(t, "writer", writer, 1)
+	k.deploy(t, "boss", boss, 1)
+	k.waitReady(t, 2)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "boss"}, Input: "get me a draft"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The child (writer) takes 2s, well past boss's 300ms inline wait: boss
+	// must be seen waiting, with no instance and no lease, before it ends.
+	waitFor(t, "boss task waiting on its child", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_WAITING && strings.HasPrefix(got.Msg.Task.WaitFor, "child:")
+	})
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "Boss: done" {
+		t.Fatalf("boss task: %v %v", got, err)
+	}
+	if got.Msg.Task.WaitFor != "" {
+		t.Fatalf("wait_for must clear on resume: %q", got.Msg.Task.WaitFor)
 	}
 }
 

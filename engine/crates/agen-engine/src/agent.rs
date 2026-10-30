@@ -227,6 +227,10 @@ pub struct RunResult {
     /// How the run ended: status (done, partial, needs_input, rejected,
     /// failed, cancelled), reason, report and data.
     pub outcome: Option<RunOutcome>,
+    /// Set instead of the run having ended (3.3): what it is waiting for
+    /// ("<kind>:<ref>"). `status` is unchanged (still Running: the run is
+    /// not finished, only paused) and `outcome` is None.
+    pub wait_for: String,
 }
 
 pub struct Agent {
@@ -535,6 +539,7 @@ impl Agent {
                 bundle.config.delegates.clone(),
                 &namespace,
                 opts.resolver.clone(),
+                opts.task_starter.clone(),
                 bundle.config.limits.clone(),
                 store.clone(),
             )));
@@ -802,11 +807,30 @@ impl Agent {
             .await;
         }
         let outcome = self.drive_inner(&mut live, &tracer, &span.ctx, opts).await;
+        if let Ok(Outcome::Suspended(wait_for)) = &outcome {
+            // Not finished: the run stays open (no finish_run, no closing of
+            // the pending call) exactly as if the process had died at this
+            // point, except cleanly, so it resumes the same way.
+            let wait_for = wait_for.clone();
+            self.log(
+                "info",
+                &format!(
+                    "run {} suspended at step {}: waiting for {wait_for}",
+                    live.rec.id, live.rec.step
+                ),
+            )
+            .await;
+            tracer.end(span, "suspended").await;
+            let mut result = result_of(&live.rec);
+            result.wait_for = wait_for;
+            return Ok(result);
+        }
         let mut ended = match outcome {
             Ok(Outcome::Done(text)) => RunOutcome::new("done", "", &text),
             Ok(Outcome::Failed(err)) => RunOutcome::new("failed", failure_reason(&err), &err),
             Ok(Outcome::Cancelled) => RunOutcome::new("cancelled", "cancelled", ""),
             Ok(Outcome::Ended(o)) => o,
+            Ok(Outcome::Suspended(_)) => unreachable!("handled above"),
             // Store failures (including losing ownership) leave the run as
             // it is: resumable, or owned by someone else.
             Err(AgentError::Store(e)) => {
@@ -970,11 +994,21 @@ impl Agent {
                 Ok::<_, AgentError>(Some((call.id, result)))
             }))
             .buffered(width);
-            // Results are recorded in call order as they become available.
+            // Results are recorded in call order as they become available. A
+            // call that asks to suspend (3.3) gets no tool message: it stays
+            // pending, exactly as if the process had died here, and is
+            // retried from scratch once the run is driven again.
+            let mut suspended: Option<String> = None;
             while let Some(r) = results.next().await {
-                let Some((id, result)) = r? else {
+                let Some((id, (result, status))) = r? else {
                     return Ok(Outcome::Cancelled);
                 };
+                if status == "suspended" {
+                    if suspended.is_none() {
+                        suspended = Some(result);
+                    }
+                    continue;
+                }
                 let msg = self.redact_message(&Message::tool(&id, result));
                 self.store
                     .checkpoint(
@@ -987,6 +1021,9 @@ impl Agent {
                     .await?;
             }
             drop(results);
+            if let Some(wait_for) = suspended {
+                return Ok(Outcome::Suspended(wait_for));
+            }
             if opts.cancel.is_cancelled() {
                 return Ok(Outcome::Cancelled);
             }
@@ -1675,7 +1712,7 @@ impl Agent {
         tracer: &Tracer,
         ctx: &TraceContext,
         opts: &RunOptions,
-    ) -> Result<String, AgentError> {
+    ) -> Result<(String, &'static str), AgentError> {
         let mut span = tracer.start(ctx, "agen.tool");
         span.set("gen_ai.tool.name", call.name.clone());
         span.set("gen_ai.tool.call.id", call.id.clone());
@@ -1699,6 +1736,12 @@ impl Agent {
         }
         tracer.record_open(&span).await;
         let (result, status) = self.execute_call_inner(live, call, tracer, &mut span, opts).await?;
+        if status == "suspended" {
+            // Not a failure: `result` holds what it is waiting for, not a
+            // message, so none of the error bookkeeping below applies.
+            tracer.end(span, status).await;
+            return Ok((result, status));
+        }
         {
             let key = format!("{}\n{}", call.name, args_hash(&call.arguments));
             let mut errors = live.errors.lock().unwrap();
@@ -1728,7 +1771,7 @@ impl Agent {
             span.set("error.message", msg);
         }
         tracer.end(span, status).await;
-        Ok(result)
+        Ok((result, status))
     }
 
     async fn execute_call_inner(
@@ -1862,6 +1905,9 @@ impl Agent {
         };
         if !tool.side_effect() {
             let r = self.invoke(tool.as_ref(), call, tctx).await;
+            if let Some(wait_for) = r.suspend {
+                return Ok((wait_for, "suspended"));
+            }
             return Ok((r.text, r.status));
         }
         let hash = args_hash(&call.arguments);
@@ -1891,6 +1937,13 @@ impl Agent {
             }
         }
         let r = self.invoke(tool.as_ref(), call, tctx).await;
+        if let Some(wait_for) = r.suspend {
+            // Leave the ledger entry "started": EffectBegin::Unknown resets
+            // and retries it (as if interrupted) when this call runs again
+            // on resume, by which point it is expected to be done.
+            span.set("agen.effect", "suspended");
+            return Ok((wait_for, "suspended"));
+        }
         if r.uncertain {
             // Cancelled, timed out or connection lost: the call may or may not
             // have taken effect. Leave the ledger entry "started" (unknown)
@@ -1922,20 +1975,29 @@ impl Agent {
                     text: format!("error: the tool did not finish within {}s (limits.toolTimeout)", limit.as_secs()),
                     status: "error",
                     uncertain: true,
+                    suspend: None,
                 },
             },
-            _ = cancel.cancelled() => return Invoked { text: "error: cancelled".into(), status: "cancelled", uncertain: true },
+            _ = cancel.cancelled() => return Invoked { text: "error: cancelled".into(), status: "cancelled", uncertain: true, suspend: None },
         };
         match r {
             Ok(text) => Invoked {
                 text: self.redactor.redact(&text),
                 status: "ok",
                 uncertain: false,
+                suspend: None,
+            },
+            Err(e) if e.suspend.is_some() => Invoked {
+                text: String::new(),
+                status: "suspended",
+                uncertain: false,
+                suspend: e.suspend,
             },
             Err(e) => Invoked {
                 text: self.redactor.redact(&format!("error: {e}")),
                 status: "error",
                 uncertain: e.outcome_unknown,
+                suspend: None,
             },
         }
     }
@@ -1946,6 +2008,9 @@ struct Invoked {
     status: &'static str,
     /// The outcome of a side effect is unknown (cancelled, timed out, lost).
     uncertain: bool,
+    /// Set instead of text/status when the tool asked the run to suspend
+    /// (3.3): what it is waiting for.
+    suspend: Option<String>,
 }
 
 enum Outcome {
@@ -1954,6 +2019,11 @@ enum Outcome {
     Cancelled,
     /// Ended with an explicit outcome (finish, or a report at a limit).
     Ended(RunOutcome),
+    /// A tool call asked the whole run to pause here (3.3): what it is
+    /// waiting for ("<kind>:<ref>"). The run is not finished: it stays
+    /// resumable at this exact point (the call is still pending, with no
+    /// tool message), the same as if the process had died here.
+    Suspended(String),
 }
 
 /// The outcome reason of a run that failed with `err`.
@@ -2235,6 +2305,7 @@ fn result_of(r: &RunRecord) -> RunResult {
         usage: r.usage,
         trace_id: r.trace_id.clone(),
         outcome: r.outcome.clone(),
+        wait_for: String::new(),
     }
 }
 

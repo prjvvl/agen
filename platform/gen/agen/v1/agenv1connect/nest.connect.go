@@ -50,6 +50,10 @@ const (
 	NestServiceCompleteTaskProcedure = "/agen.v1.NestService/CompleteTask"
 	// NestServiceReleaseTaskProcedure is the fully-qualified name of the NestService's ReleaseTask RPC.
 	NestServiceReleaseTaskProcedure = "/agen.v1.NestService/ReleaseTask"
+	// NestServiceSuspendTaskProcedure is the fully-qualified name of the NestService's SuspendTask RPC.
+	NestServiceSuspendTaskProcedure = "/agen.v1.NestService/SuspendTask"
+	// NestServiceWaitTaskProcedure is the fully-qualified name of the NestService's WaitTask RPC.
+	NestServiceWaitTaskProcedure = "/agen.v1.NestService/WaitTask"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -92,6 +96,14 @@ type NestServiceClient interface {
 	// Give a leased task back to the queue early (the instance could not take
 	// it, or is gone).
 	ReleaseTask(context.Context, *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error)
+	// An instance's call_agent gave up its lease to wait for a child task it
+	// started (3.3): the task moves to TASK_STATE_WAITING, carrying wait_for.
+	// It is requeued when a matching run_inbox row arrives.
+	SuspendTask(context.Context, *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error)
+	// Waits for a task (typically one started by SubmitChildTask) to reach a
+	// terminal state, up to wait_seconds (3.3: call_agent's inline wait before
+	// it suspends instead of erroring).
+	WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -167,6 +179,18 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("ReleaseTask")),
 			connect.WithClientOptions(opts...),
 		),
+		suspendTask: connect.NewClient[v1.SuspendTaskRequest, v1.SuspendTaskResponse](
+			httpClient,
+			baseURL+NestServiceSuspendTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("SuspendTask")),
+			connect.WithClientOptions(opts...),
+		),
+		waitTask: connect.NewClient[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse](
+			httpClient,
+			baseURL+NestServiceWaitTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("WaitTask")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -233,6 +257,8 @@ type nestServiceClient struct {
 	extendLease       *connect.Client[v1.ExtendLeaseRequest, v1.ExtendLeaseResponse]
 	completeTask      *connect.Client[v1.CompleteTaskRequest, v1.CompleteTaskResponse]
 	releaseTask       *connect.Client[v1.ReleaseTaskRequest, v1.ReleaseTaskResponse]
+	suspendTask       *connect.Client[v1.SuspendTaskRequest, v1.SuspendTaskResponse]
+	waitTask          *connect.Client[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse]
 	createApproval    *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval       *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity    *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -277,6 +303,16 @@ func (c *nestServiceClient) CompleteTask(ctx context.Context, req *connect.Reque
 // ReleaseTask calls agen.v1.NestService.ReleaseTask.
 func (c *nestServiceClient) ReleaseTask(ctx context.Context, req *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error) {
 	return c.releaseTask.CallUnary(ctx, req)
+}
+
+// SuspendTask calls agen.v1.NestService.SuspendTask.
+func (c *nestServiceClient) SuspendTask(ctx context.Context, req *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error) {
+	return c.suspendTask.CallUnary(ctx, req)
+}
+
+// WaitTask calls agen.v1.NestService.WaitTask.
+func (c *nestServiceClient) WaitTask(ctx context.Context, req *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error) {
+	return c.waitTask.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -339,6 +375,14 @@ type NestServiceHandler interface {
 	// Give a leased task back to the queue early (the instance could not take
 	// it, or is gone).
 	ReleaseTask(context.Context, *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error)
+	// An instance's call_agent gave up its lease to wait for a child task it
+	// started (3.3): the task moves to TASK_STATE_WAITING, carrying wait_for.
+	// It is requeued when a matching run_inbox row arrives.
+	SuspendTask(context.Context, *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error)
+	// Waits for a task (typically one started by SubmitChildTask) to reach a
+	// terminal state, up to wait_seconds (3.3: call_agent's inline wait before
+	// it suspends instead of erroring).
+	WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -408,6 +452,18 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		NestServiceReleaseTaskProcedure,
 		svc.ReleaseTask,
 		connect.WithSchema(nestServiceMethods.ByName("ReleaseTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceSuspendTaskHandler := connect.NewUnaryHandler(
+		NestServiceSuspendTaskProcedure,
+		svc.SuspendTask,
+		connect.WithSchema(nestServiceMethods.ByName("SuspendTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceWaitTaskHandler := connect.NewUnaryHandler(
+		NestServiceWaitTaskProcedure,
+		svc.WaitTask,
+		connect.WithSchema(nestServiceMethods.ByName("WaitTask")),
 		connect.WithHandlerOptions(opts...),
 	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
@@ -480,6 +536,10 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceCompleteTaskHandler.ServeHTTP(w, r)
 		case NestServiceReleaseTaskProcedure:
 			nestServiceReleaseTaskHandler.ServeHTTP(w, r)
+		case NestServiceSuspendTaskProcedure:
+			nestServiceSuspendTaskHandler.ServeHTTP(w, r)
+		case NestServiceWaitTaskProcedure:
+			nestServiceWaitTaskHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -533,6 +593,14 @@ func (UnimplementedNestServiceHandler) CompleteTask(context.Context, *connect.Re
 
 func (UnimplementedNestServiceHandler) ReleaseTask(context.Context, *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReleaseTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) SuspendTask(context.Context, *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.SuspendTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.WaitTask is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

@@ -32,6 +32,10 @@ service ManagerService {
   // (async delegation); its result comes back as a task in the caller's
   // conversation.
   rpc StartTask(StartTaskRequest) returns (StartTaskResponse);
+  // Waits for a task this instance started to finish, up to wait_seconds
+  // (3.3: call_agent's unified delegation path starts a child task via
+  // StartTask, then waits here before suspending instead of erroring).
+  rpc WaitTask(WaitTaskRequest) returns (WaitTaskResponse);
 }
 
 message StartTaskRequest {
@@ -52,6 +56,14 @@ message StartTaskRequest {
   string trust = 9;
 }
 message StartTaskResponse {
+  Task task = 1;
+}
+
+message WaitTaskRequest {
+  string task_id = 1;
+  int32 wait_seconds = 2;
+}
+message WaitTaskResponse {
   Task task = 1;
 }
 

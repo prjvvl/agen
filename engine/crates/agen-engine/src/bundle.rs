@@ -221,6 +221,10 @@ pub struct Limits {
     /// The same step with the same result this many turns in a row counts as
     /// stuck: the run is nudged once, then stops and reports (0: off).
     pub stuck_repeats: Option<u32>,
+    /// How long `call_agent`'s unified delegation path (a platform delegate,
+    /// no fixed url, not `via: "a2a"`) waits for the child task's answer
+    /// before suspending the run instead of blocking on it ("20s").
+    pub inline_wait: Option<String>,
 }
 
 /// Limit values used when a bundle does not set them. A limit set to 0 is
@@ -238,6 +242,7 @@ pub mod default_limits {
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
     pub const REPORT_TOKENS: u32 = 1024;
     pub const STUCK_REPEATS: u32 = 4;
+    pub const INLINE_WAIT: Duration = Duration::from_secs(20);
 }
 
 impl Limits {
@@ -262,6 +267,12 @@ impl Limits {
     pub fn stuck_repeats(&self) -> u32 {
         self.stuck_repeats.unwrap_or(default_limits::STUCK_REPEATS)
     }
+    pub fn inline_wait(&self) -> std::time::Duration {
+        self.inline_wait
+            .as_deref()
+            .and_then(parse_duration)
+            .unwrap_or(default_limits::INLINE_WAIT)
+    }
 }
 
 /// Another deployment this agent may call (`call_agent`, `start_agent`).
@@ -280,6 +291,20 @@ pub struct Delegate {
     /// only deployments meant as generic workers should set this).
     #[serde(default)]
     pub overrides: bool,
+    /// `"a2a"` opts a platform delegate (no fixed `url`) out of
+    /// `call_agent`'s unified delegation (child task + suspend/resume) back
+    /// into the plain synchronous A2A call it always had. A delegate with a
+    /// fixed `url` always uses A2A regardless of this.
+    pub via: Option<String>,
+}
+
+impl Delegate {
+    /// True if `call_agent` must use the old synchronous A2A call for this
+    /// delegate rather than the unified child-task path (3.2b): a fixed
+    /// endpoint has no task to start, and `via: "a2a"` opts out explicitly.
+    pub fn sync_a2a(&self) -> bool {
+        self.url.is_some() || self.via.as_deref() == Some("a2a")
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

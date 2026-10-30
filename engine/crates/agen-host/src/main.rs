@@ -572,6 +572,14 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         agent.run(&input, opts).await
     });
     match handle.await {
+        // Not finished: the run gave up its instance slot to wait for
+        // something (3.3), rather than finishing or failing.
+        Ok(Ok(r)) if !r.wait_for.is_empty() => Json(json!({
+            "suspended": true,
+            "waitFor": r.wait_for,
+            "run": result_json(&r),
+        }))
+        .into_response(),
         Ok(Ok(r)) => Json(json!({
             "success": r.status == RunStatus::Succeeded,
             "output": r.output,

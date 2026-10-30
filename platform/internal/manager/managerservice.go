@@ -199,6 +199,33 @@ func (s *managerService) StartTask(ctx context.Context, req *connect.Request[age
 	}
 }
 
+// WaitTask waits for a task the calling instance started (via StartTask) to
+// finish, up to wait_seconds (3.3, part: call_agent's inline wait before it
+// suspends instead of erroring). A short Hub outage is waited out, bounded
+// by the caller's own context deadline.
+func (s *managerService) WaitTask(ctx context.Context, req *connect.Request[agenv1.WaitTaskRequest]) (*connect.Response[agenv1.WaitTaskResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().WaitTask(ctx, connect.NewRequest(&agenv1.NestWaitTaskRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId, WaitSeconds: req.Msg.WaitSeconds}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.WaitTaskResponse{Task: r.Msg.Task}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	select {
 	case <-ctx.Done():

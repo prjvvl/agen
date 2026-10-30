@@ -98,6 +98,23 @@ impl Resolver for ManagerResolver {
 pub trait TaskStarter: Send + Sync {
     /// Returns the new task's id.
     async fn start(&self, req: StartRequest<'_>) -> Result<String, String>;
+    /// Waits up to `wait` for a task (typically one `start` returned) to
+    /// reach a terminal state (3.3, part: `call_agent`'s unified delegation
+    /// path, before it suspends instead of blocking indefinitely).
+    async fn wait(&self, task_id: &str, wait: Duration) -> Result<WaitOutcome, String>;
+}
+
+/// What waiting for a task found.
+pub enum WaitOutcome {
+    /// It reached a terminal state.
+    Done {
+        success: bool,
+        output: String,
+        error: String,
+        outcome: Option<Value>,
+    },
+    /// Still not done when the wait elapsed.
+    Pending,
 }
 
 /// One async delegation.
@@ -153,6 +170,45 @@ impl TaskStarter for ManagerResolver {
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| "manager answered without a task".into())
+    }
+
+    async fn wait(&self, task_id: &str, wait: Duration) -> Result<WaitOutcome, String> {
+        let wait_secs = wait.as_secs().clamp(1, i32::MAX as u64);
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/WaitTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "waitSeconds": wait_secs}))
+            .timeout(wait + Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "wait for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        let task = v.get("task").cloned().unwrap_or(Value::Null);
+        match task.get("state").and_then(Value::as_str).unwrap_or("") {
+            "TASK_STATE_SUCCEEDED" | "TASK_STATE_FAILED" | "TASK_STATE_CANCELLED" => Ok(WaitOutcome::Done {
+                success: task.get("state").and_then(Value::as_str) == Some("TASK_STATE_SUCCEEDED"),
+                output: task
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                error: task
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                outcome: task.get("outcome").cloned().filter(|v| !v.is_null()),
+            }),
+            _ => Ok(WaitOutcome::Pending),
+        }
     }
 }
 
@@ -341,6 +397,11 @@ pub struct CallAgent {
     delegates: Vec<Delegate>,
     default_namespace: String,
     resolver: Option<Arc<dyn Resolver>>,
+    /// Starts a delegate as a child task and waits on it (3.2b/3.3: the
+    /// unified path every platform delegate uses unless it opts into plain
+    /// A2A). None in standalone/embedded mode, where every delegate must be
+    /// `url` or resolved A2A.
+    starter: Option<Arc<dyn TaskStarter>>,
     limits: Limits,
     store: Arc<Store>,
     http: reqwest::Client,
@@ -352,6 +413,7 @@ impl CallAgent {
         delegates: Vec<Delegate>,
         default_namespace: &str,
         resolver: Option<Arc<dyn Resolver>>,
+        starter: Option<Arc<dyn TaskStarter>>,
         limits: Limits,
         store: Arc<Store>,
     ) -> Self {
@@ -359,12 +421,65 @@ impl CallAgent {
             delegates,
             default_namespace: default_namespace.to_string(),
             resolver,
+            starter,
             limits,
             store,
             http: reqwest::Client::new(),
             // A Gateway lets a call wait up to 10 min for a free instance and
             // run for up to 1 h.
             timeout: Duration::from_secs(75 * 60),
+        }
+    }
+
+    /// `call_agent`'s unified path (3.2b/3.3) for a platform delegate: start
+    /// it as a child task and wait on it, same as `start_agent` would, but
+    /// inline — up to `limits.inlineWait` before suspending the whole run
+    /// instead of blocking it (the caller resumes once the child is done,
+    /// re-running this exact call, which by then finds it done at once).
+    async fn call_unified(
+        &self,
+        starter: &Arc<dyn TaskStarter>,
+        d: &Delegate,
+        message: &str,
+        ctx: &ToolContext,
+        call_key: &str,
+    ) -> Result<String, ToolError> {
+        let ns = d.namespace.clone().unwrap_or_else(|| self.default_namespace.clone());
+        let task_id = starter
+            .start(StartRequest {
+                namespace: &ns,
+                name: &d.name,
+                input: message,
+                run_id: &ctx.run_id,
+                traceparent: &ctx.traceparent,
+                // No reply task: the answer comes back as this call's
+                // result when the caller's run resumes, not as a new
+                // message in the conversation.
+                reply_conversation_key: "",
+                idempotency_key: &format!("call:{call_key}"),
+                overrides: None,
+                model_tier: "",
+                trust: ctx.trust,
+            })
+            .await
+            .map_err(ToolError::new)?;
+        let outcome = tokio::select! {
+            r = starter.wait(&task_id, self.limits.inline_wait()) => r.map_err(ToolError::new)?,
+            _ = ctx.cancel.cancelled() => return Err(ToolError::unknown("cancelled")),
+        };
+        match outcome {
+            WaitOutcome::Done {
+                success: true,
+                output,
+                outcome,
+                ..
+            } => Ok(with_outcome(output, outcome.as_ref())),
+            WaitOutcome::Done { error, .. } => Err(ToolError::new(if error.is_empty() {
+                format!("agent {} (task {task_id}) did not finish successfully", d.name)
+            } else {
+                error
+            })),
+            WaitOutcome::Pending => Err(ToolError::suspend(format!("child:{task_id}"))),
         }
     }
 
@@ -595,6 +710,11 @@ impl Tool for CallAgent {
             if let Some(msg) = over {
                 let _ = self.store.forget_delegation(&message_id).await;
                 return Err(ToolError::new(msg));
+            }
+        }
+        if !d.sync_a2a() {
+            if let Some(starter) = self.starter.clone() {
+                return self.call_unified(&starter, d, message, &ctx, &message_id).await;
             }
         }
         let body = json!({

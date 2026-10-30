@@ -1216,6 +1216,215 @@ func (*ReleaseTaskResponse) Descriptor() ([]byte, []int) {
 	return file_agen_v1_nest_proto_rawDescGZIP(), []int{20}
 }
 
+type SuspendTaskRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NestId string                 `protobuf:"bytes,1,opt,name=nest_id,json=nestId,proto3" json:"nest_id,omitempty"`
+	TaskId string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// Must match the current lease, like CompleteTask's.
+	LeaseId       string `protobuf:"bytes,3,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	WaitFor       string `protobuf:"bytes,4,opt,name=wait_for,json=waitFor,proto3" json:"wait_for,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SuspendTaskRequest) Reset() {
+	*x = SuspendTaskRequest{}
+	mi := &file_agen_v1_nest_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SuspendTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SuspendTaskRequest) ProtoMessage() {}
+
+func (x *SuspendTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_nest_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SuspendTaskRequest.ProtoReflect.Descriptor instead.
+func (*SuspendTaskRequest) Descriptor() ([]byte, []int) {
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SuspendTaskRequest) GetNestId() string {
+	if x != nil {
+		return x.NestId
+	}
+	return ""
+}
+
+func (x *SuspendTaskRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *SuspendTaskRequest) GetLeaseId() string {
+	if x != nil {
+		return x.LeaseId
+	}
+	return ""
+}
+
+func (x *SuspendTaskRequest) GetWaitFor() string {
+	if x != nil {
+		return x.WaitFor
+	}
+	return ""
+}
+
+type SuspendTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SuspendTaskResponse) Reset() {
+	*x = SuspendTaskResponse{}
+	mi := &file_agen_v1_nest_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SuspendTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SuspendTaskResponse) ProtoMessage() {}
+
+func (x *SuspendTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_nest_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SuspendTaskResponse.ProtoReflect.Descriptor instead.
+func (*SuspendTaskResponse) Descriptor() ([]byte, []int) {
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{22}
+}
+
+type NestWaitTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NestId        string                 `protobuf:"bytes,1,opt,name=nest_id,json=nestId,proto3" json:"nest_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	WaitSeconds   int32                  `protobuf:"varint,3,opt,name=wait_seconds,json=waitSeconds,proto3" json:"wait_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NestWaitTaskRequest) Reset() {
+	*x = NestWaitTaskRequest{}
+	mi := &file_agen_v1_nest_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NestWaitTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NestWaitTaskRequest) ProtoMessage() {}
+
+func (x *NestWaitTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_nest_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NestWaitTaskRequest.ProtoReflect.Descriptor instead.
+func (*NestWaitTaskRequest) Descriptor() ([]byte, []int) {
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *NestWaitTaskRequest) GetNestId() string {
+	if x != nil {
+		return x.NestId
+	}
+	return ""
+}
+
+func (x *NestWaitTaskRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *NestWaitTaskRequest) GetWaitSeconds() int32 {
+	if x != nil {
+		return x.WaitSeconds
+	}
+	return 0
+}
+
+type NestWaitTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Task          *Task                  `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NestWaitTaskResponse) Reset() {
+	*x = NestWaitTaskResponse{}
+	mi := &file_agen_v1_nest_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NestWaitTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NestWaitTaskResponse) ProtoMessage() {}
+
+func (x *NestWaitTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agen_v1_nest_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NestWaitTaskResponse.ProtoReflect.Descriptor instead.
+func (*NestWaitTaskResponse) Descriptor() ([]byte, []int) {
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *NestWaitTaskResponse) GetTask() *Task {
+	if x != nil {
+		return x.Task
+	}
+	return nil
+}
+
 type CreateApprovalRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Approval   *Approval              `protobuf:"bytes,1,opt,name=approval,proto3" json:"approval,omitempty"`
@@ -1229,7 +1438,7 @@ type CreateApprovalRequest struct {
 
 func (x *CreateApprovalRequest) Reset() {
 	*x = CreateApprovalRequest{}
-	mi := &file_agen_v1_nest_proto_msgTypes[21]
+	mi := &file_agen_v1_nest_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1241,7 +1450,7 @@ func (x *CreateApprovalRequest) String() string {
 func (*CreateApprovalRequest) ProtoMessage() {}
 
 func (x *CreateApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[21]
+	mi := &file_agen_v1_nest_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1254,7 +1463,7 @@ func (x *CreateApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApprovalRequest.ProtoReflect.Descriptor instead.
 func (*CreateApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{21}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CreateApprovalRequest) GetApproval() *Approval {
@@ -1287,7 +1496,7 @@ type CreateApprovalResponse struct {
 
 func (x *CreateApprovalResponse) Reset() {
 	*x = CreateApprovalResponse{}
-	mi := &file_agen_v1_nest_proto_msgTypes[22]
+	mi := &file_agen_v1_nest_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1299,7 +1508,7 @@ func (x *CreateApprovalResponse) String() string {
 func (*CreateApprovalResponse) ProtoMessage() {}
 
 func (x *CreateApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[22]
+	mi := &file_agen_v1_nest_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1312,7 +1521,7 @@ func (x *CreateApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApprovalResponse.ProtoReflect.Descriptor instead.
 func (*CreateApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{22}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CreateApprovalResponse) GetApproval() *Approval {
@@ -1332,7 +1541,7 @@ type GetApprovalRequest struct {
 
 func (x *GetApprovalRequest) Reset() {
 	*x = GetApprovalRequest{}
-	mi := &file_agen_v1_nest_proto_msgTypes[23]
+	mi := &file_agen_v1_nest_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1344,7 +1553,7 @@ func (x *GetApprovalRequest) String() string {
 func (*GetApprovalRequest) ProtoMessage() {}
 
 func (x *GetApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[23]
+	mi := &file_agen_v1_nest_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1357,7 +1566,7 @@ func (x *GetApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApprovalRequest.ProtoReflect.Descriptor instead.
 func (*GetApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{23}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetApprovalRequest) GetId() string {
@@ -1383,7 +1592,7 @@ type GetApprovalResponse struct {
 
 func (x *GetApprovalResponse) Reset() {
 	*x = GetApprovalResponse{}
-	mi := &file_agen_v1_nest_proto_msgTypes[24]
+	mi := &file_agen_v1_nest_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1395,7 +1604,7 @@ func (x *GetApprovalResponse) String() string {
 func (*GetApprovalResponse) ProtoMessage() {}
 
 func (x *GetApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[24]
+	mi := &file_agen_v1_nest_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1408,7 +1617,7 @@ func (x *GetApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApprovalResponse.ProtoReflect.Descriptor instead.
 func (*GetApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{24}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetApprovalResponse) GetApproval() *Approval {
@@ -1430,7 +1639,7 @@ type ReportActivityRequest struct {
 
 func (x *ReportActivityRequest) Reset() {
 	*x = ReportActivityRequest{}
-	mi := &file_agen_v1_nest_proto_msgTypes[25]
+	mi := &file_agen_v1_nest_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +1651,7 @@ func (x *ReportActivityRequest) String() string {
 func (*ReportActivityRequest) ProtoMessage() {}
 
 func (x *ReportActivityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[25]
+	mi := &file_agen_v1_nest_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1664,7 @@ func (x *ReportActivityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportActivityRequest.ProtoReflect.Descriptor instead.
 func (*ReportActivityRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{25}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ReportActivityRequest) GetRef() *DeploymentRef {
@@ -1480,7 +1689,7 @@ type ReportActivityResponse struct {
 
 func (x *ReportActivityResponse) Reset() {
 	*x = ReportActivityResponse{}
-	mi := &file_agen_v1_nest_proto_msgTypes[26]
+	mi := &file_agen_v1_nest_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1492,7 +1701,7 @@ func (x *ReportActivityResponse) String() string {
 func (*ReportActivityResponse) ProtoMessage() {}
 
 func (x *ReportActivityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[26]
+	mi := &file_agen_v1_nest_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1505,7 +1714,7 @@ func (x *ReportActivityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportActivityResponse.ProtoReflect.Descriptor instead.
 func (*ReportActivityResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{26}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{30}
 }
 
 type SubmitChildTaskRequest struct {
@@ -1539,7 +1748,7 @@ type SubmitChildTaskRequest struct {
 
 func (x *SubmitChildTaskRequest) Reset() {
 	*x = SubmitChildTaskRequest{}
-	mi := &file_agen_v1_nest_proto_msgTypes[27]
+	mi := &file_agen_v1_nest_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1551,7 +1760,7 @@ func (x *SubmitChildTaskRequest) String() string {
 func (*SubmitChildTaskRequest) ProtoMessage() {}
 
 func (x *SubmitChildTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[27]
+	mi := &file_agen_v1_nest_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1564,7 +1773,7 @@ func (x *SubmitChildTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitChildTaskRequest.ProtoReflect.Descriptor instead.
 func (*SubmitChildTaskRequest) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{27}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SubmitChildTaskRequest) GetNestId() string {
@@ -1674,7 +1883,7 @@ type SubmitChildTaskResponse struct {
 
 func (x *SubmitChildTaskResponse) Reset() {
 	*x = SubmitChildTaskResponse{}
-	mi := &file_agen_v1_nest_proto_msgTypes[28]
+	mi := &file_agen_v1_nest_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1686,7 +1895,7 @@ func (x *SubmitChildTaskResponse) String() string {
 func (*SubmitChildTaskResponse) ProtoMessage() {}
 
 func (x *SubmitChildTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agen_v1_nest_proto_msgTypes[28]
+	mi := &file_agen_v1_nest_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1699,7 +1908,7 @@ func (x *SubmitChildTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitChildTaskResponse.ProtoReflect.Descriptor instead.
 func (*SubmitChildTaskResponse) Descriptor() ([]byte, []int) {
-	return file_agen_v1_nest_proto_rawDescGZIP(), []int{28}
+	return file_agen_v1_nest_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SubmitChildTaskResponse) GetTask() *Task {
@@ -1799,7 +2008,19 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"\blease_id\x18\x03 \x01(\tR\aleaseId\x12\x1f\n" +
 	"\vnot_started\x18\x04 \x01(\bR\n" +
 	"notStarted\"\x15\n" +
-	"\x13ReleaseTaskResponse\"\x88\x01\n" +
+	"\x13ReleaseTaskResponse\"|\n" +
+	"\x12SuspendTaskRequest\x12\x17\n" +
+	"\anest_id\x18\x01 \x01(\tR\x06nestId\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x19\n" +
+	"\blease_id\x18\x03 \x01(\tR\aleaseId\x12\x19\n" +
+	"\bwait_for\x18\x04 \x01(\tR\awaitFor\"\x15\n" +
+	"\x13SuspendTaskResponse\"j\n" +
+	"\x13NestWaitTaskRequest\x12\x17\n" +
+	"\anest_id\x18\x01 \x01(\tR\x06nestId\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12!\n" +
+	"\fwait_seconds\x18\x03 \x01(\x05R\vwaitSeconds\"9\n" +
+	"\x14NestWaitTaskResponse\x12!\n" +
+	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\"\x88\x01\n" +
 	"\x15CreateApprovalRequest\x12-\n" +
 	"\bapproval\x18\x01 \x01(\v2\x11.agen.v1.ApprovalR\bapproval\x12\x1f\n" +
 	"\vttl_seconds\x18\x02 \x01(\x05R\n" +
@@ -1836,7 +2057,7 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"model_tier\x18\r \x01(\tR\tmodelTier\x12\x14\n" +
 	"\x05trust\x18\x0e \x01(\tR\x05trust\"<\n" +
 	"\x17SubmitChildTaskResponse\x12!\n" +
-	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task2\xee\t\n" +
+	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task2\x81\v\n" +
 	"\vNestService\x129\n" +
 	"\x06Enroll\x12\x16.agen.v1.EnrollRequest\x1a\x17.agen.v1.EnrollResponse\x12Y\n" +
 	"\x10WatchAssignments\x12 .agen.v1.WatchAssignmentsRequest\x1a!.agen.v1.WatchAssignmentsResponse0\x01\x12K\n" +
@@ -1845,7 +2066,9 @@ const file_agen_v1_nest_proto_rawDesc = "" +
 	"LeaseTasks\x12\x1a.agen.v1.LeaseTasksRequest\x1a\x1b.agen.v1.LeaseTasksResponse\x12H\n" +
 	"\vExtendLease\x12\x1b.agen.v1.ExtendLeaseRequest\x1a\x1c.agen.v1.ExtendLeaseResponse\x12K\n" +
 	"\fCompleteTask\x12\x1c.agen.v1.CompleteTaskRequest\x1a\x1d.agen.v1.CompleteTaskResponse\x12H\n" +
-	"\vReleaseTask\x12\x1b.agen.v1.ReleaseTaskRequest\x1a\x1c.agen.v1.ReleaseTaskResponse\x12Q\n" +
+	"\vReleaseTask\x12\x1b.agen.v1.ReleaseTaskRequest\x1a\x1c.agen.v1.ReleaseTaskResponse\x12H\n" +
+	"\vSuspendTask\x12\x1b.agen.v1.SuspendTaskRequest\x1a\x1c.agen.v1.SuspendTaskResponse\x12G\n" +
+	"\bWaitTask\x12\x1c.agen.v1.NestWaitTaskRequest\x1a\x1d.agen.v1.NestWaitTaskResponse\x12Q\n" +
 	"\x0eCreateApproval\x12\x1e.agen.v1.CreateApprovalRequest\x1a\x1f.agen.v1.CreateApprovalResponse\x12H\n" +
 	"\vGetApproval\x12\x1b.agen.v1.GetApprovalRequest\x1a\x1c.agen.v1.GetApprovalResponse\x12Q\n" +
 	"\x0eReportActivity\x12\x1e.agen.v1.ReportActivityRequest\x1a\x1f.agen.v1.ReportActivityResponse\x12N\n" +
@@ -1868,7 +2091,7 @@ func file_agen_v1_nest_proto_rawDescGZIP() []byte {
 	return file_agen_v1_nest_proto_rawDescData
 }
 
-var file_agen_v1_nest_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_agen_v1_nest_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_agen_v1_nest_proto_goTypes = []any{
 	(*GetPlatformSecretRequest)(nil),  // 0: agen.v1.GetPlatformSecretRequest
 	(*GetPlatformSecretResponse)(nil), // 1: agen.v1.GetPlatformSecretResponse
@@ -1891,80 +2114,89 @@ var file_agen_v1_nest_proto_goTypes = []any{
 	(*CompleteTaskResponse)(nil),      // 18: agen.v1.CompleteTaskResponse
 	(*ReleaseTaskRequest)(nil),        // 19: agen.v1.ReleaseTaskRequest
 	(*ReleaseTaskResponse)(nil),       // 20: agen.v1.ReleaseTaskResponse
-	(*CreateApprovalRequest)(nil),     // 21: agen.v1.CreateApprovalRequest
-	(*CreateApprovalResponse)(nil),    // 22: agen.v1.CreateApprovalResponse
-	(*GetApprovalRequest)(nil),        // 23: agen.v1.GetApprovalRequest
-	(*GetApprovalResponse)(nil),       // 24: agen.v1.GetApprovalResponse
-	(*ReportActivityRequest)(nil),     // 25: agen.v1.ReportActivityRequest
-	(*ReportActivityResponse)(nil),    // 26: agen.v1.ReportActivityResponse
-	(*SubmitChildTaskRequest)(nil),    // 27: agen.v1.SubmitChildTaskRequest
-	(*SubmitChildTaskResponse)(nil),   // 28: agen.v1.SubmitChildTaskResponse
-	nil,                               // 29: agen.v1.EnrollRequest.LabelsEntry
-	(*DeploymentRef)(nil),             // 30: agen.v1.DeploymentRef
-	(*Assignment)(nil),                // 31: agen.v1.Assignment
-	(*Instance)(nil),                  // 32: agen.v1.Instance
-	(*Task)(nil),                      // 33: agen.v1.Task
-	(*Outcome)(nil),                   // 34: agen.v1.Outcome
-	(*Approval)(nil),                  // 35: agen.v1.Approval
-	(*TaskOverrides)(nil),             // 36: agen.v1.TaskOverrides
-	(*GetDefinitionRequest)(nil),      // 37: agen.v1.GetDefinitionRequest
-	(*ResolveRequest)(nil),            // 38: agen.v1.ResolveRequest
-	(*GetDefinitionResponse)(nil),     // 39: agen.v1.GetDefinitionResponse
-	(*ResolveResponse)(nil),           // 40: agen.v1.ResolveResponse
+	(*SuspendTaskRequest)(nil),        // 21: agen.v1.SuspendTaskRequest
+	(*SuspendTaskResponse)(nil),       // 22: agen.v1.SuspendTaskResponse
+	(*NestWaitTaskRequest)(nil),       // 23: agen.v1.NestWaitTaskRequest
+	(*NestWaitTaskResponse)(nil),      // 24: agen.v1.NestWaitTaskResponse
+	(*CreateApprovalRequest)(nil),     // 25: agen.v1.CreateApprovalRequest
+	(*CreateApprovalResponse)(nil),    // 26: agen.v1.CreateApprovalResponse
+	(*GetApprovalRequest)(nil),        // 27: agen.v1.GetApprovalRequest
+	(*GetApprovalResponse)(nil),       // 28: agen.v1.GetApprovalResponse
+	(*ReportActivityRequest)(nil),     // 29: agen.v1.ReportActivityRequest
+	(*ReportActivityResponse)(nil),    // 30: agen.v1.ReportActivityResponse
+	(*SubmitChildTaskRequest)(nil),    // 31: agen.v1.SubmitChildTaskRequest
+	(*SubmitChildTaskResponse)(nil),   // 32: agen.v1.SubmitChildTaskResponse
+	nil,                               // 33: agen.v1.EnrollRequest.LabelsEntry
+	(*DeploymentRef)(nil),             // 34: agen.v1.DeploymentRef
+	(*Assignment)(nil),                // 35: agen.v1.Assignment
+	(*Instance)(nil),                  // 36: agen.v1.Instance
+	(*Task)(nil),                      // 37: agen.v1.Task
+	(*Outcome)(nil),                   // 38: agen.v1.Outcome
+	(*Approval)(nil),                  // 39: agen.v1.Approval
+	(*TaskOverrides)(nil),             // 40: agen.v1.TaskOverrides
+	(*GetDefinitionRequest)(nil),      // 41: agen.v1.GetDefinitionRequest
+	(*ResolveRequest)(nil),            // 42: agen.v1.ResolveRequest
+	(*GetDefinitionResponse)(nil),     // 43: agen.v1.GetDefinitionResponse
+	(*ResolveResponse)(nil),           // 44: agen.v1.ResolveResponse
 }
 var file_agen_v1_nest_proto_depIdxs = []int32{
-	30, // 0: agen.v1.GetPlatformSecretRequest.ref:type_name -> agen.v1.DeploymentRef
+	34, // 0: agen.v1.GetPlatformSecretRequest.ref:type_name -> agen.v1.DeploymentRef
 	5,  // 1: agen.v1.GetTokenKeysResponse.keys:type_name -> agen.v1.TokenKey
-	29, // 2: agen.v1.EnrollRequest.labels:type_name -> agen.v1.EnrollRequest.LabelsEntry
-	31, // 3: agen.v1.WatchAssignmentsResponse.assignments:type_name -> agen.v1.Assignment
-	32, // 4: agen.v1.ReportStatusRequest.instances:type_name -> agen.v1.Instance
-	30, // 5: agen.v1.LeaseTasksRequest.ref:type_name -> agen.v1.DeploymentRef
-	33, // 6: agen.v1.LeaseTasksResponse.tasks:type_name -> agen.v1.Task
-	34, // 7: agen.v1.CompleteTaskRequest.outcome:type_name -> agen.v1.Outcome
-	35, // 8: agen.v1.CreateApprovalRequest.approval:type_name -> agen.v1.Approval
-	35, // 9: agen.v1.CreateApprovalResponse.approval:type_name -> agen.v1.Approval
-	35, // 10: agen.v1.GetApprovalResponse.approval:type_name -> agen.v1.Approval
-	30, // 11: agen.v1.ReportActivityRequest.ref:type_name -> agen.v1.DeploymentRef
-	30, // 12: agen.v1.SubmitChildTaskRequest.ref:type_name -> agen.v1.DeploymentRef
-	36, // 13: agen.v1.SubmitChildTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
-	33, // 14: agen.v1.SubmitChildTaskResponse.task:type_name -> agen.v1.Task
-	7,  // 15: agen.v1.NestService.Enroll:input_type -> agen.v1.EnrollRequest
-	9,  // 16: agen.v1.NestService.WatchAssignments:input_type -> agen.v1.WatchAssignmentsRequest
-	11, // 17: agen.v1.NestService.ReportStatus:input_type -> agen.v1.ReportStatusRequest
-	13, // 18: agen.v1.NestService.LeaseTasks:input_type -> agen.v1.LeaseTasksRequest
-	15, // 19: agen.v1.NestService.ExtendLease:input_type -> agen.v1.ExtendLeaseRequest
-	17, // 20: agen.v1.NestService.CompleteTask:input_type -> agen.v1.CompleteTaskRequest
-	19, // 21: agen.v1.NestService.ReleaseTask:input_type -> agen.v1.ReleaseTaskRequest
-	21, // 22: agen.v1.NestService.CreateApproval:input_type -> agen.v1.CreateApprovalRequest
-	23, // 23: agen.v1.NestService.GetApproval:input_type -> agen.v1.GetApprovalRequest
-	25, // 24: agen.v1.NestService.ReportActivity:input_type -> agen.v1.ReportActivityRequest
-	37, // 25: agen.v1.NestService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
-	27, // 26: agen.v1.NestService.SubmitChildTask:input_type -> agen.v1.SubmitChildTaskRequest
-	38, // 27: agen.v1.NestService.Resolve:input_type -> agen.v1.ResolveRequest
-	4,  // 28: agen.v1.NestService.GetTokenKeys:input_type -> agen.v1.GetTokenKeysRequest
-	2,  // 29: agen.v1.NestService.RenewCertificate:input_type -> agen.v1.RenewCertificateRequest
-	0,  // 30: agen.v1.NestService.GetPlatformSecret:input_type -> agen.v1.GetPlatformSecretRequest
-	8,  // 31: agen.v1.NestService.Enroll:output_type -> agen.v1.EnrollResponse
-	10, // 32: agen.v1.NestService.WatchAssignments:output_type -> agen.v1.WatchAssignmentsResponse
-	12, // 33: agen.v1.NestService.ReportStatus:output_type -> agen.v1.ReportStatusResponse
-	14, // 34: agen.v1.NestService.LeaseTasks:output_type -> agen.v1.LeaseTasksResponse
-	16, // 35: agen.v1.NestService.ExtendLease:output_type -> agen.v1.ExtendLeaseResponse
-	18, // 36: agen.v1.NestService.CompleteTask:output_type -> agen.v1.CompleteTaskResponse
-	20, // 37: agen.v1.NestService.ReleaseTask:output_type -> agen.v1.ReleaseTaskResponse
-	22, // 38: agen.v1.NestService.CreateApproval:output_type -> agen.v1.CreateApprovalResponse
-	24, // 39: agen.v1.NestService.GetApproval:output_type -> agen.v1.GetApprovalResponse
-	26, // 40: agen.v1.NestService.ReportActivity:output_type -> agen.v1.ReportActivityResponse
-	39, // 41: agen.v1.NestService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
-	28, // 42: agen.v1.NestService.SubmitChildTask:output_type -> agen.v1.SubmitChildTaskResponse
-	40, // 43: agen.v1.NestService.Resolve:output_type -> agen.v1.ResolveResponse
-	6,  // 44: agen.v1.NestService.GetTokenKeys:output_type -> agen.v1.GetTokenKeysResponse
-	3,  // 45: agen.v1.NestService.RenewCertificate:output_type -> agen.v1.RenewCertificateResponse
-	1,  // 46: agen.v1.NestService.GetPlatformSecret:output_type -> agen.v1.GetPlatformSecretResponse
-	31, // [31:47] is the sub-list for method output_type
-	15, // [15:31] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	33, // 2: agen.v1.EnrollRequest.labels:type_name -> agen.v1.EnrollRequest.LabelsEntry
+	35, // 3: agen.v1.WatchAssignmentsResponse.assignments:type_name -> agen.v1.Assignment
+	36, // 4: agen.v1.ReportStatusRequest.instances:type_name -> agen.v1.Instance
+	34, // 5: agen.v1.LeaseTasksRequest.ref:type_name -> agen.v1.DeploymentRef
+	37, // 6: agen.v1.LeaseTasksResponse.tasks:type_name -> agen.v1.Task
+	38, // 7: agen.v1.CompleteTaskRequest.outcome:type_name -> agen.v1.Outcome
+	37, // 8: agen.v1.NestWaitTaskResponse.task:type_name -> agen.v1.Task
+	39, // 9: agen.v1.CreateApprovalRequest.approval:type_name -> agen.v1.Approval
+	39, // 10: agen.v1.CreateApprovalResponse.approval:type_name -> agen.v1.Approval
+	39, // 11: agen.v1.GetApprovalResponse.approval:type_name -> agen.v1.Approval
+	34, // 12: agen.v1.ReportActivityRequest.ref:type_name -> agen.v1.DeploymentRef
+	34, // 13: agen.v1.SubmitChildTaskRequest.ref:type_name -> agen.v1.DeploymentRef
+	40, // 14: agen.v1.SubmitChildTaskRequest.overrides:type_name -> agen.v1.TaskOverrides
+	37, // 15: agen.v1.SubmitChildTaskResponse.task:type_name -> agen.v1.Task
+	7,  // 16: agen.v1.NestService.Enroll:input_type -> agen.v1.EnrollRequest
+	9,  // 17: agen.v1.NestService.WatchAssignments:input_type -> agen.v1.WatchAssignmentsRequest
+	11, // 18: agen.v1.NestService.ReportStatus:input_type -> agen.v1.ReportStatusRequest
+	13, // 19: agen.v1.NestService.LeaseTasks:input_type -> agen.v1.LeaseTasksRequest
+	15, // 20: agen.v1.NestService.ExtendLease:input_type -> agen.v1.ExtendLeaseRequest
+	17, // 21: agen.v1.NestService.CompleteTask:input_type -> agen.v1.CompleteTaskRequest
+	19, // 22: agen.v1.NestService.ReleaseTask:input_type -> agen.v1.ReleaseTaskRequest
+	21, // 23: agen.v1.NestService.SuspendTask:input_type -> agen.v1.SuspendTaskRequest
+	23, // 24: agen.v1.NestService.WaitTask:input_type -> agen.v1.NestWaitTaskRequest
+	25, // 25: agen.v1.NestService.CreateApproval:input_type -> agen.v1.CreateApprovalRequest
+	27, // 26: agen.v1.NestService.GetApproval:input_type -> agen.v1.GetApprovalRequest
+	29, // 27: agen.v1.NestService.ReportActivity:input_type -> agen.v1.ReportActivityRequest
+	41, // 28: agen.v1.NestService.GetDefinition:input_type -> agen.v1.GetDefinitionRequest
+	31, // 29: agen.v1.NestService.SubmitChildTask:input_type -> agen.v1.SubmitChildTaskRequest
+	42, // 30: agen.v1.NestService.Resolve:input_type -> agen.v1.ResolveRequest
+	4,  // 31: agen.v1.NestService.GetTokenKeys:input_type -> agen.v1.GetTokenKeysRequest
+	2,  // 32: agen.v1.NestService.RenewCertificate:input_type -> agen.v1.RenewCertificateRequest
+	0,  // 33: agen.v1.NestService.GetPlatformSecret:input_type -> agen.v1.GetPlatformSecretRequest
+	8,  // 34: agen.v1.NestService.Enroll:output_type -> agen.v1.EnrollResponse
+	10, // 35: agen.v1.NestService.WatchAssignments:output_type -> agen.v1.WatchAssignmentsResponse
+	12, // 36: agen.v1.NestService.ReportStatus:output_type -> agen.v1.ReportStatusResponse
+	14, // 37: agen.v1.NestService.LeaseTasks:output_type -> agen.v1.LeaseTasksResponse
+	16, // 38: agen.v1.NestService.ExtendLease:output_type -> agen.v1.ExtendLeaseResponse
+	18, // 39: agen.v1.NestService.CompleteTask:output_type -> agen.v1.CompleteTaskResponse
+	20, // 40: agen.v1.NestService.ReleaseTask:output_type -> agen.v1.ReleaseTaskResponse
+	22, // 41: agen.v1.NestService.SuspendTask:output_type -> agen.v1.SuspendTaskResponse
+	24, // 42: agen.v1.NestService.WaitTask:output_type -> agen.v1.NestWaitTaskResponse
+	26, // 43: agen.v1.NestService.CreateApproval:output_type -> agen.v1.CreateApprovalResponse
+	28, // 44: agen.v1.NestService.GetApproval:output_type -> agen.v1.GetApprovalResponse
+	30, // 45: agen.v1.NestService.ReportActivity:output_type -> agen.v1.ReportActivityResponse
+	43, // 46: agen.v1.NestService.GetDefinition:output_type -> agen.v1.GetDefinitionResponse
+	32, // 47: agen.v1.NestService.SubmitChildTask:output_type -> agen.v1.SubmitChildTaskResponse
+	44, // 48: agen.v1.NestService.Resolve:output_type -> agen.v1.ResolveResponse
+	6,  // 49: agen.v1.NestService.GetTokenKeys:output_type -> agen.v1.GetTokenKeysResponse
+	3,  // 50: agen.v1.NestService.RenewCertificate:output_type -> agen.v1.RenewCertificateResponse
+	1,  // 51: agen.v1.NestService.GetPlatformSecret:output_type -> agen.v1.GetPlatformSecretResponse
+	34, // [34:52] is the sub-list for method output_type
+	16, // [16:34] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_nest_proto_init() }
@@ -1980,7 +2212,7 @@ func file_agen_v1_nest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_nest_proto_rawDesc), len(file_agen_v1_nest_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   30,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

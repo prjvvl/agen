@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use agen_engine::agent::{Agent, AgentConfig, RunOptions};
 use agen_engine::bundle::{Delegate, Limits};
-use agen_engine::delegate::{StartAgent, StartRequest, TaskStarter};
+use agen_engine::delegate::{StartAgent, StartRequest, TaskStarter, WaitOutcome};
 use agen_engine::overrides::TaskOverrides;
 use agen_engine::provider::fake::{FakeProvider, FakeResponse, ScriptedToolCall};
 use agen_engine::store::{RunStatus, Store};
@@ -30,6 +30,11 @@ impl TaskStarter for Recorder {
             req.trust.as_str().to_string(),
         ));
         Ok("task-1".into())
+    }
+
+    async fn wait(&self, _task_id: &str, _wait: std::time::Duration) -> Result<WaitOutcome, String> {
+        // These tests exercise start_agent (fire-and-forget); nothing waits.
+        Ok(WaitOutcome::Pending)
     }
 }
 

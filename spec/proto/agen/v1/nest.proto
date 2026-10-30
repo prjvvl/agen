@@ -23,6 +23,14 @@ service NestService {
   // Give a leased task back to the queue early (the instance could not take
   // it, or is gone).
   rpc ReleaseTask(ReleaseTaskRequest) returns (ReleaseTaskResponse);
+  // An instance's call_agent gave up its lease to wait for a child task it
+  // started (3.3): the task moves to TASK_STATE_WAITING, carrying wait_for.
+  // It is requeued when a matching run_inbox row arrives.
+  rpc SuspendTask(SuspendTaskRequest) returns (SuspendTaskResponse);
+  // Waits for a task (typically one started by SubmitChildTask) to reach a
+  // terminal state, up to wait_seconds (3.3: call_agent's inline wait before
+  // it suspends instead of erroring).
+  rpc WaitTask(NestWaitTaskRequest) returns (NestWaitTaskResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -153,6 +161,24 @@ message ReleaseTaskRequest {
   bool not_started = 4;
 }
 message ReleaseTaskResponse {}
+
+message SuspendTaskRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  // Must match the current lease, like CompleteTask's.
+  string lease_id = 3;
+  string wait_for = 4;
+}
+message SuspendTaskResponse {}
+
+message NestWaitTaskRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  int32 wait_seconds = 3;
+}
+message NestWaitTaskResponse {
+  Task task = 1;
+}
 
 message CreateApprovalRequest {
   Approval approval = 1;
