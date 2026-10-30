@@ -172,3 +172,34 @@ func (s *Store) TreeUsage(ctx context.Context, rootTaskID string) (inputTokens, 
 		rootTaskID).Scan(&inputTokens, &outputTokens, &costUSD)
 	return
 }
+
+// LabelSpentToday sums model spend of a deployment's runs since sinceMs
+// whose task carries labelKey=labelVal (3.5, part: label budgets).
+// Labels are JSON on the task, so (like ListEvents's own label filter)
+// this filters in Go after a bounded SQL fetch, not with a cross-dialect
+// JSON query.
+func (s *Store) LabelSpentToday(ctx context.Context, ns, deployment, labelKey, labelVal string, sinceMs int64) (float64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT t.labels, r.cost_usd FROM runs r JOIN tasks t ON t.id = r.task_id WHERE r.namespace = $1 AND r.deployment = $2 AND r.started_ms >= $3",
+		ns, deployment, sinceMs)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var total float64
+	for rows.Next() {
+		var labelsJSON string
+		var cost float64
+		if err := rows.Scan(&labelsJSON, &cost); err != nil {
+			return 0, err
+		}
+		var labels map[string]string
+		if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+			continue
+		}
+		if labels[labelKey] == labelVal {
+			total += cost
+		}
+	}
+	return total, rows.Err()
+}

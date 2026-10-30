@@ -579,8 +579,14 @@ type Budget struct {
 	MaxTokensPerRun int64                  `protobuf:"varint,1,opt,name=max_tokens_per_run,json=maxTokensPerRun,proto3" json:"max_tokens_per_run,omitempty"`
 	MaxUsdPerRun    float64                `protobuf:"fixed64,2,opt,name=max_usd_per_run,json=maxUsdPerRun,proto3" json:"max_usd_per_run,omitempty"`
 	MaxUsdPerDay    float64                `protobuf:"fixed64,3,opt,name=max_usd_per_day,json=maxUsdPerDay,proto3" json:"max_usd_per_day,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Per-label daily budgets (3.5, part), keyed "key=value" (one label, not
+	// a set): a candidate task carrying a label whose rule's spend today has
+	// reached its value is skipped at lease time, while the rest of the
+	// deployment's queue keeps going — unlike max_usd_per_day, which holds
+	// the whole deployment at zero instances once exhausted.
+	LabelUsdPerDay map[string]float64 `protobuf:"bytes,4,rep,name=label_usd_per_day,json=labelUsdPerDay,proto3" json:"label_usd_per_day,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Budget) Reset() {
@@ -632,6 +638,13 @@ func (x *Budget) GetMaxUsdPerDay() float64 {
 		return x.MaxUsdPerDay
 	}
 	return 0
+}
+
+func (x *Budget) GetLabelUsdPerDay() map[string]float64 {
+	if x != nil {
+		return x.LabelUsdPerDay
+	}
+	return nil
 }
 
 // Fleet-side limits. In CreateDeployment and UpdateDeployment a field left
@@ -2153,12 +2166,15 @@ type Task struct {
 	Outcome *Outcome `protobuf:"bytes,30,opt,name=outcome,proto3" json:"outcome,omitempty"`
 	// Why a queued task has not started (set in responses): not_before (its
 	// start time is later), paused, budget (the daily budget is used up),
-	// provider_held, conversation_busy (an older task of its conversation is
-	// queued or running), caller_running (an async result waits for the run
-	// that started the work), locks (one of its declared locks is held by
-	// another task), asleep (an instance is being woken), capacity
-	// (no Nest has room for an instance), starting (an instance is starting),
-	// busy (every instance is busy). Empty: it is about to be taken.
+	// label_budget (3.5, part: one of its own labels' daily budget is used
+	// up — unlike budget, this does not hold the rest of the deployment's
+	// queue back), provider_held, conversation_busy (an older task of its
+	// conversation is queued or running), caller_running (an async result
+	// waits for the run that started the work), locks (one of its declared
+	// locks is held by another task), asleep (an instance is being woken),
+	// capacity (no Nest has room for an instance), starting (an instance is
+	// starting), busy (every instance is busy). Empty: it is about to be
+	// taken.
 	WaitReason string `protobuf:"bytes,31,opt,name=wait_reason,json=waitReason,proto3" json:"wait_reason,omitempty"`
 	// What this task may do, narrower than its bundle: the task's own
 	// overrides combined with every ancestor's. Unset: the bundle as is.
@@ -4207,11 +4223,15 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x03max\x18\x02 \x01(\x05R\x03max\x129\n" +
 	"\x19target_queue_per_instance\x18\x03 \x01(\x05R\x16targetQueuePerInstance\x120\n" +
 	"\x14idle_timeout_seconds\x18\x04 \x01(\x05R\x12idleTimeoutSeconds\x12'\n" +
-	"\x0fmax_concurrency\x18\x05 \x01(\x05R\x0emaxConcurrency\"\x83\x01\n" +
+	"\x0fmax_concurrency\x18\x05 \x01(\x05R\x0emaxConcurrency\"\x96\x02\n" +
 	"\x06Budget\x12+\n" +
 	"\x12max_tokens_per_run\x18\x01 \x01(\x03R\x0fmaxTokensPerRun\x12%\n" +
 	"\x0fmax_usd_per_run\x18\x02 \x01(\x01R\fmaxUsdPerRun\x12%\n" +
-	"\x0fmax_usd_per_day\x18\x03 \x01(\x01R\fmaxUsdPerDay\"\xb8\x01\n" +
+	"\x0fmax_usd_per_day\x18\x03 \x01(\x01R\fmaxUsdPerDay\x12N\n" +
+	"\x11label_usd_per_day\x18\x04 \x03(\v2#.agen.v1.Budget.LabelUsdPerDayEntryR\x0elabelUsdPerDay\x1aA\n" +
+	"\x13LabelUsdPerDayEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xb8\x01\n" +
 	"\x06Limits\x120\n" +
 	"\x14max_delegation_depth\x18\x01 \x01(\x05R\x12maxDelegationDepth\x12\x1e\n" +
 	"\vmax_fan_out\x18\x02 \x01(\x05R\tmaxFanOut\x122\n" +
@@ -4670,7 +4690,7 @@ func file_agen_v1_resources_proto_rawDescGZIP() []byte {
 }
 
 var file_agen_v1_resources_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_agen_v1_resources_proto_goTypes = []any{
 	(DeploymentKind)(0),           // 0: agen.v1.DeploymentKind
 	(TriggerEventState)(0),        // 1: agen.v1.TriggerEventState
@@ -4714,96 +4734,98 @@ var file_agen_v1_resources_proto_goTypes = []any{
 	(*Artifact)(nil),              // 39: agen.v1.Artifact
 	(*Run)(nil),                   // 40: agen.v1.Run
 	nil,                           // 41: agen.v1.Definition.FilesEntry
-	nil,                           // 42: agen.v1.Trigger.LabelsEntry
-	nil,                           // 43: agen.v1.EventMatch.LabelsEntry
-	nil,                           // 44: agen.v1.Placement.LabelsEntry
-	nil,                           // 45: agen.v1.Nest.LabelsEntry
-	nil,                           // 46: agen.v1.Task.LabelsEntry
-	nil,                           // 47: agen.v1.Event.LabelsEntry
-	nil,                           // 48: agen.v1.Feedback.LabelsEntry
-	nil,                           // 49: agen.v1.Run.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 50: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 51: google.protobuf.Struct
-	(*structpb.Value)(nil),        // 52: google.protobuf.Value
+	nil,                           // 42: agen.v1.Budget.LabelUsdPerDayEntry
+	nil,                           // 43: agen.v1.Trigger.LabelsEntry
+	nil,                           // 44: agen.v1.EventMatch.LabelsEntry
+	nil,                           // 45: agen.v1.Placement.LabelsEntry
+	nil,                           // 46: agen.v1.Nest.LabelsEntry
+	nil,                           // 47: agen.v1.Task.LabelsEntry
+	nil,                           // 48: agen.v1.Event.LabelsEntry
+	nil,                           // 49: agen.v1.Feedback.LabelsEntry
+	nil,                           // 50: agen.v1.Run.LabelsEntry
+	(*timestamppb.Timestamp)(nil), // 51: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),       // 52: google.protobuf.Struct
+	(*structpb.Value)(nil),        // 53: google.protobuf.Value
 }
 var file_agen_v1_resources_proto_depIdxs = []int32{
 	41, // 0: agen.v1.Definition.files:type_name -> agen.v1.Definition.FilesEntry
-	50, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
-	14, // 2: agen.v1.Trigger.auth:type_name -> agen.v1.WebhookAuth
-	15, // 3: agen.v1.Trigger.idempotency_key:type_name -> agen.v1.KeySource
-	15, // 4: agen.v1.Trigger.conversation_key:type_name -> agen.v1.KeySource
-	42, // 5: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
-	50, // 6: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
-	50, // 7: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
-	13, // 8: agen.v1.Trigger.on:type_name -> agen.v1.EventMatch
-	43, // 9: agen.v1.EventMatch.labels:type_name -> agen.v1.EventMatch.LabelsEntry
-	1,  // 10: agen.v1.TriggerEvent.state:type_name -> agen.v1.TriggerEventState
-	50, // 11: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
-	50, // 12: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
-	44, // 13: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
-	0,  // 14: agen.v1.Deployment.kind:type_name -> agen.v1.DeploymentKind
-	8,  // 15: agen.v1.Deployment.scale:type_name -> agen.v1.ScalePolicy
-	9,  // 16: agen.v1.Deployment.budget:type_name -> agen.v1.Budget
-	17, // 17: agen.v1.Deployment.placement:type_name -> agen.v1.Placement
-	50, // 18: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
-	50, // 19: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
-	10, // 20: agen.v1.Deployment.limits:type_name -> agen.v1.Limits
-	12, // 21: agen.v1.Deployment.triggers:type_name -> agen.v1.Trigger
-	19, // 22: agen.v1.Deployment.provider_hold:type_name -> agen.v1.ProviderHold
-	11, // 23: agen.v1.Deployment.conversations:type_name -> agen.v1.ConversationPolicy
-	50, // 24: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
-	50, // 25: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
-	2,  // 26: agen.v1.Instance.state:type_name -> agen.v1.InstanceState
-	50, // 27: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
-	50, // 28: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
-	21, // 29: agen.v1.Instance.tool_servers:type_name -> agen.v1.ToolServer
-	45, // 30: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
-	3,  // 31: agen.v1.Nest.state:type_name -> agen.v1.NestState
-	50, // 32: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
-	4,  // 33: agen.v1.Task.state:type_name -> agen.v1.TaskState
-	50, // 34: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	50, // 35: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
-	50, // 36: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
-	46, // 37: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
-	50, // 38: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
-	31, // 39: agen.v1.Task.outcome:type_name -> agen.v1.Outcome
-	27, // 40: agen.v1.Task.overrides:type_name -> agen.v1.TaskOverrides
-	50, // 41: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
-	25, // 42: agen.v1.Task.progress:type_name -> agen.v1.TaskProgress
-	50, // 43: agen.v1.Task.held_until:type_name -> google.protobuf.Timestamp
-	50, // 44: agen.v1.InboxEntry.created_at:type_name -> google.protobuf.Timestamp
-	28, // 45: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
-	29, // 46: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
-	47, // 47: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
-	51, // 48: agen.v1.Event.data:type_name -> google.protobuf.Struct
-	50, // 49: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
-	52, // 50: agen.v1.Outcome.data:type_name -> google.protobuf.Value
-	51, // 51: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
-	5,  // 52: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
-	50, // 53: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
-	50, // 54: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
-	50, // 55: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
-	50, // 56: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
-	50, // 57: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
-	51, // 58: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
-	50, // 59: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	50, // 60: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
-	50, // 61: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
-	48, // 62: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
-	50, // 63: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
-	50, // 64: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
-	50, // 65: agen.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
-	33, // 66: agen.v1.Run.usage:type_name -> agen.v1.Usage
-	50, // 67: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	50, // 68: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
-	49, // 69: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	33, // 70: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
-	31, // 71: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
-	72, // [72:72] is the sub-list for method output_type
-	72, // [72:72] is the sub-list for method input_type
-	72, // [72:72] is the sub-list for extension type_name
-	72, // [72:72] is the sub-list for extension extendee
-	0,  // [0:72] is the sub-list for field type_name
+	51, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
+	42, // 2: agen.v1.Budget.label_usd_per_day:type_name -> agen.v1.Budget.LabelUsdPerDayEntry
+	14, // 3: agen.v1.Trigger.auth:type_name -> agen.v1.WebhookAuth
+	15, // 4: agen.v1.Trigger.idempotency_key:type_name -> agen.v1.KeySource
+	15, // 5: agen.v1.Trigger.conversation_key:type_name -> agen.v1.KeySource
+	43, // 6: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
+	51, // 7: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
+	51, // 8: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
+	13, // 9: agen.v1.Trigger.on:type_name -> agen.v1.EventMatch
+	44, // 10: agen.v1.EventMatch.labels:type_name -> agen.v1.EventMatch.LabelsEntry
+	1,  // 11: agen.v1.TriggerEvent.state:type_name -> agen.v1.TriggerEventState
+	51, // 12: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
+	51, // 13: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
+	45, // 14: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
+	0,  // 15: agen.v1.Deployment.kind:type_name -> agen.v1.DeploymentKind
+	8,  // 16: agen.v1.Deployment.scale:type_name -> agen.v1.ScalePolicy
+	9,  // 17: agen.v1.Deployment.budget:type_name -> agen.v1.Budget
+	17, // 18: agen.v1.Deployment.placement:type_name -> agen.v1.Placement
+	51, // 19: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
+	51, // 20: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
+	10, // 21: agen.v1.Deployment.limits:type_name -> agen.v1.Limits
+	12, // 22: agen.v1.Deployment.triggers:type_name -> agen.v1.Trigger
+	19, // 23: agen.v1.Deployment.provider_hold:type_name -> agen.v1.ProviderHold
+	11, // 24: agen.v1.Deployment.conversations:type_name -> agen.v1.ConversationPolicy
+	51, // 25: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
+	51, // 26: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
+	2,  // 27: agen.v1.Instance.state:type_name -> agen.v1.InstanceState
+	51, // 28: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
+	51, // 29: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
+	21, // 30: agen.v1.Instance.tool_servers:type_name -> agen.v1.ToolServer
+	46, // 31: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
+	3,  // 32: agen.v1.Nest.state:type_name -> agen.v1.NestState
+	51, // 33: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
+	4,  // 34: agen.v1.Task.state:type_name -> agen.v1.TaskState
+	51, // 35: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	51, // 36: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
+	51, // 37: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
+	47, // 38: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
+	51, // 39: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
+	31, // 40: agen.v1.Task.outcome:type_name -> agen.v1.Outcome
+	27, // 41: agen.v1.Task.overrides:type_name -> agen.v1.TaskOverrides
+	51, // 42: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
+	25, // 43: agen.v1.Task.progress:type_name -> agen.v1.TaskProgress
+	51, // 44: agen.v1.Task.held_until:type_name -> google.protobuf.Timestamp
+	51, // 45: agen.v1.InboxEntry.created_at:type_name -> google.protobuf.Timestamp
+	28, // 46: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
+	29, // 47: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
+	48, // 48: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
+	52, // 49: agen.v1.Event.data:type_name -> google.protobuf.Struct
+	51, // 50: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
+	53, // 51: agen.v1.Outcome.data:type_name -> google.protobuf.Value
+	52, // 52: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
+	5,  // 53: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
+	51, // 54: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
+	51, // 55: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
+	51, // 56: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
+	51, // 57: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
+	51, // 58: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
+	52, // 59: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
+	51, // 60: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
+	51, // 61: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
+	51, // 62: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
+	49, // 63: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
+	51, // 64: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
+	51, // 65: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
+	51, // 66: agen.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
+	33, // 67: agen.v1.Run.usage:type_name -> agen.v1.Usage
+	51, // 68: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	51, // 69: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
+	50, // 70: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
+	33, // 71: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	31, // 72: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
+	73, // [73:73] is the sub-list for method output_type
+	73, // [73:73] is the sub-list for method input_type
+	73, // [73:73] is the sub-list for extension type_name
+	73, // [73:73] is the sub-list for extension extendee
+	0,  // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }
@@ -4817,7 +4839,7 @@ func file_agen_v1_resources_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_resources_proto_rawDesc), len(file_agen_v1_resources_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   44,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

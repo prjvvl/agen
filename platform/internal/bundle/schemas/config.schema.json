@@ -61,7 +61,11 @@
       "properties": {
         "maxTokensPerRun": { "type": "integer", "minimum": 1 },
         "maxUsdPerRun": { "type": "number", "exclusiveMinimum": 0 },
-        "maxUsdPerDay": { "type": "number", "exclusiveMinimum": 0 }
+        "maxUsdPerDay": { "type": "number", "exclusiveMinimum": 0 },
+        "labelUsdPerDay": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "exclusiveMinimum": 0 }
+        }
       },
       "additionalProperties": false
     },

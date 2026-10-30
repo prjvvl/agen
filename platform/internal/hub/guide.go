@@ -178,6 +178,26 @@ func checkConversationPolicy(p *agenv1.ConversationPolicy) error {
 	return nil
 }
 
+// checkBudget validates a deployment's budget policy (3.5, part):
+// label_usd_per_day's keys are "key=value", each validated the same way a
+// real task label would be (store.CheckLabels), so a budget rule can
+// never target a label shape the system would not actually assign.
+func checkBudget(b *agenv1.Budget) error {
+	if b == nil {
+		return nil
+	}
+	for kv := range b.LabelUsdPerDay {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok || key == "" {
+			return invalid(fmt.Sprintf("budget.labelUsdPerDay %q: use \"key=value\"", kv))
+		}
+		if err := store.CheckLabels(map[string]string{key: val}); err != nil {
+			return invalid(fmt.Sprintf("budget.labelUsdPerDay %q: %s", kv, err))
+		}
+	}
+	return nil
+}
+
 // trustRank orders trust for narrowing: higher is more trusted. "" (unset)
 // is trusted.
 func trustRank(t string) int {

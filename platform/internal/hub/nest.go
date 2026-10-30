@@ -385,13 +385,28 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	// A task carrying an exhausted label_usd_per_day label is released
+	// right back (3.5, part: label budgets) rather than excluded from the
+	// batch up front: unlike max_usd_per_day, which holds the whole
+	// deployment at zero instances, this is a per-candidate check, so it
+	// runs after the lease exactly like the lock re-check just above does
+	// for the same reason (checking before the SELECT can't see a row
+	// another concurrent lease just claimed).
+	var excludedLabels map[string]bool
+	if d, err := n.hub.Store.GetDeployment(ctx, ns, name); err == nil {
+		excludedLabels, _ = n.hub.exhaustedLabels(ctx, d)
+	}
 	out := &agenv1.LeaseTasksResponse{}
 	for _, t := range list {
+		if labelsExhausted(t, excludedLabels) {
+			_ = n.hub.Store.ReleaseTask(ctx, t.ID, t.LeaseID, true)
+			continue
+		}
 		pt := TaskProto(t)
 		pt.BudgetPressure = pressure
 		out.Tasks = append(out.Tasks, pt)
 	}
-	if len(list) > 0 {
+	if len(out.Tasks) > 0 {
 		_ = n.hub.Store.TouchActivity(ctx, ns, name)
 	}
 	return connect.NewResponse(out), nil

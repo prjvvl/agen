@@ -114,12 +114,14 @@ func policyFromBundle(b *bundle.Bundle) Policy {
 	}
 	fromJSON(b.Conversations, p.Conversations)
 	var budget struct {
-		MaxTokensPerRun int64   `json:"maxTokensPerRun"`
-		MaxUsdPerRun    float64 `json:"maxUsdPerRun"`
-		MaxUsdPerDay    float64 `json:"maxUsdPerDay"`
+		MaxTokensPerRun int64              `json:"maxTokensPerRun"`
+		MaxUsdPerRun    float64            `json:"maxUsdPerRun"`
+		MaxUsdPerDay    float64            `json:"maxUsdPerDay"`
+		LabelUsdPerDay  map[string]float64 `json:"labelUsdPerDay"`
 	}
 	_ = json.Unmarshal(b.Budget, &budget)
-	p.Budget = &agenv1.Budget{MaxTokensPerRun: budget.MaxTokensPerRun, MaxUsdPerRun: budget.MaxUsdPerRun, MaxUsdPerDay: budget.MaxUsdPerDay}
+	p.Budget = &agenv1.Budget{MaxTokensPerRun: budget.MaxTokensPerRun, MaxUsdPerRun: budget.MaxUsdPerRun, MaxUsdPerDay: budget.MaxUsdPerDay,
+		LabelUsdPerDay: budget.LabelUsdPerDay}
 	var limits struct {
 		MaxDelegationDepth  *int32 `json:"maxDelegationDepth"`
 		MaxFanOut           *int32 `json:"maxFanOut"`

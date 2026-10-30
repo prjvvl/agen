@@ -143,6 +143,9 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err := checkConversationPolicy(p.Conversations); err != nil {
 		return nil, err
 	}
+	if err := checkBudget(p.Budget); err != nil {
+		return nil, err
+	}
 	if err := validateTriggers(p.Triggers); err != nil {
 		return nil, err
 	}
@@ -271,6 +274,9 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 			return err
 		}
 		if err := checkConversationPolicy(p.Conversations); err != nil {
+			return err
+		}
+		if err := checkBudget(p.Budget); err != nil {
 			return err
 		}
 		if err := validateTriggers(p.Triggers); err != nil {

@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -38,6 +39,50 @@ func (h *Hub) spentToday(ctx context.Context, d store.Deployment) (float64, bool
 // BudgetPressure is the share of the daily budget after which leased tasks
 // carry budget_pressure (routing models drop to their budget tier).
 const BudgetPressure = 0.8
+
+// exhaustedLabels returns the "key=value" strings of d's label_usd_per_day
+// rules whose spend today has reached their limit (3.5, part: label
+// budgets). Unlike the deployment-wide daily budget, which holds the
+// whole deployment at zero instances once exhausted, an exhausted label
+// only excludes candidates carrying that label from LeaseTasks — the
+// rest of the deployment's queue keeps going. Nil, no error: no rules
+// configured, nothing to check.
+func (h *Hub) exhaustedLabels(ctx context.Context, d store.Deployment) (map[string]bool, error) {
+	rules := PolicyOf(d).Budget.LabelUsdPerDay
+	if len(rules) == 0 {
+		return nil, nil
+	}
+	since := dayStartMs()
+	out := map[string]bool{}
+	for kv, max := range rules {
+		if max <= 0 {
+			continue
+		}
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		spent, err := h.Store.LabelSpentToday(ctx, d.Namespace, d.Name, key, val, since)
+		if err != nil {
+			return nil, err
+		}
+		if spent >= max {
+			out[kv] = true
+		}
+	}
+	return out, nil
+}
+
+// labelsExhausted reports whether t carries any label matching an
+// exhausted rule from exhaustedLabels.
+func labelsExhausted(t store.Task, exhausted map[string]bool) bool {
+	for k, v := range t.Labels {
+		if exhausted[k+"="+v] {
+			return true
+		}
+	}
+	return false
+}
 
 func budgetError(d store.Deployment, spent float64) error {
 	next := time.UnixMilli(dayStartMs()).UTC().Add(24 * time.Hour)

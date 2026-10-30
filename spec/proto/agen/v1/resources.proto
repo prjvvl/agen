@@ -43,6 +43,12 @@ message Budget {
   int64 max_tokens_per_run = 1;
   double max_usd_per_run = 2;
   double max_usd_per_day = 3;
+  // Per-label daily budgets (3.5, part), keyed "key=value" (one label, not
+  // a set): a candidate task carrying a label whose rule's spend today has
+  // reached its value is skipped at lease time, while the rest of the
+  // deployment's queue keeps going — unlike max_usd_per_day, which holds
+  // the whole deployment at zero instances once exhausted.
+  map<string, double> label_usd_per_day = 4;
 }
 
 // Fleet-side limits. In CreateDeployment and UpdateDeployment a field left
@@ -383,12 +389,15 @@ message Task {
   Outcome outcome = 30;
   // Why a queued task has not started (set in responses): not_before (its
   // start time is later), paused, budget (the daily budget is used up),
-  // provider_held, conversation_busy (an older task of its conversation is
-  // queued or running), caller_running (an async result waits for the run
-  // that started the work), locks (one of its declared locks is held by
-  // another task), asleep (an instance is being woken), capacity
-  // (no Nest has room for an instance), starting (an instance is starting),
-  // busy (every instance is busy). Empty: it is about to be taken.
+  // label_budget (3.5, part: one of its own labels' daily budget is used
+  // up — unlike budget, this does not hold the rest of the deployment's
+  // queue back), provider_held, conversation_busy (an older task of its
+  // conversation is queued or running), caller_running (an async result
+  // waits for the run that started the work), locks (one of its declared
+  // locks is held by another task), asleep (an instance is being woken),
+  // capacity (no Nest has room for an instance), starting (an instance is
+  // starting), busy (every instance is busy). Empty: it is about to be
+  // taken.
   string wait_reason = 31;
   // What this task may do, narrower than its bundle: the task's own
   // overrides combined with every ancestor's. Unset: the bundle as is.

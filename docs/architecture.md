@@ -277,13 +277,33 @@ the next child submitted after it. A live per-turn check (mirroring
 that gap, but needs its own new RPC chain
 (`TaskStarter::tree_budget_exceeded` → `ManagerService` →
 `NestService` → `Store`) comparable in size to join or hold, and is not
-built. Per-label budgets (`labelBudgets` in the plan's wording) are not
-built either: there is no namespace-level budget config surface today
-(budgets are deployment-scoped), so this needs a new config surface
-first, not just new leasing SQL. `budget.threshold` events, `GetMetrics`
-rolled up per tree/label, and showing budget status to the model mid-run
-are separate, additive pieces of the original design, not part of
-enforcement itself, and are not built either.
+built. `budget.threshold` events, `GetMetrics` rolled up per tree/label,
+and showing budget status to the model mid-run are separate, additive
+pieces of the original design, not part of enforcement itself, and are
+not built either.
+
+**Label budgets** (3.5, part), scoped down from the plan's own
+`labelBudgets` namespace-config wording to a per-deployment rule set,
+since there is no namespace-level budget config surface today (budgets
+are otherwise deployment-scoped) and building one is a separate, larger
+piece of product surface than this needed: `Budget.label_usd_per_day`
+(`"key=value" → maxUsdPerDay`, validated the same way a real task label
+is — `checkBudget`, `store.CheckLabels`). Unlike `max_usd_per_day`
+(which holds the *whole* deployment at zero instances once exhausted —
+see §5's autoscaler), an exhausted label only excludes the candidates
+that carry it:
+`Hub.exhaustedLabels` computes which configured rules have hit their
+`Store.LabelSpentToday` sum (bounded-fetch-then-filter-in-Go over today's
+runs, the same shape `ListEvents`'s own label filter already uses, since
+labels are JSON and this stays cross-dialect), and `NestAPI.LeaseTasks`
+releases a leased candidate carrying one right back
+(`Store.ReleaseTask(notStarted=true)`) rather than excluding it before
+the lease — deliberately avoiding any change to `Store.LeaseTasks`'s own
+SQL or signature (32+ existing call sites). A task waiting on an
+exhausted label reports `wait_reason: "label_budget"` (cached per
+deployment per response, in the same `deploymentWait` struct the
+deployment-wide reason already uses) — distinct from `"budget"`, since
+only *its own* work is held back, not the deployment's.
 
 **Hub leader**: several Hub replicas can serve the API; exactly one is leader
 and runs the scheduler, autoscaler and triggers. Leadership is a Store row

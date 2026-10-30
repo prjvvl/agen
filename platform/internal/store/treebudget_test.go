@@ -37,6 +37,41 @@ func TestTreeUsageSumsAcrossTheWholeTree(t *testing.T) {
 	})
 }
 
+// LabelSpentToday sums only the runs whose task carries the exact
+// labelKey=labelVal pair, scoped to the given namespace/deployment and
+// since sinceMs, filtering in Go the same way ListEvents's own label
+// filter does (3.5, part: label budgets).
+func TestLabelSpentTodaySumsOnlyMatchingLabelledTasks(t *testing.T) {
+	each(t, func(t *testing.T, s *Store) {
+		ctx := context.Background()
+		ns := uniq("lb")
+		apollo, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "x", Labels: map[string]string{"team": "apollo"}})
+		must(t, err)
+		other, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "x", Labels: map[string]string{"team": "other"}})
+		must(t, err)
+		unlabelled, err := s.SubmitTask(ctx, Task{Namespace: ns, Deployment: "d", Input: "x"})
+		must(t, err)
+
+		now := NowMs()
+		insertRun(t, s, ctx, apollo.ID, 0, 0, 1.0)
+		insertRun(t, s, ctx, other.ID, 0, 0, 2.0)
+		insertRun(t, s, ctx, unlabelled.ID, 0, 0, 3.0)
+
+		spent, err := s.LabelSpentToday(ctx, "d", "d", "team", "apollo", now-1)
+		must(t, err)
+		if spent < 0.999 || spent > 1.001 {
+			t.Fatalf("spent=%v, want ~1.0 (apollo's run only)", spent)
+		}
+
+		// Nothing started since a future time.
+		spent, err = s.LabelSpentToday(ctx, "d", "d", "team", "apollo", now+1_000_000)
+		must(t, err)
+		if spent != 0 {
+			t.Fatalf("spent=%v, want 0 (nothing started that recently)", spent)
+		}
+	})
+}
+
 // insertRun records one run with the given usage for taskID, with its
 // own fresh session and conversation.
 func insertRun(t *testing.T, s *Store, ctx context.Context, taskID string, inputTokens, outputTokens int64, costUSD float64) {

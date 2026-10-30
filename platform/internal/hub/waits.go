@@ -7,7 +7,13 @@ import (
 )
 
 // deploymentWait is why work of a deployment waits ("" = it can run now).
-type deploymentWait struct{ reason string }
+// exhaustedLabels (3.5, part: label budgets) is per-task, not per-
+// deployment like reason, but is cached here too since it only needs
+// computing once per deployment per response, same as reason.
+type deploymentWait struct {
+	reason          string
+	exhaustedLabels map[string]bool
+}
 
 // waitReason says why a queued task has not started (see Task.wait_reason);
 // "" for a task that is not queued or is about to be taken. cache keeps
@@ -22,13 +28,21 @@ func (h *Hub) waitReason(ctx context.Context, t store.Task, cache map[string]dep
 	key := t.Namespace + "/" + t.Deployment
 	dw, ok := cache[key]
 	if !ok {
-		dw = deploymentWait{reason: h.deploymentWaitReason(ctx, t.Namespace, t.Deployment)}
+		dw.reason = h.deploymentWaitReason(ctx, t.Namespace, t.Deployment)
+		if d, err := h.Store.GetDeployment(ctx, t.Namespace, t.Deployment); err == nil {
+			dw.exhaustedLabels, _ = h.exhaustedLabels(ctx, d)
+		}
 		cache[key] = dw
 	}
 	// Held back by the deployment as a whole first: nothing of it runs.
 	switch dw.reason {
 	case "paused", "budget", "provider_held":
 		return dw.reason
+	}
+	// Held back by one of its own labels next: the rest of the
+	// deployment's queue is unaffected.
+	if labelsExhausted(t, dw.exhaustedLabels) {
+		return "label_budget"
 	}
 	busy, caller, locked, err := h.Store.QueuedBlockers(ctx, t)
 	switch {
