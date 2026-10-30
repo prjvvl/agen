@@ -159,7 +159,8 @@ features:
     title: Run tasks and wait for results
     contract: [rpc:SubmitTask, rpc:GetTask, rpc:ListTasks, field:SubmitTask.input, field:SubmitTask.idempotency_key,
       field:GetTask.wait_seconds, field:ListTasks.deployment, field:ListTasks.state, sdk:taskId, cli:run, cli:wait, cli:tasks,
-      field:SubmitTask.overrides, field:SubmitTask.priority, field:SubmitTask.trust, field:SubmitTask.locks]
+      field:SubmitTask.overrides, field:SubmitTask.priority, field:SubmitTask.trust, field:SubmitTask.locks,
+      field:SubmitTask.on_parent_end]
     on: [rust, python, node, go, api, mcp, cli, console]
   - id: tasks.cancel
     title: Cancel a task or run

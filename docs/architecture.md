@@ -430,6 +430,28 @@ The idempotency key of the start is `start:<run>.<step>.<call>`, so a retried
 or resumed call returns the same task; `start_agent` counts against
 `max_fan_out` and `max_total_delegations` like `call_agent`.
 
+**Parent-close policy** (3.4, part): `Task.on_parent_end` ("cancel", the
+default and also what empty means, or "abandon") decides what happens to a
+task's own unfinished children when it ends (Temporal's term for the same
+idea). `taskFinished` (the Store hook every task-ending path already runs
+through, for events, locks and the parent's run_inbox) applies it: on
+"cancel" it finds the task's direct *joined* children (`reply_deployment`
+unset) still in `queued`, `leased`, `running` or `waiting`, cancels each one
+(ending its run the same way `CancelTask` does), and recurses into
+`taskFinished` for it — so a whole branch unwinds together, regardless of
+how deep it delegated. A child with `reply_deployment` set (every
+`start_agent` child today) is async by design — the whole point is to
+outlive the task that started it — so it is never cascaded, on either
+policy. "abandon"
+skips this and leaves them running with no parent left to report back to
+(their own `reply_deployment`/inbox target, if any, still applies). It is
+set on `SubmitTask`/`SubmitChildTask`/`agen run --on-parent-end`; neither
+`call_agent` nor `start_agent` expose it yet (their children keep the
+default). The broader "Tree" design (`root_task_id`-style queries via
+`GetTaskTree`, `CancelTask(tree=true)`, join/suspend-on-children, hold,
+signals and progress) is not built yet — this is only its parent-close
+piece.
+
 ## 7. Engine model
 
 Agent → Session → Conversation → Run → Span.

@@ -362,6 +362,8 @@ Usage of run:
     	namespace (default "default")
   -no-wait
     	print the task id and return
+  -on-parent-end string
+    	what happens to this task's own children when it ends: cancel (default) or abandon
   -priority string
     	lease order within the deployment's queue: urgent, high, normal or background
   -schedule-key string

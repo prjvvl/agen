@@ -793,6 +793,9 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	if err := checkTrust(m.Trust); err != nil {
 		return nil, invalid(err.Error())
 	}
+	if err := checkOnParentEnd(m.OnParentEnd); err != nil {
+		return nil, invalid(err.Error())
+	}
 	trust := m.Trust
 	if trust == "" {
 		trust = "trusted"
@@ -805,7 +808,7 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	child := store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
 		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
 		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks),
-		ModelTier: m.ModelTier, Overrides: effective.JSON(), Trust: trust}
+		ModelTier: m.ModelTier, Overrides: effective.JSON(), Trust: trust, OnParentEnd: m.OnParentEnd}
 	if m.ReplyConversationKey != "" {
 		child.ReplyDeployment, child.ReplyConversationKey = parent.Deployment, m.ReplyConversationKey
 	}

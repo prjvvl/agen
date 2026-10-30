@@ -423,12 +423,13 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	scheduleKey := fs.String("schedule-key", "", "at most one queued task per deployment and key; submitting again with the same key cancels the queued one")
 	var locks listFlag
 	fs.Var(&locks, "lock", "wait until this (and every other --lock) is free, then hold it until the task ends (repeatable)")
+	onParentEnd := fs.String("on-parent-end", "", "what happens to this task's own children when it ends: cancel (default) or abandon")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--priority P] [--trust T] [--lock NAME] [--at TIME | --in D] [--expires-in D] [--schedule-key K] [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--priority P] [--trust T] [--lock NAME] [--on-parent-end cancel|abandon] [--at TIME | --in D] [--expires-in D] [--schedule-key K] [--no-wait] [--timeout D]")
 	}
 	var notBefore *timestamppb.Timestamp
 	switch {
@@ -452,7 +453,7 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 		return err
 	}
 	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
-		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, Priority: *priority, Trust: *trust, Locks: locks, NotBefore: notBefore, NotAfter: notAfter, ScheduleKey: *scheduleKey}))
+		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, Priority: *priority, Trust: *trust, Locks: locks, OnParentEnd: *onParentEnd, NotBefore: notBefore, NotAfter: notAfter, ScheduleKey: *scheduleKey}))
 	if err != nil {
 		return err
 	}

@@ -38,6 +38,7 @@ func SeverityAtLeast(s, min string) bool {
 type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 // appendEvent writes e in the caller's transaction. It takes the next seq
@@ -123,6 +124,9 @@ func taskFinished(ctx context.Context, ex execer, t Task) error {
 			return err
 		}
 	}
+	if err := cancelChildrenOnParentEnd(ctx, ex, t); err != nil {
+		return err
+	}
 	data := map[string]any{"state": t.State, "source": t.Source}
 	severity := "info"
 	if t.State == "failed" {
@@ -150,6 +154,61 @@ func taskFinished(ctx context.Context, ex execer, t Task) error {
 	}
 	if outcome["status"] == "needs_input" {
 		return appendEvent(ctx, ex, taskEvent(t, "task.needs_input", "warning", map[string]any{"summary": data["outcome"].(map[string]any)["summary"], "inputFrom": outcome["inputFrom"]}))
+	}
+	return nil
+}
+
+// cancelChildrenOnParentEnd applies t's parent-close policy (3.4, part) to
+// its own unfinished *joined* children now that t has ended: "abandon"
+// leaves them running; the default ("cancel", or "" unset) cancels each
+// one, which recurses through taskFinished so a whole branch unwinds
+// together. A child with reply_deployment set is async (start_agent, or a
+// future detach: true): its whole point is to outlive the task that
+// started it, so it is never cascaded regardless of the policy. Only runs
+// inside a real transaction (every call site passes one); a plain execer
+// with no QueryContext support would be a bug, not cascade silently.
+func cancelChildrenOnParentEnd(ctx context.Context, ex execer, t Task) error {
+	if t.OnParentEnd == "abandon" {
+		return nil
+	}
+	tx, ok := ex.(*sql.Tx)
+	if !ok {
+		return nil
+	}
+	rows, err := tx.QueryContext(ctx,
+		"SELECT id FROM tasks WHERE parent_task_id = $1 AND reply_deployment = '' AND state IN ('queued', 'leased', 'running', 'waiting')", t.ID)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, id := range ids {
+		ct, err := scanTask(tx.QueryRowContext(ctx,
+			"UPDATE tasks SET state = 'cancelled', wait_for = '', updated_ms = $1 WHERE id = $2 AND state IN ('queued', 'leased', 'running', 'waiting') RETURNING "+taskCols,
+			NowMs(), id))
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := endTaskRun(ctx, tx, ct, "cancelled", "cancelled: parent task ended"); err != nil {
+			return err
+		}
+		if err := taskFinished(ctx, tx, ct); err != nil {
+			return err
+		}
 	}
 	return nil
 }

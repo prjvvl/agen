@@ -83,6 +83,10 @@ type Task struct {
 	// State is "waiting" (suspended: no instance, no lease, not
 	// autoscaler load). "" otherwise.
 	WaitFor string
+	// OnParentEnd (3.4, part): Temporal's parent-close policy for this
+	// task's own children when it ends. "cancel" (default, also ""): they
+	// are cancelled too, recursively. "abandon": left running on their own.
+	OnParentEnd string
 	// MaxQueued, when positive, refuses the task (ErrQueueFull) while the
 	// deployment has that many queued tasks. Not stored.
 	MaxQueued int
@@ -265,14 +269,14 @@ func (t Task) Terminal() bool {
 	return t.State == "succeeded" || t.State == "failed" || t.State == "cancelled"
 }
 
-const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for"
+const taskCols = "id, namespace, deployment, input, state, output, error, instance_id, run_id, source, attempts, idempotency_key, lease_id, lease_nest_id, lease_expires_ms, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, outcome, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, wait_for, on_parent_end"
 
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var labels, locks string
 	err := r.Scan(&t.ID, &t.Namespace, &t.Deployment, &t.Input, &t.State, &t.Output, &t.Error, &t.InstanceID, &t.RunID, &t.Source,
 		&t.Attempts, &t.IdempotencyKey, &t.LeaseID, &t.LeaseNestID, &t.LeaseExpiresMs, &t.ParentTaskID, &t.ParentRunID, &t.RootRunID,
-		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor)
+		&t.Depth, &t.Traceparent, &t.CreatedMs, &t.UpdatedMs, &t.SubmittedBy, &t.ConversationKey, &labels, &t.NotBeforeMs, &t.ModelTier, &t.ReplyDeployment, &t.ReplyConversationKey, &t.Outcome, &t.EventChain, &t.Overrides, &t.NotAfterMs, &t.ScheduleKey, &t.Priority, &t.Trust, &locks, &t.WaitFor, &t.OnParentEnd)
 	if err == nil {
 		err = json.Unmarshal([]byte(labels), &t.Labels)
 	}
@@ -354,11 +358,11 @@ func (s *Store) SubmitTask(ctx context.Context, t Task) (Task, error) {
 			}
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks) "+
-				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23, $24, $25, $26, $27, $28 "+
+			"INSERT INTO tasks (id, namespace, deployment, input, state, source, idempotency_key, parent_task_id, parent_run_id, root_run_id, depth, traceparent, created_ms, updated_ms, submitted_by, conversation_key, labels, not_before_ms, model_tier, reply_deployment, reply_conversation_key, event_chain, overrides, not_after_ms, schedule_key, priority, trust, locks, on_parent_end) "+
+				"SELECT $1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $22, $23, $24, $25, $26, $27, $28, $29 "+
 				"WHERE (SELECT COUNT(*) FROM tasks WHERE namespace = $2 AND deployment = $3 AND state = 'queued') < $21",
 			t.ID, t.Namespace, t.Deployment, t.Input, t.Source, t.IdempotencyKey, t.ParentTaskID, t.ParentRunID, t.RootRunID, t.Depth, t.Traceparent, now, now, t.SubmittedBy,
-			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides, t.NotAfterMs, t.ScheduleKey, t.Priority, t.Trust, string(locksJSON))
+			t.ConversationKey, string(labels), t.NotBeforeMs, t.ModelTier, t.ReplyDeployment, t.ReplyConversationKey, maxQueued, t.EventChain, t.Overrides, t.NotAfterMs, t.ScheduleKey, t.Priority, t.Trust, string(locksJSON), t.OnParentEnd)
 		if err != nil {
 			return err
 		}

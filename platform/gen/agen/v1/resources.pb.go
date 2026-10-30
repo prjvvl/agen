@@ -2120,7 +2120,12 @@ type Task struct {
 	// What a TASK_STATE_WAITING task is waiting for (3.3, part): "<kind>:<ref>",
 	// e.g. "child:<task id>". Unlike wait_reason (why a queued task has not
 	// started), this is set only while suspended and cleared on resume.
-	WaitFor       string `protobuf:"bytes,38,opt,name=wait_for,json=waitFor,proto3" json:"wait_for,omitempty"`
+	WaitFor string `protobuf:"bytes,38,opt,name=wait_for,json=waitFor,proto3" json:"wait_for,omitempty"`
+	// Temporal's parent-close policy (3.4, part): what happens to this task's
+	// own unfinished children when it ends. "cancel" (default, also empty):
+	// they are cancelled too, recursively down the tree. "abandon": left
+	// running on their own, with no parent to report back to.
+	OnParentEnd   string `protobuf:"bytes,39,opt,name=on_parent_end,json=onParentEnd,proto3" json:"on_parent_end,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2417,6 +2422,13 @@ func (x *Task) GetLocks() []string {
 func (x *Task) GetWaitFor() string {
 	if x != nil {
 		return x.WaitFor
+	}
+	return ""
+}
+
+func (x *Task) GetOnParentEnd() string {
+	if x != nil {
+		return x.OnParentEnd
 	}
 	return ""
 }
@@ -4084,7 +4096,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xb1\v\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\xd5\v\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -4132,7 +4144,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\bpriority\x18# \x01(\tR\bpriority\x12\x14\n" +
 	"\x05trust\x18$ \x01(\tR\x05trust\x12\x14\n" +
 	"\x05locks\x18% \x03(\tR\x05locks\x12\x19\n" +
-	"\bwait_for\x18& \x01(\tR\awaitFor\x1a9\n" +
+	"\bwait_for\x18& \x01(\tR\awaitFor\x12\"\n" +
+	"\ron_parent_end\x18' \x01(\tR\vonParentEnd\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +

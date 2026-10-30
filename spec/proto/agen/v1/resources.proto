@@ -405,6 +405,11 @@ message Task {
   // e.g. "child:<task id>". Unlike wait_reason (why a queued task has not
   // started), this is set only while suspended and cleared on resume.
   string wait_for = 38;
+  // Temporal's parent-close policy (3.4, part): what happens to this task's
+  // own unfinished children when it ends. "cancel" (default, also empty):
+  // they are cancelled too, recursively down the tree. "abandon": left
+  // running on their own, with no parent to report back to.
+  string on_parent_end = 39;
 }
 
 // Per-task settings that can only narrow what the bundle allows. A child

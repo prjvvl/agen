@@ -448,6 +448,9 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkLocks(req.Msg.Locks); err != nil {
 		return nil, err
 	}
+	if err := checkOnParentEnd(req.Msg.OnParentEnd); err != nil {
+		return nil, err
+	}
 	trust := PrincipalFrom(ctx).Trust
 	if req.Msg.Trust != "" {
 		trust = narrowTrust(trust, req.Msg.Trust)
@@ -455,7 +458,7 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
 		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier, Overrides: overridesFromProto(req.Msg.Overrides).JSON(),
-		ScheduleKey: req.Msg.ScheduleKey, Priority: req.Msg.Priority, Trust: trust, Locks: req.Msg.Locks}
+		ScheduleKey: req.Msg.ScheduleKey, Priority: req.Msg.Priority, Trust: trust, Locks: req.Msg.Locks, OnParentEnd: req.Msg.OnParentEnd}
 	if nb := req.Msg.GetNotBefore(); nb != nil {
 		at := nb.AsTime()
 		if at.After(time.Now().Add(maxScheduleAhead)) {

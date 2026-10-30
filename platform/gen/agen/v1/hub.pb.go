@@ -2673,7 +2673,10 @@ type SubmitTaskRequest struct {
 	// Extra locks this task needs, on top of the deployment's own `locks`
 	// config (3.11, part): it waits in the queue until it can take all of
 	// them at once, then holds them until it ends.
-	Locks         []string `protobuf:"bytes,13,rep,name=locks,proto3" json:"locks,omitempty"`
+	Locks []string `protobuf:"bytes,13,rep,name=locks,proto3" json:"locks,omitempty"`
+	// Temporal's parent-close policy for this task's own children (3.4,
+	// part): "cancel" (default, also empty) or "abandon". See Task.on_parent_end.
+	OnParentEnd   string `protobuf:"bytes,14,opt,name=on_parent_end,json=onParentEnd,proto3" json:"on_parent_end,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2797,6 +2800,13 @@ func (x *SubmitTaskRequest) GetLocks() []string {
 		return x.Locks
 	}
 	return nil
+}
+
+func (x *SubmitTaskRequest) GetOnParentEnd() string {
+	if x != nil {
+		return x.OnParentEnd
+	}
+	return ""
 }
 
 type SubmitTaskResponse struct {
@@ -6873,7 +6883,7 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\tinstances\x18\x01 \x03(\v2\x11.agen.v1.InstanceR\tinstances\"\x12\n" +
 	"\x10ListNestsRequest\"8\n" +
 	"\x11ListNestsResponse\x12#\n" +
-	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xd6\x04\n" +
+	"\x05nests\x18\x01 \x03(\v2\r.agen.v1.NestR\x05nests\"\xfa\x04\n" +
 	"\x11SubmitTaskRequest\x12(\n" +
 	"\x03ref\x18\x01 \x01(\v2\x16.agen.v1.DeploymentRefR\x03ref\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12'\n" +
@@ -6890,7 +6900,8 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	" \x01(\tR\vscheduleKey\x12\x1a\n" +
 	"\bpriority\x18\v \x01(\tR\bpriority\x12\x14\n" +
 	"\x05trust\x18\f \x01(\tR\x05trust\x12\x14\n" +
-	"\x05locks\x18\r \x03(\tR\x05locks\x1a9\n" +
+	"\x05locks\x18\r \x03(\tR\x05locks\x12\"\n" +
+	"\ron_parent_end\x18\x0e \x01(\tR\vonParentEnd\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"7\n" +

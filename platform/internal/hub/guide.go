@@ -149,6 +149,16 @@ func checkTrust(t string) error {
 	return invalid(fmt.Sprintf("trust %q: use operator, trusted or untrusted", t))
 }
 
+// checkOnParentEnd validates Task.on_parent_end (3.4, part): the
+// parent-close policy applied to a task's own children when it ends.
+func checkOnParentEnd(v string) error {
+	switch v {
+	case "", "cancel", "abandon":
+		return nil
+	}
+	return invalid(fmt.Sprintf("on_parent_end %q: use cancel or abandon", v))
+}
+
 // trustRank orders trust for narrowing: higher is more trusted. "" (unset)
 // is trusted.
 func trustRank(t string) int {
