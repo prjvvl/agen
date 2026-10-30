@@ -603,11 +603,38 @@ pitfall `unfinished_children` hit entirely. The deployment-wide
 built — scoped down to the per-task case, which is what `agen pause`/
 `agen resume` and the `PauseTask`/`ResumeTask` RPCs expose today.
 
+**Graceful cancel** (3.4, part): `CancelTask(id, tree=false, mode="hard"|"graceful", grace_period_seconds?)`.
+`mode: "graceful"` gives every task of the scope (just `id`, or the whole
+tree with `tree=true`) that is currently `leased` or `running` a last
+turn before `CancelTask`/`CancelTree`'s existing hard stop reaches it:
+`Hub.gracefulCancel` writes each one a `"cancel"`-kind `run_inbox` entry
+(`Store.WriteInbox`, the same table/mechanism `signal_agent` and drain
+already use) and then blocks — polling, the same `h.Poll`-interval
+pattern `GetTask`'s `wait_seconds` uses — until either all of them reach
+a terminal state or `grace_period_seconds` passes (default 20s, capped at
+5 minutes), before falling through to the unchanged hard
+`CancelTask`/`CancelTree` call, which only has an effect on whatever is
+still unfinished. A `queued` or `waiting` task has no live turn to give a
+last chance to, so it is always stopped at once regardless of mode — only
+`leased`/`running` tasks get the cancel entry. On the engine side,
+`drive_inner`'s existing inbox drain (built for `signal_agent`) now also
+turns a `"cancel"`-kind entry into a user message asking the model to
+call `finish` with whatever it has, phrased so the model understands it
+will be stopped shortly either way; this needed no new engine mechanism,
+only a second case in the same `kind` match the drain already had.
+Exposed via `agen cancel --mode graceful --grace <duration>` and
+`CancelTask.mode`/`.grace_period_seconds` (feature `tasks.cancel-graceful`).
+No new Task columns, no new sweep: the grace period is enforced entirely
+by `CancelTask`'s own call blocking, so a caller's response already
+carries the final outcome (`SUCCEEDED`/`FAILED`/etc. if the run wrapped up
+in time, `CANCELLED` otherwise) with no further polling needed on the
+caller's side either.
+
 The rest of the "Tree" design is otherwise done; 3.9's `steer`/`interrupt`
 queue modes are not built yet, though the piece they were both blocked on
-(drain) now exists. These seven (parent-close, `GetTaskTree`, tree-wide
-cancel, progress/query, signals/queries, join, hold) are 3.4's pieces so
-far.
+(drain) now exists. These eight (parent-close, `GetTaskTree`, tree-wide
+cancel, progress/query, signals/queries, join, hold, graceful cancel) are
+3.4's pieces so far.
 
 ## 7. Engine model
 

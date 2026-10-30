@@ -497,18 +497,20 @@ func (e *env) cmdCancel(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("cancel", &cf)
 	tree := fs.Bool("tree", false, "cancel every unfinished task of its whole tree (its root and every descendant), not just this one")
+	mode := fs.String("mode", "", "hard (default): stop at once. graceful: give each run a last turn to call finish before stopping it")
+	grace := fs.Duration("grace", 0, "mode=graceful only: how long to wait for a last turn before stopping anyway (default 20s, capped at 5m)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen cancel <task-id> [--tree]")
+		return usageErr("agen cancel <task-id> [--tree] [--mode hard|graceful] [--grace D]")
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
-	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0], Tree: *tree}))
+	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0], Tree: *tree, Mode: *mode, GracePeriodSeconds: int32(grace.Seconds())}))
 	if err != nil {
 		return err
 	}

@@ -1402,15 +1402,23 @@ impl Agent {
             // Other kinds (today only "child", handled by call_agent's own
             // re-check of the child's status on resume, never reaches
             // here) are claimed by the drain but turn into nothing yet.
-            if kind != "signal" {
-                continue;
-            }
-            let from = entry.get("ref").and_then(Value::as_str).unwrap_or("");
-            let text = format!("[Signal from task {from}] {payload}");
+            let text = match kind {
+                "signal" => {
+                    let from = entry.get("ref").and_then(Value::as_str).unwrap_or("");
+                    format!("[Signal from task {from}] {payload}")
+                }
+                // Graceful cancel (3.4, part): a last turn to call finish
+                // before the Hub's own hard CancelTask/CancelTree stops it
+                // regardless, once its grace period passes.
+                "cancel" => {
+                    format!("[This task is being cancelled: {payload}. Wrap up now and call finish with whatever you have, or it will be stopped shortly.]")
+                }
+                _ => continue,
+            };
             if let Err(e) = self.add_user_note(live, &text).await {
                 self.log(
                     "warn",
-                    &format!("run {}: could not record a drained signal: {e}", live.rec.id),
+                    &format!("run {}: could not record a drained inbox entry: {e}", live.rec.id),
                 )
                 .await;
             }

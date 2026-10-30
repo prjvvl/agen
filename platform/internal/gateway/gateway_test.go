@@ -424,6 +424,78 @@ func TestPauseTaskSuspendsARunningTaskAndResumeTaskRevivesIt(t *testing.T) {
 	}
 }
 
+// CancelTask(mode="graceful") writes a "cancel" run_inbox entry for a
+// running task instead of stopping it at once; if the run calls finish on
+// its own before the grace period passes, it ends however it finished,
+// not cancelled (3.4, part: graceful cancel).
+// features: tasks.cancel-graceful
+func TestGracefulCancelLetsARunFinishOnItsOwnWithinTheGracePeriod(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// The first turn's delay gives CancelTask (called once running) a
+	// window to land before the run would otherwise finish; the second
+	// turn, right after, simulates the run wrapping up on its own.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":2000},
+		{"text":"wrapped up"}]}`)
+	k.deploy(t, "worker", worker, 1)
+	k.waitReady(t, 1)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	// CancelTask itself blocks for the grace period (or until the task
+	// ends, whichever is first), so its own response already carries the
+	// final outcome: no extra wait after this call is needed.
+	got, err := k.c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: sub.Msg.Task.Id, Mode: "graceful", GracePeriodSeconds: 10}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "wrapped up" {
+		t.Fatalf("worker task: %v, want succeeded with its own output, not cancelled", got.Msg.Task)
+	}
+}
+
+// CancelTask(mode="graceful") still stops a task once its grace period
+// passes without the run finishing on its own (3.4, part: graceful
+// cancel).
+// features: tasks.cancel-graceful
+func TestGracefulCancelStopsASurvivorOnceItsGracePeriodPasses(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// Long enough that it never finishes within the short grace period
+	// below.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":10000}]}`)
+	k.deploy(t, "worker", worker, 1)
+	k.waitReady(t, 1)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	got, err := k.c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: sub.Msg.Task.Id, Mode: "graceful", GracePeriodSeconds: 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Msg.Task.State != agenv1.TaskState_TASK_STATE_CANCELLED {
+		t.Fatalf("worker task: %v, want cancelled once its grace period passed", got.Msg.Task)
+	}
+}
+
 // An "ask" tool call in a managed agent becomes a durable approval at the
 // Hub; the person who submitted the task cannot approve it; approve lets
 // the call run, deny stops it, and an unanswered ask expires.

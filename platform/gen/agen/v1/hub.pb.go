@@ -3329,12 +3329,21 @@ type CancelTaskRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Cancel every unfinished task of id's whole tree (its root and every
-	// descendant, found through root_task_id), not just id itself. Today
-	// this is always a hard cancel (stopped at once); a graceful mode that
-	// gives each run a last report turn first is not built yet.
-	Tree          bool `protobuf:"varint,2,opt,name=tree,proto3" json:"tree,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// descendant, found through root_task_id), not just id itself.
+	Tree bool `protobuf:"varint,2,opt,name=tree,proto3" json:"tree,omitempty"`
+	// "" or "hard" (default): stop at once. "graceful": each task of id
+	// (or, with tree, of the whole tree) currently leased or running gets a
+	// "cancel" run_inbox entry first (surfaced to the model as a request to
+	// wrap up and call finish), and this call waits up to
+	// grace_period_seconds for all of them to end on their own before
+	// falling through to the same hard stop "hard" does for whatever is
+	// still unfinished. A queued or waiting task is always stopped at once,
+	// graceful or not: there is no live turn to give a last chance to.
+	Mode string `protobuf:"bytes,3,opt,name=mode,proto3" json:"mode,omitempty"`
+	// Only with mode "graceful". 0: a default (20s); capped at 5 minutes.
+	GracePeriodSeconds int32 `protobuf:"varint,4,opt,name=grace_period_seconds,json=gracePeriodSeconds,proto3" json:"grace_period_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CancelTaskRequest) Reset() {
@@ -3379,6 +3388,20 @@ func (x *CancelTaskRequest) GetTree() bool {
 		return x.Tree
 	}
 	return false
+}
+
+func (x *CancelTaskRequest) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *CancelTaskRequest) GetGracePeriodSeconds() int32 {
+	if x != nil {
+		return x.GracePeriodSeconds
+	}
+	return 0
 }
 
 type CancelTaskResponse struct {
@@ -7446,10 +7469,12 @@ const file_agen_v1_hub_proto_rawDesc = "" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\x1c\n" +
 	"\tscheduled\x18\x05 \x01(\bR\tscheduled\"8\n" +
 	"\x11ListTasksResponse\x12#\n" +
-	"\x05tasks\x18\x01 \x03(\v2\r.agen.v1.TaskR\x05tasks\"7\n" +
+	"\x05tasks\x18\x01 \x03(\v2\r.agen.v1.TaskR\x05tasks\"}\n" +
 	"\x11CancelTaskRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04tree\x18\x02 \x01(\bR\x04tree\"d\n" +
+	"\x04tree\x18\x02 \x01(\bR\x04tree\x12\x12\n" +
+	"\x04mode\x18\x03 \x01(\tR\x04mode\x120\n" +
+	"\x14grace_period_seconds\x18\x04 \x01(\x05R\x12gracePeriodSeconds\"d\n" +
 	"\x12CancelTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.agen.v1.TaskR\x04task\x12+\n" +
 	"\tcancelled\x18\x02 \x03(\v2\r.agen.v1.TaskR\tcancelled\"\x80\x01\n" +

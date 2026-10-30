@@ -27,7 +27,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
-  agen cancel <task-id>           cancel a task (a running one stops)
+  agen cancel <task-id>           cancel a task (a running one stops; --mode graceful gives it a last turn first)
   agen pause <task-id>             hold a task (a running one suspends at its next model call)
   agen resume <task-id>            end a hold started by agen pause
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
@@ -406,10 +406,14 @@ Usage of wait:
 Usage of cancel:
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -grace duration
+    	mode=graceful only: how long to wait for a last turn before stopping anyway (default 20s, capped at 5m)
   -hub string
     	Hub URL
   -json
     	print the API response as JSON
+  -mode string
+    	hard (default): stop at once. graceful: give each run a last turn to call finish before stopping it
   -n string
     	namespace (default "default")
   -token string

@@ -237,6 +237,13 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 			used["tree"] = true
 			c.args = append(c.args, "--tree")
 		}
+		if v := str("mode"); v != "" {
+			c.args = append(c.args, "--mode", v)
+		}
+		if v, ok := a["gracePeriodSeconds"].(float64); ok {
+			used["gracePeriodSeconds"] = true
+			c.args = append(c.args, "--grace", fmt.Sprintf("%ds", int(v)))
+		}
 	case "PauseTask":
 		c.args = []string{"pause", str("id"), "--json"}
 		if v, _ := a["tree"].(bool); v {

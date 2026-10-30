@@ -58,7 +58,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
-  agen cancel <task-id>           cancel a task (a running one stops)
+  agen cancel <task-id>           cancel a task (a running one stops; --mode graceful gives it a last turn first)
   agen pause <task-id>             hold a task (a running one suspends at its next model call)
   agen resume <task-id>            end a hold started by agen pause
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)

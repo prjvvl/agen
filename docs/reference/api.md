@@ -19,7 +19,9 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/CancelTask` · MCP tool: `c
 | Field | Type | Description |
 |---|---|---|
 | `id` | string |  |
-| `tree` | bool | Cancel every unfinished task of id's whole tree (its root and every descendant, found through root_task_id), not just id itself. Today this is always a hard cancel (stopped at once); a graceful mode that gives each run a last report turn first is not built yet. |
+| `tree` | bool | Cancel every unfinished task of id's whole tree (its root and every descendant, found through root_task_id), not just id itself. |
+| `mode` | string | "" or "hard" (default): stop at once. "graceful": each task of id (or, with tree, of the whole tree) currently leased or running gets a "cancel" run_inbox entry first (surfaced to the model as a request to wrap up and call finish), and this call waits up to grace_period_seconds for all of them to end on their own before falling through to the same hard stop "hard" does for whatever is still unfinished. A queued or waiting task is always stopped at once, graceful or not: there is no live turn to give a last chance to. |
+| `gracePeriodSeconds` | int32 | Only with mode "graceful". 0: a default (20s); capped at 5 minutes. |
 
 ## CreateApiToken
 

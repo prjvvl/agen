@@ -801,6 +801,11 @@ func listLimit(requested int32, def int) int {
 	return int(requested)
 }
 
+// defaultGracePeriod and maxGracePeriod bound CancelTask's mode="graceful"
+// grace_period_seconds.
+const defaultGracePeriod = 20 * time.Second
+const maxGracePeriod = 5 * time.Minute
+
 func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.CancelTaskRequest]) (*connect.Response[agenv1.CancelTaskResponse], error) {
 	t, err := h.Store.GetTask(ctx, req.Msg.Id)
 	if err != nil {
@@ -809,7 +814,17 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	if err := requireNamespace(ctx, t.Namespace); err != nil {
 		return nil, err
 	}
+	switch req.Msg.Mode {
+	case "", "hard", "graceful":
+	default:
+		return nil, invalid(`mode must be "", "hard" or "graceful"`)
+	}
 	if req.Msg.Tree {
+		if req.Msg.Mode == "graceful" {
+			if tasks, err := h.Store.ListTaskTree(ctx, t.Namespace, t.RootTaskID); err == nil {
+				h.gracefulCancel(ctx, tasks, graceDuration(req.Msg.GracePeriodSeconds))
+			}
+		}
 		cancelled, err := h.Store.CancelTree(ctx, t.RootTaskID)
 		if err != nil {
 			return nil, connectErr(err)
@@ -826,6 +841,9 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 		}
 		return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t), Cancelled: out}), nil
 	}
+	if req.Msg.Mode == "graceful" {
+		h.gracefulCancel(ctx, []store.Task{t}, graceDuration(req.Msg.GracePeriodSeconds))
+	}
 	t, err = h.Store.CancelTask(ctx, req.Msg.Id)
 	if err != nil {
 		return nil, connectErr(err)
@@ -833,6 +851,56 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	// A cancelled child still answers the run that started it.
 	h.replyResult(ctx, t)
 	return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t)}), nil
+}
+
+func graceDuration(seconds int32) time.Duration {
+	if seconds <= 0 {
+		return defaultGracePeriod
+	}
+	return min(time.Duration(seconds)*time.Second, maxGracePeriod)
+}
+
+// gracefulCancel writes a "cancel" run_inbox entry to every leased or
+// running task of tasks, giving its run a last turn to call finish on its
+// own (the engine drains it into a message before its next model call,
+// the same path drain_inbox/signal_agent use), then waits up to grace for
+// all of them to reach a terminal state, whichever comes first. A queued
+// or waiting task has no live turn to give a last chance to, so it is
+// left alone here. This never cancels anything itself: the hard
+// CancelTask/CancelTree call right after it is what actually stops
+// whatever is still unfinished once the grace period passes.
+func (h *Hub) gracefulCancel(ctx context.Context, tasks []store.Task, grace time.Duration) {
+	var waitIDs []string
+	for _, t := range tasks {
+		if t.State != "leased" && t.State != "running" {
+			continue
+		}
+		if _, err := h.Store.WriteInbox(ctx, store.InboxRow{Namespace: t.Namespace, TaskID: t.ID, RunID: t.RunID, Kind: "cancel", Payload: "its task tree is being cancelled"}); err != nil {
+			continue
+		}
+		waitIDs = append(waitIDs, t.ID)
+	}
+	if len(waitIDs) == 0 {
+		return
+	}
+	deadline := time.Now().Add(grace)
+	for {
+		done := true
+		for _, id := range waitIDs {
+			if tk, err := h.Store.GetTask(ctx, id); err == nil && !tk.Terminal() {
+				done = false
+				break
+			}
+		}
+		if done || time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(h.Poll):
+		}
+	}
 }
 
 // PauseTask holds a task (3.4, part): a queued task is skipped by leasing,

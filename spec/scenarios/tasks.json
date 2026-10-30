@@ -1,7 +1,7 @@
 {
   "name": "tasks",
   "description": "Deploy an agent, run a task with a cost tier, conversation and labels, schedule one for later, list scheduled tasks, cancel it, and read the logs.",
-  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "tasks.hold", "observe.logs", "tasks.tree", "tasks.progress"],
+  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "tasks.cancel-graceful", "tasks.hold", "observe.logs", "tasks.tree", "tasks.progress"],
   "bundles": {
     "hello": { "from": "examples/bundles/hello" }
   },
@@ -47,6 +47,17 @@
     {
       "call": "CancelTask",
       "args": { "id": "$t2" },
+      "expect": { "task.state": "TASK_STATE_CANCELLED" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "later still", "notBefore": "$in:1h" },
+      "expect": { "task.state": "TASK_STATE_QUEUED" },
+      "save": { "t4": "task.id" }
+    },
+    {
+      "call": "CancelTask",
+      "args": { "id": "$t4", "mode": "graceful", "gracePeriodSeconds": 1 },
       "expect": { "task.state": "TASK_STATE_CANCELLED" }
     },
     {
