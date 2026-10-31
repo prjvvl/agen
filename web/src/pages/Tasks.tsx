@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { useEffect, useState } from "react";
 import { call, Task } from "../api";
 import { useQuery } from "../live";
 import { deploymentHref, traceHref } from "../router";
@@ -87,10 +88,16 @@ export function TaskPanel({ id, onClose }: { id: string; onClose: () => void }) 
   );
 }
 
-/** A task's state, input, result and identity, kept live. */
+/**
+ * A task's state, input, result and identity, kept live. Clicking another
+ * task in its Tree section re-points this same panel at that task,
+ * instead of opening a second one.
+ */
 export function TaskDetails({ id }: { id: string }) {
-  const task = useQuery(() => call<{ task: Task }>("GetTask", { id }), [id], {
-    on: (e) => (e.kind === "task" && e.id === id) || e.kind === "approval",
+  const [viewId, setViewId] = useState(id);
+  useEffect(() => setViewId(id), [id]);
+  const task = useQuery(() => call<{ task: Task }>("GetTask", { id: viewId }), [viewId], {
+    on: (e) => (e.kind === "task" && e.id === viewId) || e.kind === "approval",
   });
   const t = task.data?.task;
   return (
@@ -139,6 +146,7 @@ export function TaskDetails({ id }: { id: string }) {
               <pre className="code">{JSON.stringify(t.outcome.data, null, 2)}</pre>
             </section>
           )}
+          {t.rootTaskId && <TaskTree rootTaskId={t.rootTaskId} currentId={viewId} onOpen={setViewId} />}
           <dl className="kv">
             <dt>Task</dt>
             <dd>
@@ -227,6 +235,77 @@ export function TaskDetails({ id }: { id: string }) {
           </dl>
         </>
       )}
+    </>
+  );
+}
+
+interface TreeNode {
+  task: Task;
+  children: TreeNode[];
+}
+
+function buildTaskTree(tasks: Task[]): TreeNode[] {
+  const nodes = new Map<string, TreeNode>();
+  for (const t of tasks) nodes.set(t.id, { task: t, children: [] });
+  const roots: TreeNode[] = [];
+  for (const n of nodes.values()) {
+    const p = n.task.parentTaskId ? nodes.get(n.task.parentTaskId) : undefined;
+    if (p) p.children.push(n);
+    else roots.push(n);
+  }
+  const bySubmitted = (a: TreeNode, b: TreeNode) => (a.task.createdAt ?? "").localeCompare(b.task.createdAt ?? "");
+  const fix = (n: TreeNode) => {
+    n.children.sort(bySubmitted);
+    n.children.forEach(fix);
+  };
+  roots.sort(bySubmitted).forEach(fix);
+  return roots;
+}
+
+/** Every task of the current one's tree, oldest first (`GetTaskTree`); a
+ * row other than the one already shown opens it in this same panel. */
+function TaskTree({ rootTaskId, currentId, onOpen }: { rootTaskId: string; currentId: string; onOpen: (id: string) => void }) {
+  const tree = useQuery(() => call<{ tasks?: Task[] }>("GetTaskTree", { taskId: rootTaskId }), [rootTaskId], {
+    on: (e) => e.kind === "task",
+  });
+  const list = tree.data?.tasks ?? [];
+  // A lone task is its own whole tree: nothing to show. A load error here
+  // is quiet (no Alert) so the rest of the panel still works without it.
+  if (tree.error || list.length < 2) return null;
+  const roots = buildTaskTree(list);
+  return (
+    <section className="section">
+      <h3>Tree</h3>
+      <div role="tree" aria-label="Task tree" className="task-tree">
+        {roots.map((r) => (
+          <TaskTreeRow key={r.task.id} node={r} depth={0} currentId={currentId} onOpen={onOpen} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TaskTreeRow({ node, depth, currentId, onOpen }: { node: TreeNode; depth: number; currentId: string; onOpen: (id: string) => void }) {
+  const t = node.task;
+  const isCurrent = t.id === currentId;
+  return (
+    <>
+      <div
+        role="treeitem"
+        aria-selected={isCurrent}
+        aria-level={depth + 1}
+        className="task-tree-row"
+        aria-current={isCurrent || undefined}
+        style={{ paddingLeft: 8 + depth * 16 }}
+        onClick={() => !isCurrent && onOpen(t.id)}
+      >
+        <Status spec={taskStatus(t.state, t.pendingApprovalId, t.notBefore, t.waitReason)} />
+        <span className="truncate">{t.input || <span className="muted">(empty input)</span>}</span>
+        <span className="muted sub">{t.deployment}</span>
+      </div>
+      {node.children.map((c) => (
+        <TaskTreeRow key={c.task.id} node={c} depth={depth + 1} currentId={currentId} onOpen={onOpen} />
+      ))}
     </>
   );
 }

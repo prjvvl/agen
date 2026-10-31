@@ -178,6 +178,8 @@ export interface Task {
   replyDeployment?: string;
   replyConversationKey?: string;
   parentTaskId?: string;
+  /** The tree this task belongs to: itself, for a task with no parent. */
+  rootTaskId?: string;
   depth?: number;
   /** How the task's run ended. */
   outcome?: Outcome;

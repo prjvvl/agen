@@ -1139,3 +1139,33 @@
   stroke: var(--brand);
   stroke-width: 2.5;
 }
+
+/* ---- task tree ---- */
+
+.task-tree {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.task-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding-right: 8px;
+  min-width: 0;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.task-tree-row:hover {
+  background: var(--hover);
+}
+.task-tree-row[aria-current] {
+  background: var(--brand-soft);
+  cursor: default;
+}
+.task-tree-row + .task-tree-row {
+  border-top: 1px solid var(--border);
+}
