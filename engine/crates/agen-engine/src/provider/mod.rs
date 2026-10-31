@@ -169,13 +169,55 @@ pub trait ModelProvider: Send + Sync {
     async fn context_window(&self, _model: &str) -> Option<u64> {
         None
     }
+    /// The interactions recorded so far (3.6, part: `agen replay`) — only
+    /// a provider that actually records one (`RecordingProvider`, wired in
+    /// for a deployment with `recordInteractions` on) returns `Some`.
+    fn recorded_cassette(&self) -> Option<replay::Cassette> {
+        None
+    }
 }
 
 /// A sink that ignores deltas.
 pub fn no_deltas(_: &str) {}
 
-/// Build the provider named in a bundle's `harness.json`.
+// Lets a type-erased provider be wrapped by another (3.6, part: agen
+// replay wraps the real provider in a RecordingProvider when the bundle
+// asks for it) without `from_harness` needing to know every provider's
+// own concrete type.
+#[async_trait]
+impl<T: ModelProvider + ?Sized> ModelProvider for std::sync::Arc<T> {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+    async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError> {
+        (**self).complete(req, on_delta).await
+    }
+    async fn context_window(&self, model: &str) -> Option<u64> {
+        (**self).context_window(model).await
+    }
+    fn recorded_cassette(&self) -> Option<replay::Cassette> {
+        (**self).recorded_cassette()
+    }
+}
+
+/// Build the provider named in a bundle's `harness.json`, wrapped in a
+/// `RecordingProvider` when the bundle's own config.json set
+/// `recordInteractions` (3.6, part: `agen replay`) — never for the
+/// "replay" provider itself, which would just record a redundant copy of
+/// what it is already replaying ("fake" is recorded like any other
+/// provider: useful for a test deployment, and harmless either way).
 pub fn from_harness(
+    bundle: &crate::bundle::Bundle,
+    secrets: &crate::secrets::Secrets,
+) -> Result<std::sync::Arc<dyn ModelProvider>, ProviderError> {
+    let p = from_harness_unrecorded(bundle, secrets)?;
+    if bundle.config.record_interactions && bundle.harness.provider != "replay" {
+        return Ok(std::sync::Arc::new(replay::RecordingProvider::new(p)));
+    }
+    Ok(p)
+}
+
+fn from_harness_unrecorded(
     bundle: &crate::bundle::Bundle,
     secrets: &crate::secrets::Secrets,
 ) -> Result<std::sync::Arc<dyn ModelProvider>, ProviderError> {

@@ -127,6 +127,10 @@ type Bundle struct {
 	Conversations json.RawMessage
 	Triggers      []Trigger
 	Files         map[string][]byte
+	// RecordInteractions (3.6, part: agen replay): record every model
+	// call of every run as a replayable cassette. Off by default; set
+	// only by the bundle's own config.json, never overridden per request.
+	RecordInteractions bool
 
 	// What the agent can use, for warnings about likely mistakes.
 	Provider string
@@ -287,8 +291,9 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 				Notify          *Notify `json:"notify"`
 				ApprovalTimeout string  `json:"approvalTimeout"`
 			} `json:"permissions"`
-			Delegates []Delegate                 `json:"delegates"`
-			Tools     map[string]json.RawMessage `json:"tools"`
+			Delegates          []Delegate                 `json:"delegates"`
+			Tools              map[string]json.RawMessage `json:"tools"`
+			RecordInteractions bool                       `json:"recordInteractions"`
 		}
 		_ = json.Unmarshal(raw, &c)
 		for _, r := range c.Permissions.Rules {
@@ -312,6 +317,7 @@ func Parse(files map[string][]byte) (*Bundle, error) {
 		if c.Kind != "" {
 			b.Kind = c.Kind
 		}
+		b.RecordInteractions = c.RecordInteractions
 		if c.Scale != nil {
 			b.Scale = *c.Scale
 			if b.Scale.Max == 0 {

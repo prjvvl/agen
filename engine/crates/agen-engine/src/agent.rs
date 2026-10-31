@@ -904,6 +904,30 @@ impl Agent {
                 Some(&ended),
             )
             .await?;
+        // 3.6, part: agen replay. Only a RecordingProvider (wired in for a
+        // deployment with recordInteractions on) returns Some here; every
+        // other provider is a no-op. Best-effort: a run's own result is
+        // never held up by its cassette failing to save.
+        if let Some(cassette) = self.provider.recorded_cassette() {
+            match serde_json::to_string(&cassette) {
+                Ok(data) => {
+                    if let Err(e) = self.store.save_cassette(&live.rec.id, &data).await {
+                        self.log(
+                            "warn",
+                            &format!("run {}: could not save its cassette: {e}", live.rec.id),
+                        )
+                        .await;
+                    }
+                }
+                Err(e) => {
+                    self.log(
+                        "warn",
+                        &format!("run {}: could not encode its cassette: {e}", live.rec.id),
+                    )
+                    .await;
+                }
+            }
+        }
         let summary = format!(
             "run {} {} in {} ms, {} input / {} output tokens{}",
             live.rec.id,

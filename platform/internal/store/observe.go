@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 )
 
 // Read models over the engine's run-data tables (written by agen-host through
@@ -202,4 +204,17 @@ func (s *Store) LabelSpentToday(ctx context.Context, ns, deployment, labelKey, l
 		}
 	}
 	return total, rows.Err()
+}
+
+// GetCassette returns a run's recorded interactions (3.6, part: agen
+// replay), written directly by the engine (Store.save_cassette on the
+// Rust side) for a run of a deployment with recordInteractions on.
+// ErrNotFound: the run never recorded one (recordInteractions was off,
+// or it predates this feature).
+func (s *Store) GetCassette(ctx context.Context, runID string) (data string, createdMs int64, err error) {
+	err = s.db.QueryRowContext(ctx, "SELECT data, created_ms FROM cassettes WHERE run_id = $1", runID).Scan(&data, &createdMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, ErrNotFound
+	}
+	return data, createdMs, err
 }

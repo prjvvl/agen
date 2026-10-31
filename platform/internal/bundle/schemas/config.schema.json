@@ -45,6 +45,10 @@
       "additionalProperties": false
     },
     "kind": { "enum": ["singleton", "pool", "task"] },
+    "recordInteractions": {
+      "type": "boolean",
+      "description": "Record every model call of every run as a replayable cassette (agen replay). Off by default: a cassette holds full prompts and tool-call payloads, so only turn this on for a deployment whose runs may hold that."
+    },
     "scale": {
       "type": "object",
       "properties": {

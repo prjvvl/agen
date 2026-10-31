@@ -258,6 +258,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0042_task_hold.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0042_task_hold.sql"),
     },
+    Migration {
+        version: 43,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0043_cassettes.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0043_cassettes.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -1169,6 +1174,32 @@ impl Store {
             return Err(StoreError::Fenced(id.to_string()));
         }
         Ok(())
+    }
+
+    /// Persists a run's recorded interactions (3.6, part: `agen replay`),
+    /// only called when the provider actually recorded one (deployments
+    /// with `recordInteractions` on). One row per run; a retried write
+    /// (e.g. a resumed run re-recording) replaces the previous one.
+    pub async fn save_cassette(&self, run_id: &str, data: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO cassettes (run_id, data, created_ms) VALUES ($1, $2, $3) \
+             ON CONFLICT (run_id) DO UPDATE SET data = excluded.data, created_ms = excluded.created_ms",
+        )
+        .bind(run_id)
+        .bind(data)
+        .bind(now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// A run's recorded interactions, if any were saved for it.
+    pub async fn get_cassette(&self, run_id: &str) -> Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT data FROM cassettes WHERE run_id = $1")
+            .bind(run_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|(data,)| data))
     }
 
     pub async fn get_run(&self, id: &str) -> Result<RunRecord> {

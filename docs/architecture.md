@@ -741,6 +741,26 @@ Agent → Session → Conversation → Run → Span.
   reads the same tables for the fleet view, logs and daily budgets. If the
   Store is unreachable, new runs fail fast and in-flight runs stop at their next
   checkpoint write.
+- **Cassettes and `agen replay`** (3.6, part): a deployment whose
+  `x-agen/config.json` sets `recordInteractions` has its real provider
+  wrapped in `RecordingProvider` (`from_harness`, which already builds the
+  "fake"/"replay"/"openrouter"/"openai" providers from the same file —
+  this was the only new wiring needed, since `ReplayProvider` itself
+  already existed, built for hand-authored test cassettes via
+  `harness.json`'s own `{"provider": "replay", "cassette": "..."}`, just
+  never driven by a production run's own recording before). Once a run
+  ends, `agent.rs` saves the wrapped provider's recorded interactions
+  (full prompts and tool-call payloads — a `ModelProvider::recorded_cassette()`
+  trait method, `None` for every other provider) straight to the Store, the
+  same direct write path as everything else here; off by default. `agen
+  replay <run>` (`GetCassette` + `GetDefinition`) reassembles the run's own
+  bundle with its `harness.json` rewritten to point at the saved cassette,
+  then drives it with `agen-host run`'s existing standalone path —
+  deterministic, offline, no Hub task. Cassettes age out with the same
+  retention sweep as spans and logs (`PruneObservability`), not a separate
+  setting. Resuming from a specific turn with a live model from there on
+  (`--turn`/`--model`) needs a provider that can switch mid-replay from the
+  cassette to a live call, which does not exist yet.
 - **Run ownership**: every run has an `owner` and an `epoch`. Every
  checkpoint (message + progress, one transaction) and the final status write
  check the epoch; `resume` claims the run and increments it, so a previous

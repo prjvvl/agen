@@ -110,6 +110,8 @@ const (
 	// HubServiceGetTranscriptProcedure is the fully-qualified name of the HubService's GetTranscript
 	// RPC.
 	HubServiceGetTranscriptProcedure = "/agen.v1.HubService/GetTranscript"
+	// HubServiceGetCassetteProcedure is the fully-qualified name of the HubService's GetCassette RPC.
+	HubServiceGetCassetteProcedure = "/agen.v1.HubService/GetCassette"
 	// HubServiceGetMetricsProcedure is the fully-qualified name of the HubService's GetMetrics RPC.
 	HubServiceGetMetricsProcedure = "/agen.v1.HubService/GetMetrics"
 	// HubServiceGetActivityProcedure is the fully-qualified name of the HubService's GetActivity RPC.
@@ -240,6 +242,10 @@ type HubServiceClient interface {
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
 	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
 	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
+	// A run's recorded interactions (3.6, part: `agen replay`), if its
+	// deployment had recordInteractions on when it ran. Not found: it
+	// never recorded one.
+	GetCassette(context.Context, *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error)
 	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
@@ -489,6 +495,12 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetTranscript")),
 			connect.WithClientOptions(opts...),
 		),
+		getCassette: connect.NewClient[v1.GetCassetteRequest, v1.GetCassetteResponse](
+			httpClient,
+			baseURL+HubServiceGetCassetteProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetCassette")),
+			connect.WithClientOptions(opts...),
+		),
 		getMetrics: connect.NewClient[v1.GetMetricsRequest, v1.GetMetricsResponse](
 			httpClient,
 			baseURL+HubServiceGetMetricsProcedure,
@@ -663,6 +675,7 @@ type hubServiceClient struct {
 	listRuns                 *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	getTrace                 *connect.Client[v1.GetTraceRequest, v1.GetTraceResponse]
 	getTranscript            *connect.Client[v1.GetTranscriptRequest, v1.GetTranscriptResponse]
+	getCassette              *connect.Client[v1.GetCassetteRequest, v1.GetCassetteResponse]
 	getMetrics               *connect.Client[v1.GetMetricsRequest, v1.GetMetricsResponse]
 	getActivity              *connect.Client[v1.GetActivityRequest, v1.GetActivityResponse]
 	getLogs                  *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
@@ -841,6 +854,11 @@ func (c *hubServiceClient) GetTrace(ctx context.Context, req *connect.Request[v1
 // GetTranscript calls agen.v1.HubService.GetTranscript.
 func (c *hubServiceClient) GetTranscript(ctx context.Context, req *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error) {
 	return c.getTranscript.CallUnary(ctx, req)
+}
+
+// GetCassette calls agen.v1.HubService.GetCassette.
+func (c *hubServiceClient) GetCassette(ctx context.Context, req *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error) {
+	return c.getCassette.CallUnary(ctx, req)
 }
 
 // GetMetrics calls agen.v1.HubService.GetMetrics.
@@ -1025,6 +1043,10 @@ type HubServiceHandler interface {
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
 	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
 	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
+	// A run's recorded interactions (3.6, part: `agen replay`), if its
+	// deployment had recordInteractions on when it ran. Not found: it
+	// never recorded one.
+	GetCassette(context.Context, *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error)
 	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
@@ -1270,6 +1292,12 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("GetTranscript")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceGetCassetteHandler := connect.NewUnaryHandler(
+		HubServiceGetCassetteProcedure,
+		svc.GetCassette,
+		connect.WithSchema(hubServiceMethods.ByName("GetCassette")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceGetMetricsHandler := connect.NewUnaryHandler(
 		HubServiceGetMetricsProcedure,
 		svc.GetMetrics,
@@ -1472,6 +1500,8 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetTraceHandler.ServeHTTP(w, r)
 		case HubServiceGetTranscriptProcedure:
 			hubServiceGetTranscriptHandler.ServeHTTP(w, r)
+		case HubServiceGetCassetteProcedure:
+			hubServiceGetCassetteHandler.ServeHTTP(w, r)
 		case HubServiceGetMetricsProcedure:
 			hubServiceGetMetricsHandler.ServeHTTP(w, r)
 		case HubServiceGetActivityProcedure:
@@ -1649,6 +1679,10 @@ func (UnimplementedHubServiceHandler) GetTrace(context.Context, *connect.Request
 
 func (UnimplementedHubServiceHandler) GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetTranscript is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) GetCassette(context.Context, *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetCassette is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error) {

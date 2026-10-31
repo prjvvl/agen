@@ -150,6 +150,16 @@ How bundles are laid out, the JSON Schema of every bundle file and a complete ex
 
 Scope: `viewer` · REST: `POST /agen.v1.HubService/GetBundleGuide` · MCP tool: `get_bundle_guide`
 
+## GetCassette
+
+A run's recorded interactions (3.6, part: `agen replay`), if its deployment had recordInteractions on when it ran. Not found: it never recorded one.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetCassette` · MCP tool: `get_cassette`
+
+| Field | Type | Description |
+|---|---|---|
+| `runId` | string | A run id: a task's runId (GetTask), or from ListRuns or GetTrace. |
+
 ## GetDefinition
 
 One bundle version with its files (text files also as textFiles).

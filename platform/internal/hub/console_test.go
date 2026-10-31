@@ -130,6 +130,37 @@ func TestTranscriptAndSystemPrompt(t *testing.T) {
 	}
 }
 
+// GetCassette returns a run's recorded interactions (3.6, part: agen
+// replay), if the engine saved one (Store.save_cassette, on the Rust
+// side — simulated here with a raw INSERT, the same way runTree
+// simulates the engine's own run/message writes); not_found otherwise,
+// namespace-scoped like every other run-data read.
+// features: replay
+func TestGetCassetteReturnsARunsRecordedInteractions(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	runTree(t, e, time.Now().UnixMilli())
+	if _, err := e.store.DB().Exec("INSERT INTO cassettes (run_id, data, created_ms) VALUES ('r1', $1, $2)",
+		`{"provider":"fake","interactions":[{"fingerprint":"x","request":{},"response":{"text":"hi"}}]}`, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.GetCassette(ctx, connect.NewRequest(&agenv1.GetCassetteRequest{RunId: "r1"}))
+	if err != nil || got.Msg.Run.Id != "r1" || !strings.Contains(got.Msg.CassetteJson, `"fingerprint":"x"`) {
+		t.Fatalf("cassette: %v %v", got, err)
+	}
+	if _, err := c.GetCassette(ctx, connect.NewRequest(&agenv1.GetCassetteRequest{RunId: "r2"})); code(err) != connect.CodeNotFound {
+		t.Fatalf("a run that never recorded one: %v", err)
+	}
+	other, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: "other2", Scopes: []string{"viewer"}, Namespaces: []string{"other"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.client(other.Msg.Secret).GetCassette(ctx, connect.NewRequest(&agenv1.GetCassetteRequest{RunId: "r1"})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("another namespace's cassette: %v", err)
+	}
+}
+
 // features: observe.metrics
 func TestMetricsAndCallEdges(t *testing.T) {
 	e := setup(t)

@@ -153,6 +153,23 @@ func (h *Hub) GetTranscript(ctx context.Context, req *connect.Request[agenv1.Get
 	return connect.NewResponse(out), nil
 }
 
+// GetCassette returns a run's recorded interactions (3.6, part: agen
+// replay), if its deployment had recordInteractions on when it ran.
+func (h *Hub) GetCassette(ctx context.Context, req *connect.Request[agenv1.GetCassetteRequest]) (*connect.Response[agenv1.GetCassetteResponse], error) {
+	run, err := h.Store.GetRun(ctx, req.Msg.RunId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, run.Namespace); err != nil {
+		return nil, err
+	}
+	data, createdMs, err := h.Store.GetCassette(ctx, req.Msg.RunId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.GetCassetteResponse{Run: runProto(run), CassetteJson: data, RecordedAt: ms(createdMs)}), nil
+}
+
 func percentile(sorted []int64, p float64) int64 {
 	if len(sorted) == 0 {
 		return 0

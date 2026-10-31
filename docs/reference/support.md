@@ -74,6 +74,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Platform secrets | ✓ | ✓ | ✓ | ✓ |  |
 | Runs, traces and transcripts | ✓ | ✓ | ✓ | ✓ |  |
 | Deployment logs | ✓ | ✓ | ✓ | ✓ |  |
+| Record a deployment's model calls and replay a run from its cassette offline | ✓ | ✓ | ✓ |  |  |
 | Metrics, costs and live activity | ✓ | ✓ |  | ✓ |  |
 | Notification targets | ✓ | ✓ | ✓ | ✓ |  |
 | API tokens, scopes and namespaces | ✓ | ✓ | ✓ | ✓ |  |

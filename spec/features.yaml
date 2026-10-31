@@ -262,6 +262,10 @@ features:
     title: Deployment logs
     contract: [rpc:GetLogs, field:GetLogs.instance_id, field:GetLogs.since, cli:logs]
     on: [api, mcp, cli, console]
+  - id: replay
+    title: Record a deployment's model calls and replay a run from its cassette offline
+    contract: [config:recordInteractions, rpc:GetCassette, field:GetCassette.run_id, cli:replay]
+    on: [api, mcp, cli]
   - id: observe.metrics
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]

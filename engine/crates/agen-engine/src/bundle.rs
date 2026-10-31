@@ -339,6 +339,11 @@ pub struct Config {
     pub triggers: Vec<Value>,
     #[serde(default)]
     pub memory: Vec<MemoryAttachment>,
+    /// Record every model call of every run as a replayable cassette
+    /// (3.6, part: `agen replay`). Off by default: a cassette holds full
+    /// prompts and tool-call payloads.
+    #[serde(default, rename = "recordInteractions")]
+    pub record_interactions: bool,
 }
 
 /// How much of a memory block (`x-agen/config.json` `memory`) an agent may

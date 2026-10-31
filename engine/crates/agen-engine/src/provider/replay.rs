@@ -84,6 +84,10 @@ impl<P: ModelProvider> ModelProvider for RecordingProvider<P> {
         });
         Ok(resp)
     }
+
+    fn recorded_cassette(&self) -> Option<Cassette> {
+        Some(self.cassette())
+    }
 }
 
 pub struct ReplayProvider {

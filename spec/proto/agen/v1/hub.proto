@@ -83,6 +83,10 @@ service HubService {
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
   // A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
   rpc GetTranscript(GetTranscriptRequest) returns (GetTranscriptResponse);
+  // A run's recorded interactions (3.6, part: `agen replay`), if its
+  // deployment had recordInteractions on when it ran. Not found: it
+  // never recorded one.
+  rpc GetCassette(GetCassetteRequest) returns (GetCassetteResponse);
   // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
   rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
   // What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
@@ -631,6 +635,19 @@ message GetTranscriptResponse {
   repeated TranscriptMessage messages = 2;
   // The agent's instructions (x-agen/agent.md body) of the run's bundle.
   string system_prompt = 3;
+}
+
+message GetCassetteRequest {
+  // A run id: a task's runId (GetTask), or from ListRuns or GetTrace.
+  string run_id = 1;
+}
+message GetCassetteResponse {
+  Run run = 1;
+  // The recorded interactions, as JSON (the engine's own
+  // provider::replay::Cassette shape: {provider, interactions: [{fingerprint, request, response}]}) —
+  // opaque to the Hub, passed through as saved.
+  string cassette_json = 2;
+  google.protobuf.Timestamp recorded_at = 3;
 }
 
 message GetMetricsRequest {

@@ -13,7 +13,7 @@ import (
 // instances, nests' enrolment is kept) is not copied.
 var CopyTables = []string{
 	"definitions", "deployments", "deployment_versions", "nests", "api_tokens", "join_tokens", "webhook_secrets",
-	"sessions", "conversations", "messages", "runs", "spans", "effects", "delegations", "delegation_calls", "logs",
+	"sessions", "conversations", "messages", "runs", "spans", "effects", "delegations", "delegation_calls", "logs", "cassettes",
 	"tasks", "approvals", "trigger_events", "platform_secrets", "notification_targets", "events", "trigger_cursors", "feedback",
 	"memory_blocks", "task_locks", "locks", "artifacts", "run_inbox",
 }

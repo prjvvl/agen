@@ -276,6 +276,9 @@ func (h *Hub) bundleWarnings(ctx context.Context, ns string, b *bundle.Bundle) [
 	case "replay":
 		w = append(w, `x-agen/harness.json: provider "replay" replays a recorded cassette and never calls a model`)
 	}
+	if b.RecordInteractions {
+		w = append(w, "x-agen/config.json: recordInteractions is on — every run saves its full prompts and tool-call payloads as a cassette (agen replay)")
+	}
 	known := func(name string) bool {
 		for _, s := range b.ToolServers {
 			if strings.HasPrefix(name, s+".") || strings.HasPrefix(name, s+"_") {

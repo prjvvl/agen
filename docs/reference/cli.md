@@ -40,6 +40,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen tree <task-id>              every task of the tree it belongs to
   agen query <task-id>             its progress, current activity and outcome, without waiting on it
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
+  agen replay <run>                re-run a recorded run offline, from its saved cassette (needs recordInteractions on)
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
   agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
   agen feedback ls [name]         feedback, newest first (--label, --since)
@@ -618,6 +619,24 @@ Usage of transcript:
     	namespace (default "default")
   -system
     	also the system prompt
+  -token string
+    	API token
+```
+
+## agen replay
+
+```text
+Usage of replay:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -host-bin string
+    	agen-host executable (default: next to agen, $AGEN_HOST_BIN, or on PATH)
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
   -token string
     	API token
 ```
