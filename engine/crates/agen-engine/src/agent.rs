@@ -634,6 +634,12 @@ impl Agent {
         &self.tools
     }
 
+    /// The model provider this agent calls (`agen eval`'s judge call reuses
+    /// it, rather than building a second one).
+    pub fn provider(&self) -> &Arc<dyn ModelProvider> {
+        &self.provider
+    }
+
     pub fn owner(&self) -> &str {
         &self.owner
     }

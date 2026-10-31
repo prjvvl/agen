@@ -41,6 +41,7 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen query <task-id>             its progress, current activity and outcome, without waiting on it
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
   agen replay <run>                re-run a recorded run offline, from its saved cassette (needs recordInteractions on)
+  agen eval <bundle-dir>           run scenario files against a bundle with mocked tools, report pass@1/pass^k
   agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
   agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
   agen feedback ls [name]         feedback, newest first (--label, --since)
@@ -639,6 +640,22 @@ Usage of replay:
     	namespace (default "default")
   -token string
     	API token
+```
+
+## agen eval
+
+```text
+Usage of eval:
+  -host-bin string
+    	agen-host executable (default: next to agen, $AGEN_HOST_BIN, or on PATH)
+  -json
+    	print the full JSON report instead of a table
+  -runs int
+    	runs per scenario (default 1)
+  -scenarios string
+    	directory of scenario JSON files (required)
+  -store string
+    	store URL for the eval runs (default: a scratch SQLite database, removed after)
 ```
 
 ## agen events

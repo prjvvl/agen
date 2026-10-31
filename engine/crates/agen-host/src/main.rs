@@ -17,6 +17,8 @@ use std::sync::{Arc, Mutex};
 use agen_engine::agent::{Agent, AgentError, BundleOptions, RunOptions, RunResult};
 use agen_engine::bundle::Bundle;
 use agen_engine::store::{RunStatus, Store, StoreError};
+
+mod eval;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -74,6 +76,18 @@ enum Cmd {
         bundle: PathBuf,
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Run the agent against a scenario file N times, with its tools
+    /// mocked, and report pass@1/pass^k (rule checks plus one LLM-judge
+    /// call per run when the scenario has a rubric).
+    Eval {
+        bundle: PathBuf,
+        #[arg(long)]
+        scenario: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        runs: usize,
         #[command(flatten)]
         common: Common,
     },
@@ -237,6 +251,24 @@ async fn real_main() -> anyhow::Result<i32> {
             let agent = build_agent(&bundle, &common).await?;
             let r = agent.resume(&run_id, stream_options(json, cancel_on_ctrl_c())).await?;
             Ok(finish(r, json))
+        }
+        Cmd::Eval {
+            bundle,
+            scenario,
+            runs,
+            common,
+        } => {
+            let url = match &common.store {
+                Some(u) => u.clone(),
+                None => default_store()?,
+            };
+            let report = eval::run_scenario(&bundle, &scenario, runs, &url, &common).await?;
+            println!("{report}");
+            Ok(if report["passK"].as_bool().unwrap_or(false) {
+                0
+            } else {
+                1
+            })
         }
         Cmd::Serve {
             bundle,

@@ -761,6 +761,25 @@ Agent → Session → Conversation → Run → Span.
   setting. Resuming from a specific turn with a live model from there on
   (`--turn`/`--model`) needs a provider that can switch mid-replay from the
   cassette to a live call, which does not exist yet.
+- **`agen eval`** (§6 learning and testing, part): `agen eval <bundle-dir>
+  --scenarios DIR --runs N` runs every scenario file N times and reports
+  pass@1/pass^k. A scenario names an `input`, optional `mockedTools`
+  (tool name → canned response), optional `rules` (`mustContain` /
+  `mustNotContain` substring checks) and an optional `rubric` (`criteria`
+  plus `passThreshold`, scored 0–1 by one extra call to the bundle's own
+  model provider — a judge prompt, not a new provider). Mocking connects
+  to the bundle's real `mcp.json` servers once, to learn their tool specs,
+  then never calls them again: a mocked tool's call returns the scenario's
+  canned value directly, and any tool the scenario does not mock errors
+  instead of reaching a live server, so repeated eval runs stay
+  deterministic and side-effect free. All of this is local: `agen-host
+  eval` (new subcommand) does the run+score work per scenario file, `agen
+  eval` loops it the same way `agen replay` drives `agen-host` directly,
+  no Hub task or deployment involved. Comparing a report against the
+  deployed definition's own last recorded eval, and `deploy
+  --require-eval`, both need somewhere to persist eval history per
+  deployment (a new Hub RPC and storage, as cassettes needed for `agen
+  replay`) — not attempted here.
 - **Run ownership**: every run has an `owner` and an `epoch`. Every
  checkpoint (message + progress, one transaction) and the final status write
  check the epoch; `resume` claims the run and increments it, so a previous

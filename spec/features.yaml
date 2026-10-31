@@ -266,6 +266,10 @@ features:
     title: Record a deployment's model calls and replay a run from its cassette offline
     contract: [config:recordInteractions, rpc:GetCassette, field:GetCassette.run_id, cli:replay]
     on: [api, mcp, cli]
+  - id: eval
+    title: Run scenario files against a bundle with mocked tools; report pass@1/pass^k
+    contract: [cli:eval]
+    on: [cli]
   - id: observe.metrics
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]
