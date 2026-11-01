@@ -143,6 +143,9 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	if err := s.FireTriggers(ctx, epoch); err != nil {
 		return epoch, err
 	}
+	if err := s.FireRandomTriggers(ctx); err != nil {
+		return epoch, err
+	}
 	if time.Since(s.lastSweep) >= orphanSweepEvery {
 		s.lastSweep = time.Now()
 		ended, err := st.EndOrphanedRuns(ctx, store.NowMs()-orphanGrace.Milliseconds())

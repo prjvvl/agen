@@ -75,6 +75,14 @@ features:
     title: Fallback models
     contract: [harness:fallbackModels, sdk:fallbackModels]
     on: [rust, python, node, go, api, mcp, cli, console]
+  - id: models.fallback-providers
+    title: Fallback providers, each a full account, tried in order only after an account error on the primary (not a transient one, and not just a failing model)
+    contract: [harness:fallbackProviders]
+    on: [rust, console]
+    gap: {rust: "tested at the engine level (engine/crates/agen-engine/tests/model_routing.rs), not yet exposed through agen-sdk-core's own AgentSpec",
+      console: "no dedicated UI yet; the generic trace/span inspector already shows gen_ai.provider.name and agen.fallback_provider when one fires, not verified by an e2e test"}
+    not: {python: "bundle-config only, no SDK surface", node: "bundle-config only, no SDK surface", go: "bundle-config only, no SDK surface",
+      api: "bundle-config only, no SDK surface", mcp: "bundle-config only, no SDK surface", cli: "bundle-config only, no SDK surface"}
   - id: models.router
     title: Routing models (Jev Router, Auto Router) and cost tiers
     contract: [harness:router, sdk:router]
@@ -205,7 +213,7 @@ features:
     contract: [field:SubmitTask.not_before, field:ListTasks.scheduled, field:SubmitTask.not_after, field:SubmitTask.schedule_key]
     on: [api, mcp, cli, console]
   - id: triggers
-    title: Cron, webhook and event triggers; a burst of events a trigger matches within coalesce merges into one task
+    title: Cron, webhook, event and random triggers; a burst of events a trigger matches within coalesce merges into one task
     contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
       field:ListTriggerEvents.state, rpc:CreateWebhookSecret, field:CreateWebhookSecret.trigger, cli:triggers, cli:webhook-secret]
     on: [api, mcp, cli, console]

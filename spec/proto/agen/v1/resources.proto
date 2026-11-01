@@ -141,6 +141,20 @@ message Trigger {
   // long (a Go duration, e.g. "30s"). Empty: every matching event fires
   // its own task, same as before.
   string coalesce = 20;
+  // Random triggers (2.6): how many times to fire per day, planned once a
+  // day within "window" (deterministically, by date, so re-evaluating a
+  // day already planned gives the same times).
+  int32 count = 21;
+  // Random triggers: the time-of-day range to plan within, in "zone",
+  // "HH:MM-HH:MM" (e.g. "02:00-06:00").
+  string window = 22;
+  // Random triggers: planned times are at least this far apart (a Go
+  // duration, e.g. "1h").
+  string min_gap = 23;
+  // Random triggers: IANA time zone the window and days are in. Empty: UTC.
+  string zone = 24;
+  // Random triggers: which days it plans on ("mon".."sun"). Empty: every day.
+  repeated string days = 25;
 }
 
 // Which events fire an event trigger.

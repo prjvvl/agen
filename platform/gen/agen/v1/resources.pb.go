@@ -845,7 +845,21 @@ type Trigger struct {
 	// separate task, extending the still-queued task's not_before by this
 	// long (a Go duration, e.g. "30s"). Empty: every matching event fires
 	// its own task, same as before.
-	Coalesce      string `protobuf:"bytes,20,opt,name=coalesce,proto3" json:"coalesce,omitempty"`
+	Coalesce string `protobuf:"bytes,20,opt,name=coalesce,proto3" json:"coalesce,omitempty"`
+	// Random triggers (2.6): how many times to fire per day, planned once a
+	// day within "window" (deterministically, by date, so re-evaluating a
+	// day already planned gives the same times).
+	Count int32 `protobuf:"varint,21,opt,name=count,proto3" json:"count,omitempty"`
+	// Random triggers: the time-of-day range to plan within, in "zone",
+	// "HH:MM-HH:MM" (e.g. "02:00-06:00").
+	Window string `protobuf:"bytes,22,opt,name=window,proto3" json:"window,omitempty"`
+	// Random triggers: planned times are at least this far apart (a Go
+	// duration, e.g. "1h").
+	MinGap string `protobuf:"bytes,23,opt,name=min_gap,json=minGap,proto3" json:"min_gap,omitempty"`
+	// Random triggers: IANA time zone the window and days are in. Empty: UTC.
+	Zone string `protobuf:"bytes,24,opt,name=zone,proto3" json:"zone,omitempty"`
+	// Random triggers: which days it plans on ("mon".."sun"). Empty: every day.
+	Days          []string `protobuf:"bytes,25,rep,name=days,proto3" json:"days,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1018,6 +1032,41 @@ func (x *Trigger) GetCoalesce() string {
 		return x.Coalesce
 	}
 	return ""
+}
+
+func (x *Trigger) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *Trigger) GetWindow() string {
+	if x != nil {
+		return x.Window
+	}
+	return ""
+}
+
+func (x *Trigger) GetMinGap() string {
+	if x != nil {
+		return x.MinGap
+	}
+	return ""
+}
+
+func (x *Trigger) GetZone() string {
+	if x != nil {
+		return x.Zone
+	}
+	return ""
+}
+
+func (x *Trigger) GetDays() []string {
+	if x != nil {
+		return x.Days
+	}
+	return nil
 }
 
 // Which events fire an event trigger.
@@ -4255,7 +4304,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x12ConversationPolicy\x12\x1d\n" +
 	"\n" +
 	"queue_mode\x18\x01 \x01(\tR\tqueueMode\x12\x1a\n" +
-	"\bdebounce\x18\x02 \x01(\tR\bdebounce\"\xb6\x06\n" +
+	"\bdebounce\x18\x02 \x01(\tR\bdebounce\"\xa5\a\n" +
 	"\aTrigger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -4277,7 +4326,12 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\aoverlap\x18\x11 \x01(\tR\aoverlap\x12*\n" +
 	"\x11min_start_spacing\x18\x12 \x01(\tR\x0fminStartSpacing\x12\x14\n" +
 	"\x05trust\x18\x13 \x01(\tR\x05trust\x12\x1a\n" +
-	"\bcoalesce\x18\x14 \x01(\tR\bcoalesce\x1a9\n" +
+	"\bcoalesce\x18\x14 \x01(\tR\bcoalesce\x12\x14\n" +
+	"\x05count\x18\x15 \x01(\x05R\x05count\x12\x16\n" +
+	"\x06window\x18\x16 \x01(\tR\x06window\x12\x17\n" +
+	"\amin_gap\x18\x17 \x01(\tR\x06minGap\x12\x12\n" +
+	"\x04zone\x18\x18 \x01(\tR\x04zone\x12\x12\n" +
+	"\x04days\x18\x19 \x03(\tR\x04days\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x02\n" +

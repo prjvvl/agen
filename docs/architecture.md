@@ -346,7 +346,25 @@ missed window once (`redelivered`), unless it is older than `catchUpWindow`.
 a window while an earlier firing's task is unfinished, or too soon after the
 previous firing; such a window is recorded `skipped`, not `missed`. Firing is exactly-once: the task's
 idempotency key is `cron:<trigger>:<due>` and events are unique per trigger
-and due time. A webhook caller presents the trigger's secret
+and due time.
+
+**Random triggers** (2.6): `count` times a day, planned within a
+`window` ("HH:MM-HH:MM", in `zone`, default UTC), at least `minGap`
+apart, on `days` (default every day) — `plannedRandomTimes` is
+deterministic, seeded by namespace/deployment/trigger/date the same way
+`jitterOffset` seeds cron's own jitter, so showing a trigger's planned
+times (`next_due_at`, via `stampRandomTimes`) and actually firing them
+later always agree, with nothing new persisted. `FireRandomTriggers`
+checks yesterday's and today's planned times each tick (only yesterday's
+can still be due and unfired at the start of a day); a time before the
+trigger's own `active_since` never fires, same no-back-fill rule cron's
+own `ActiveSinceMs` already enforces. Firing reuses the exact same `fire`
+helper cron does (now parameterized by `kind`, `"cron"` or `"random"`,
+since the idempotency-key/source prefix must keep the two kinds from
+colliding): the task's idempotency key is `random:<trigger>:<due>`,
+exactly-once by the same construction.
+
+A webhook caller presents the trigger's secret
 (`CreateWebhookSecret`, `agen webhook-secret`; only a hash is stored) as a
 bearer token, or, with `auth.type: hmac`, signs the raw body with a platform
 secret the deployment is granted (header, prefix, sha256/sha1, hex/base64
@@ -868,10 +886,20 @@ Agent → Session → Conversation → Run → Span.
  tool calls) is asked again once before moving on, and an answer cut off at
  the output limit with nothing usable is asked again once with twice the
  limit; if every model gives none, the run fails with `no_answer`. Account errors (HTTP 401/402/403) end the turn
- at once (§8). A model-call span records the served model
- (`gen_ai.response.model`), the model sent and `agen.fallback` when a fallback
- served it, and for routing models the tier (`agen.router.tier`) and the
- router's reported decision (`agen.router.*`).
+ at once (§8), **unless `harness.fallbackProviders` names another provider
+ (2.30)**: each one is a full, separate account (its own provider, model,
+ fallbackModels, baseUrl, apiKeySecret), tried in order only on an account
+ error — never a transient one, and never just because a model on the
+ current provider kept failing (that's what `fallbackModels` is for).
+ Built the exact same way the primary is (`from_harness` against a bundle
+ clone with only the harness swapped), so a fallback entry gets script/
+ cassette path resolution, `${SECRET}` expansion and the api-key-secret
+ env-var fallback for free, with no second config surface. A model-call
+ span records the served model (`gen_ai.response.model`), the model sent
+ and `agen.fallback` when a fallback model served it, `gen_ai.provider.name`
+ and `agen.fallback_provider` when a fallback *provider* served it instead,
+ and for routing models the tier (`agen.router.tier`) and the router's
+ reported decision (`agen.router.*`).
 - **Budgets**: token budgets always apply; USD budgets only when the provider
  reports cost (OpenRouter does, direct OpenAI does not).
 - **Guards**: tools a static `deny` rule matches are left out of the model's
@@ -897,7 +925,14 @@ Agent → Session → Conversation → Run → Span.
   never the host's credentials. They run in a Job Object (Windows) or process
   group with parent-death signal (Linux) so they die with the host. A dead
   server makes the host report `ready: false` in Health so the Manager
-  replaces it.
+  replaces it. **Reconnect in place** (2.13): independently of that
+  whole-host replacement, a single tool call whose own server died
+  retries once, against a freshly reconnected server, for a call safe to
+  repeat (idempotent, or read-only in the first place) — `ServerConn`
+  holds the one live connection per server, shared `Weak` (so it never
+  keeps the server alive on its own, the same property a `Peer` clone
+  always had) across every tool of that server, so a reconnect replaces
+  what all of them see, not just the one that noticed first.
 - **Host callbacks**: a running agent reaches the platform only through its
   Manager's localhost `ManagerService` (approvals, platform secrets, resolve
   with call tokens). Hosts never call the Hub.
@@ -923,7 +958,10 @@ Agent → Session → Conversation → Run → Span.
   call order.
 - Every MCP call carries `_meta` keys `agen/namespace`, `agen/deployment`,
   `agen/taskId`, `agen/runId`, `agen/rootRunId`, `agen/conversationId`,
-  `agen/conversationKey`, `agen/labels` and the `traceparent`.
+  `agen/conversationKey`, `agen/labels`, `agen/trust` (2.12, part — the
+  calling run's current trust, already lowered by any taint, so a tool
+  server can decide for itself whether a sensitive action fits the
+  caller) and the `traceparent`.
 - A failed tool call's span carries `error.message` (redacted, at most 1000
   characters), so a trace explains the failure without the transcript.
 - A run's top-level span is written as `unfinished` when the run starts. On

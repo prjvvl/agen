@@ -82,6 +82,9 @@ pub struct AgentConfig {
     pub model: String,
     /// Models tried in order when `model` keeps failing or gives no answer.
     pub fallback_models: Vec<String>,
+    /// Other providers tried in order, each its own full account, only
+    /// after an account error on the primary (2.30). Empty by default.
+    pub fallback_providers: Vec<FallbackProvider>,
     /// Provider-specific request fields (OpenRouter `provider`, `plugins`,
     /// `reasoning`), sent with every model request.
     pub request_extra: serde_json::Map<String, Value>,
@@ -132,6 +135,7 @@ impl AgentConfig {
             preload_skills: vec![],
             model: model.into(),
             fallback_models: vec![],
+            fallback_providers: vec![],
             request_extra: Default::default(),
             router: None,
             temperature: None,
@@ -159,6 +163,26 @@ impl AgentConfig {
             memory: vec![],
             max_tool_result_chars: default_limits::MAX_TOOL_RESULT_CHARS,
         }
+    }
+}
+
+/// One entry of `harness.fallbackProviders` (2.30), already built: its own
+/// provider instance, model and fallback models, tried only after an
+/// account error on whatever came before it (the primary, or an earlier
+/// fallback provider).
+#[derive(Clone)]
+pub struct FallbackProvider {
+    pub provider: Arc<dyn ModelProvider>,
+    pub model: String,
+    pub fallback_models: Vec<String>,
+}
+
+impl std::fmt::Debug for FallbackProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FallbackProvider")
+            .field("model", &self.model)
+            .field("fallback_models", &self.fallback_models)
+            .finish()
     }
 }
 
@@ -507,6 +531,22 @@ impl Agent {
         }
         cfg.temperature = bundle.harness.temperature;
         cfg.fallback_models = bundle.harness.fallback_models.clone();
+        // Fallback providers (2.30): each its own full account, built the
+        // exact same way the primary is (a bundle clone with just the
+        // harness swapped reuses from_harness/with_provider_key as is,
+        // including script/cassette path resolution for a "fake"/"replay"
+        // fallback), so a fallback never needs a second config surface.
+        for fb_harness in &bundle.harness.fallback_providers {
+            let mut fb_bundle = bundle.clone();
+            fb_bundle.harness = fb_harness.clone();
+            let fb_secrets = with_provider_key(&fb_bundle, secrets.clone());
+            let fb_provider = crate::provider::from_harness(&fb_bundle, &fb_secrets)?;
+            cfg.fallback_providers.push(FallbackProvider {
+                provider: fb_provider,
+                model: fb_harness.model.clone(),
+                fallback_models: fb_harness.fallback_models.clone(),
+            });
+        }
         cfg.router = bundle.harness.router.clone();
         cfg.request_extra = request_extra(&bundle.harness);
         cfg.max_output_tokens = Some(
@@ -1231,6 +1271,10 @@ impl Agent {
                 span.set("gen_ai.request.model", sent.model.clone());
                 span.set("agen.fallback", true);
             }
+            if sent.used_fallback_provider {
+                span.set("gen_ai.provider.name", sent.provider_name.clone());
+                span.set("agen.fallback_provider", true);
+            }
             if let Some(n) = sent.output_retry {
                 span.set("agen.output.retried_with", n as u64);
             }
@@ -1541,7 +1585,11 @@ impl Agent {
             }
         };
         let text = match resp {
-            Ok((resp, _)) => {
+            Ok((resp, sent)) => {
+                if sent.used_fallback_provider {
+                    span.set("gen_ai.provider.name", sent.provider_name.clone());
+                    span.set("agen.fallback_provider", true);
+                }
                 span.set("gen_ai.usage.input_tokens", resp.usage.input_tokens);
                 span.set("gen_ai.usage.output_tokens", resp.usage.output_tokens);
                 live.rec.usage.add(resp.usage);
@@ -1620,24 +1668,84 @@ impl Agent {
                 model: model.to_string(),
                 tier,
                 output_retry: None,
+                provider_name: String::new(),
+                used_fallback_provider: false,
             },
         )
     }
 
     /// One model turn: the configured model (retried), then each fallback
     /// model, until one answers. An empty answer is asked once more before
-    /// moving on. Account errors (bad key, no credit) end it at once: another
-    /// model on the same account will not help.
+    /// moving on. An account error (bad key, no credit) moves to the next
+    /// fallback *provider* (2.30) if one is configured, since a different
+    /// account's credentials may still work, unlike another model on the
+    /// same account; exhausting every provider's models without one
+    /// answering ends it.
     async fn complete_with_fallback(
         &self,
         base: ModelRequest,
         opts: &RunOptions,
         wasted: &mut Usage,
     ) -> Result<(provider::ModelResponse, Sent), ProviderError> {
-        let after_tools = base.messages.iter().any(|m| m.role == provider::Role::Tool);
-        let models: Vec<String> = std::iter::once(self.cfg.model.clone())
+        let primary_models: Vec<String> = std::iter::once(self.cfg.model.clone())
             .chain(self.cfg.fallback_models.iter().cloned())
             .collect();
+        match self.try_models(&self.provider, &primary_models, &base, opts).await {
+            Ok(ok) => Ok(ok),
+            Err((e @ ProviderError::Account(_), spent)) => {
+                wasted.add(spent);
+                let reason = e.to_string();
+                for fb in &self.cfg.fallback_providers {
+                    self.log(
+                        "warn",
+                        &format!(
+                            "account error ({reason}); trying fallback provider for model {}",
+                            fb.model
+                        ),
+                    )
+                    .await;
+                    let models: Vec<String> = std::iter::once(fb.model.clone())
+                        .chain(fb.fallback_models.iter().cloned())
+                        .collect();
+                    match self.try_models(&fb.provider, &models, &base, opts).await {
+                        Ok((resp, mut sent)) => {
+                            sent.used_fallback_provider = true;
+                            return Ok((resp, sent));
+                        }
+                        // Also an account error: keep trying the next fallback.
+                        Err((ProviderError::Account(_), fb_spent)) => {
+                            wasted.add(fb_spent);
+                            continue;
+                        }
+                        Err((e, fb_spent)) => {
+                            wasted.add(fb_spent);
+                            return Err(e);
+                        }
+                    }
+                }
+                Err(e)
+            }
+            Err((e, spent)) => {
+                wasted.add(spent);
+                Err(e)
+            }
+        }
+    }
+
+    /// Tries one provider's model list in order (the configured model,
+    /// then its own fallback models), until one answers. An empty answer
+    /// is asked once more before moving on. The error case carries what
+    /// was spent on this provider's own attempts, for the caller to add
+    /// to its running total regardless of whether it then tries another
+    /// provider.
+    async fn try_models(
+        &self,
+        provider: &Arc<dyn ModelProvider>,
+        models: &[String],
+        base: &ModelRequest,
+        opts: &RunOptions,
+    ) -> Result<(provider::ModelResponse, Sent), (ProviderError, Usage)> {
+        let after_tools = base.messages.iter().any(|m| m.role == provider::Role::Tool);
         let mut last: Option<Result<(provider::ModelResponse, Sent), ProviderError>> = None;
         let mut spent = Usage::default();
         for (i, model) in models.iter().enumerate() {
@@ -1652,9 +1760,10 @@ impl Agent {
                 )
                 .await;
             }
-            let (mut req, mut sent) = self.request_for(&base, model, opts);
+            let (mut req, mut sent_turn) = self.request_for(base, model, opts);
+            sent_turn.provider_name = provider.name().to_string();
             for attempt in 0..2 {
-                match self.complete_with_retry(&req, opts).await {
+                match self.complete_with_retry(provider, &req, opts).await {
                     Ok(r) if attempt == 0 && output_cut(&r) => {
                         // The output limit ran out before a usable answer
                         // (often spent on reasoning): once more with more room.
@@ -1667,7 +1776,7 @@ impl Agent {
                         )
                         .await;
                         req.max_output_tokens = Some(more);
-                        sent.output_retry = Some(more);
+                        sent_turn.output_retry = Some(more);
                         continue;
                     }
                     Ok(mut r) if r.is_empty() && !empty_ends_work(after_tools, &r) => {
@@ -1678,33 +1787,32 @@ impl Agent {
                             continue;
                         }
                         r.usage = spent;
-                        last = Some(Ok((r, sent.clone())));
+                        last = Some(Ok((r, sent_turn.clone())));
                     }
                     Ok(mut r) => {
                         spent.add(r.usage);
                         r.usage = spent;
-                        return Ok((r, sent));
+                        return Ok((r, sent_turn));
                     }
                     // Another model on the same account will not help; a test
                     // script that did not match must not be hidden by one.
                     Err(e @ (ProviderError::Account(_) | ProviderError::Script(_))) => {
-                        *wasted = spent;
-                        return Err(e);
+                        return Err((e, spent));
                     }
                     Err(e) => last = Some(Err(e)),
                 }
                 break;
             }
         }
-        let last = last.expect("at least one model");
-        if last.is_err() {
-            *wasted = spent;
+        match last.expect("at least one model") {
+            Ok(ok) => Ok(ok),
+            Err(e) => Err((e, spent)),
         }
-        last
     }
 
     async fn complete_with_retry(
         &self,
+        provider: &Arc<dyn ModelProvider>,
         req: &ModelRequest,
         opts: &RunOptions,
     ) -> Result<provider::ModelResponse, ProviderError> {
@@ -1725,9 +1833,9 @@ impl Agent {
         let limit = self.cfg.model_request_timeout;
         loop {
             let result = if limit.is_zero() {
-                self.provider.complete(req, &sink).await
+                provider.complete(req, &sink).await
             } else {
-                tokio::time::timeout(limit, self.provider.complete(req, &sink))
+                tokio::time::timeout(limit, provider.complete(req, &sink))
                     .await
                     .unwrap_or_else(|_| {
                         Err(ProviderError::Request(format!(
@@ -2356,6 +2464,14 @@ struct Sent {
     tier: Option<String>,
     /// The output limit of a retry after the answer was cut off.
     output_retry: Option<u32>,
+    /// Which provider actually served this (2.30): the primary, or a
+    /// fallback provider once one does.
+    provider_name: String,
+    /// True once a fallback provider (not the primary) served this (2.30).
+    /// Not inferred by comparing provider_name to the primary's own name,
+    /// since two providers of the same kind (two OpenRouter accounts, say)
+    /// report the identical name.
+    used_fallback_provider: bool,
 }
 
 /// The largest output limit a retry after a cut-off answer asks for.

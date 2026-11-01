@@ -100,6 +100,7 @@ func (h *Hub) withBudget(ctx context.Context, d store.Deployment, pd *agenv1.Dep
 		pd.ProviderHold = providerHoldProto(hold)
 	}
 	h.stampCronTimes(ctx, d, pd)
+	h.stampRandomTimes(ctx, d, pd)
 	return pd
 }
 

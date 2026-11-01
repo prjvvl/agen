@@ -440,3 +440,160 @@ func TestTriggersStartWhenAddedAndRmDropsSecrets(t *testing.T) {
 		t.Fatalf("old secret after rm and re-create: %d", resp.StatusCode)
 	}
 }
+
+// plannedRandomTimes is deterministic (the same trigger plans the same
+// times for the same day, so showing them before they're due and firing
+// them later always agree), spaced at least minGap apart, and stays
+// within its window. A different trigger plans different times (2.6).
+func TestPlannedRandomTimesAreDeterministicSpacedAndWithinWindow(t *testing.T) {
+	day := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	from, to, err := parseWindow("02:00-06:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const minGap = 30 * time.Minute
+	a := plannedRandomTimes("default", "hello", "nightly", day, 3, from, to, minGap)
+	b := plannedRandomTimes("default", "hello", "nightly", day, 3, from, to, minGap)
+	if len(a) != 3 || len(b) != 3 {
+		t.Fatalf("got %d and %d times, want 3 each: %v %v", len(a), len(b), a, b)
+	}
+	for i := range a {
+		if !a[i].Equal(b[i]) {
+			t.Fatalf("not deterministic: %v vs %v", a, b)
+		}
+		if at := a[i]; at.Before(day.Add(from)) || !at.Before(day.Add(to)) {
+			t.Fatalf("time %v outside window %s-%s", at, day.Add(from), day.Add(to))
+		}
+		if i > 0 && a[i].Sub(a[i-1]) < minGap {
+			t.Fatalf("times %v and %v are less than minGap apart", a[i-1], a[i])
+		}
+	}
+	if other := plannedRandomTimes("default", "hello", "other", day, 3, from, to, minGap); other[0].Equal(a[0]) {
+		t.Fatal("two different triggers planned the exact same first time")
+	}
+}
+
+// A random trigger's count/window/minGap/zone/days are validated at
+// CreateDeployment (2.6).
+// features: triggers
+func TestCreateDeploymentValidatesRandomTrigger(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	bad := []string{
+		`[{"type":"random","name":"r","count":0,"window":"02:00-06:00"}]`,
+		`[{"type":"random","name":"r","count":1,"window":"not-a-window"}]`,
+		`[{"type":"random","name":"r","count":1,"window":"06:00-02:00"}]`,
+		`[{"type":"random","name":"r","count":1,"window":"02:00-06:00","minGap":"not-a-duration"}]`,
+		`[{"type":"random","name":"r","count":1,"window":"02:00-06:00","zone":"Nowhere/Nothing"}]`,
+		`[{"type":"random","name":"r","count":1,"window":"02:00-06:00","days":["someday"]}]`,
+	}
+	for _, triggers := range bad {
+		if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t, triggers)})); code(err) != connect.CodeInvalidArgument {
+			t.Fatalf("accepted: %s: %v", triggers, err)
+		}
+	}
+	dep, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: withTriggers(t,
+		`[{"type":"random","name":"nightly","count":2,"window":"02:00-06:00","minGap":"30m","zone":"America/New_York","days":["mon","wed","fri"]}]`)}))
+	if err != nil || dep.Msg.Deployment.Triggers[0].Count != 2 {
+		t.Fatalf("create with a valid random trigger: %v %v", dep, err)
+	}
+}
+
+// A random trigger fires exactly its planned times for a day once each
+// (idempotency-key dedup, the same mechanism cron relies on), never more
+// no matter how many ticks re-evaluate the same day (2.6). Uses
+// Scheduler.fireRandom directly with a controlled `now`/trigger so the
+// test does not depend on the real wall-clock time of day.
+// features: triggers
+func TestRandomTriggerFiresEachPlannedTimeOnceAndRecordsThem(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	d, err := e.store.GetDeployment(ctx, "default", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC()
+	// Midnight today: excludes every one of yesterday's planned times
+	// (which fireRandom also considers) while still including every
+	// possible planned time of today, regardless of when today the
+	// deployment (and so, by default, the trigger) was actually created
+	// a moment ago.
+	since := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
+	trig := &agenv1.Trigger{Type: "random", Name: "nightly", Count: 3, Window: "00:00-23:59", MinGap: "1h", ActiveSinceMs: since}
+	from, to, err := parseWindow(trig.Window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := plannedRandomTimes(d.Namespace, d.Name, trig.Name, day, trig.Count, from, to, time.Hour)
+	if len(planned) != 3 {
+		t.Fatalf("planned %d times, want 3: %v", len(planned), planned)
+	}
+	sched := e.scheduler()
+	// Late in today's own calendar date (not tomorrow's: fireRandom reads
+	// "yesterday" and "today" off now's own date), after every planned
+	// time the "00:00-23:59" window could produce.
+	now := time.Date(day.Year(), day.Month(), day.Day(), 23, 59, 59, 0, time.UTC)
+	if err := sched.fireRandom(ctx, d, trig, now); err != nil {
+		t.Fatal(err)
+	}
+	got := tasksOf(t, e, "hello")
+	if len(got) != len(planned) {
+		t.Fatalf("got %d tasks, want %d (one per planned time): %v", len(got), len(planned), got)
+	}
+	if ev := events(t, c, "hello"); ev["nightly:fired"] != len(planned) {
+		t.Fatalf("trigger events: %v, want %d fired", ev, len(planned))
+	}
+	// A later tick re-evaluating the same day does not duplicate.
+	if err := sched.fireRandom(ctx, d, trig, now); err != nil {
+		t.Fatal(err)
+	}
+	if got2 := tasksOf(t, e, "hello"); len(got2) != len(planned) {
+		t.Fatalf("re-firing duplicated: got %d tasks, want %d", len(got2), len(planned))
+	}
+}
+
+// A random trigger never fires on a day its `days` excludes (2.6).
+func TestRandomTriggerSkipsExcludedDays(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	if _, err := e.client(admin).CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	d, err := e.store.GetDeployment(ctx, "default", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC()
+	since := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC).UnixMilli()
+	today := [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[day.Weekday()]
+	trig := &agenv1.Trigger{Type: "random", Name: "weekday-only", Count: 1, Window: "00:00-23:59", Days: []string{today}, ActiveSinceMs: since}
+	sched := e.scheduler()
+	now := time.Date(day.Year(), day.Month(), day.Day(), 23, 59, 59, 0, time.UTC)
+	if err := sched.fireRandom(ctx, d, trig, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := tasksOf(t, e, "hello"); len(got) != 1 {
+		t.Fatalf("today (an allowed day) should have fired once: %v", got)
+	}
+	trig2 := &agenv1.Trigger{Type: "random", Name: "never-today", Count: 1, Window: "00:00-23:59", ActiveSinceMs: since,
+		Days: func() []string {
+			var out []string
+			for _, dd := range [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"} {
+				if dd != today {
+					out = append(out, dd)
+				}
+			}
+			return out
+		}()}
+	if err := sched.fireRandom(ctx, d, trig2, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := tasksOf(t, e, "hello"); len(got) != 1 {
+		t.Fatalf("today (an excluded day) should not have fired: %v", got)
+	}
+}

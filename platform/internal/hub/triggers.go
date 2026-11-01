@@ -13,6 +13,7 @@ import (
 	"hash"
 	"hash/fnv"
 	"io"
+	"math/rand"
 	"net/http"
 	"slices"
 	"strconv"
@@ -61,8 +62,12 @@ func validateTriggers(ts []*agenv1.Trigger) error {
 			if err := validateEventTrigger(t); err != nil {
 				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
 			}
+		case "random":
+			if err := validateRandomTrigger(t); err != nil {
+				return invalid(fmt.Sprintf("trigger %q: %v", t.Name, err))
+			}
 		default:
-			return invalid(fmt.Sprintf("trigger %q: type must be cron, webhook or event", t.Name))
+			return invalid(fmt.Sprintf("trigger %q: type must be cron, webhook, event or random", t.Name))
 		}
 		if t.Name == "" {
 			return invalid("every trigger needs a name")
@@ -94,6 +99,55 @@ func validateCronOptions(t *agenv1.Trigger) error {
 		return fmt.Errorf("overlap %q: use skip, buffer_one or allow", t.Overlap)
 	}
 	return nil
+}
+
+var validDay = map[string]bool{"mon": true, "tue": true, "wed": true, "thu": true, "fri": true, "sat": true, "sun": true}
+
+func validateRandomTrigger(t *agenv1.Trigger) error {
+	if t.Count <= 0 {
+		return fmt.Errorf("count must be positive")
+	}
+	if _, _, err := parseWindow(t.Window); err != nil {
+		return fmt.Errorf("window: %v", err)
+	}
+	if t.MinGap != "" {
+		if d, err := time.ParseDuration(t.MinGap); err != nil || d <= 0 {
+			return fmt.Errorf("min_gap %q must be a positive duration", t.MinGap)
+		}
+	}
+	if t.Zone != "" {
+		if _, err := time.LoadLocation(t.Zone); err != nil {
+			return fmt.Errorf("zone %q: %v", t.Zone, err)
+		}
+	}
+	for _, d := range t.Days {
+		if !validDay[d] {
+			return fmt.Errorf("days: %q, use mon, tue, wed, thu, fri, sat or sun", d)
+		}
+	}
+	return nil
+}
+
+// parseWindow parses "HH:MM-HH:MM" into two offsets from midnight.
+func parseWindow(w string) (time.Duration, time.Duration, error) {
+	start, end, ok := strings.Cut(w, "-")
+	if !ok {
+		return 0, 0, fmt.Errorf("%q: use \"HH:MM-HH:MM\"", w)
+	}
+	s, err := time.Parse("15:04", strings.TrimSpace(start))
+	if err != nil {
+		return 0, 0, fmt.Errorf("start %q: %v", start, err)
+	}
+	e, err := time.Parse("15:04", strings.TrimSpace(end))
+	if err != nil {
+		return 0, 0, fmt.Errorf("end %q: %v", end, err)
+	}
+	from := time.Duration(s.Hour())*time.Hour + time.Duration(s.Minute())*time.Minute
+	to := time.Duration(e.Hour())*time.Hour + time.Duration(e.Minute())*time.Minute
+	if to <= from {
+		return 0, 0, fmt.Errorf("end must be after start")
+	}
+	return from, to, nil
 }
 
 func validateWebhook(t *agenv1.Trigger) error {
@@ -316,7 +370,7 @@ func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.
 				if late {
 					note = fmt.Sprintf("redelivered %s late (catch_up)", now.Sub(effAt).Round(time.Second))
 				}
-				if err := s.fire(ctx, d, t, at, note); err != nil {
+				if err := s.fire(ctx, d, t, "cron", at, note); err != nil {
 					return err
 				}
 				lastFired = at.UnixMilli()
@@ -332,10 +386,15 @@ func (s *Scheduler) fireCron(ctx context.Context, d store.Deployment, t *agenv1.
 	return nil
 }
 
-func (s *Scheduler) fire(ctx context.Context, d store.Deployment, t *agenv1.Trigger, at time.Time, note string) error {
+// fire submits a trigger's task for one due time, exactly once by
+// construction: the task's idempotency key is kind, the trigger's name
+// and the due time. kind is "cron" or "random" (2.6) — the source/key
+// prefix, so the two trigger types' firings never collide and each
+// remains independently exactly-once.
+func (s *Scheduler) fire(ctx context.Context, d store.Deployment, t *agenv1.Trigger, kind string, at time.Time, note string) error {
 	st := s.Hub.Store
-	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: t.Input, Source: "cron:" + t.Name,
-		IdempotencyKey: fmt.Sprintf("cron:%s:%d", t.Name, at.UnixMilli()), SubmittedBy: "trigger:cron:" + t.Name, Labels: t.Labels,
+	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: t.Input, Source: kind + ":" + t.Name,
+		IdempotencyKey: fmt.Sprintf("%s:%s:%d", kind, t.Name, at.UnixMilli()), SubmittedBy: "trigger:" + kind + ":" + t.Name, Labels: t.Labels,
 		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), Trust: "trusted"})
 	if err != nil {
 		return err
@@ -348,8 +407,148 @@ func (s *Scheduler) fire(ctx context.Context, d store.Deployment, t *agenv1.Trig
 		return err
 	}
 	_ = st.TouchActivity(ctx, d.Namespace, d.Name)
-	s.Log.Info("cron trigger fired", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "task", task.ID)
+	s.Log.Info(kind+" trigger fired", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "task", task.ID)
 	return nil
+}
+
+// dayAllowed reports whether a random trigger plans on this weekday; no
+// days configured means every day.
+func dayAllowed(w time.Weekday, days []string) bool {
+	if len(days) == 0 {
+		return true
+	}
+	name := [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[w]
+	return slices.Contains(days, name)
+}
+
+// plannedRandomTimes computes a random trigger's times for one calendar
+// day, deterministically (seeded by namespace/deployment/trigger/date, the
+// same style jitterOffset uses): re-evaluating a day already planned, or
+// asking to show it before it's due, always gives the same answer,
+// without persisting anything new. Spread within [from, to) of that day
+// (in loc), at least minGap apart; fewer than count may come back if the
+// window is too short to fit them all with that spacing.
+func plannedRandomTimes(ns, deployment, trigger string, day time.Time, count int32, from, to, minGap time.Duration) []time.Time {
+	if count <= 0 || to <= from {
+		return nil
+	}
+	seed := fmt.Sprintf("%s/%s/%s@%s", ns, deployment, trigger, day.Format(time.DateOnly))
+	h := fnv.New64a()
+	fmt.Fprint(h, seed)
+	r := rand.New(rand.NewSource(int64(h.Sum64()))) //nolint:gosec // deterministic by design, not a security use
+	start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
+	span := to - from
+	var times []time.Time
+	for attempt := 0; len(times) < int(count) && attempt < int(count)*200; attempt++ {
+		at := start.Add(from + time.Duration(r.Int63n(int64(span))))
+		spaced := true
+		for _, t := range times {
+			if at.Sub(t).Abs() < minGap {
+				spaced = false
+				break
+			}
+		}
+		if spaced {
+			times = append(times, at)
+		}
+	}
+	slices.SortFunc(times, func(a, b time.Time) int { return a.Compare(b) })
+	return times
+}
+
+// FireRandomTriggers evaluates every random trigger (leader only; 2.6).
+func (s *Scheduler) FireRandomTriggers(ctx context.Context) error {
+	deps, err := s.Hub.Store.ListDeployments(ctx, "")
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, d := range deps {
+		for _, t := range PolicyOf(d).Triggers {
+			if t.Type != "random" {
+				continue
+			}
+			if err := s.fireRandom(ctx, d, t, now); err != nil && ctx.Err() == nil {
+				s.Log.Warn("random trigger failed", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "err", err)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Scheduler) fireRandom(ctx context.Context, d store.Deployment, t *agenv1.Trigger, now time.Time) error {
+	loc := time.UTC
+	if t.Zone != "" {
+		l, err := time.LoadLocation(t.Zone)
+		if err != nil {
+			return err
+		}
+		loc = l
+	}
+	from, to, err := parseWindow(t.Window)
+	if err != nil {
+		return err
+	}
+	since := t.ActiveSinceMs
+	if since == 0 {
+		since = d.CreatedMs
+	}
+	local := now.In(loc)
+	minGap := cronDuration(t.MinGap)
+	for _, day := range []time.Time{local.AddDate(0, 0, -1), local} {
+		if !dayAllowed(day.Weekday(), t.Days) {
+			continue
+		}
+		for _, at := range plannedRandomTimes(d.Namespace, d.Name, t.Name, day, t.Count, from, to, minGap) {
+			if at.After(now) || at.UnixMilli() < since {
+				continue
+			}
+			if err := s.fire(ctx, d, t, "random", at, ""); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// stampRandomTimes sets next_due_at on a deployment's random triggers: the
+// next of today's (or, once today's are all due, tomorrow's) planned
+// times after now.
+func (h *Hub) stampRandomTimes(ctx context.Context, d store.Deployment, pd *agenv1.Deployment) {
+	now := time.Now().UTC()
+	for _, t := range pd.Triggers {
+		if t.Type != "random" {
+			continue
+		}
+		loc := time.UTC
+		if t.Zone != "" {
+			if l, err := time.LoadLocation(t.Zone); err == nil {
+				loc = l
+			}
+		}
+		from, to, err := parseWindow(t.Window)
+		if err != nil {
+			continue
+		}
+		minGap := cronDuration(t.MinGap)
+		local := now.In(loc)
+		for _, day := range []time.Time{local, local.AddDate(0, 0, 1)} {
+			if !dayAllowed(day.Weekday(), t.Days) {
+				continue
+			}
+			found := false
+			for _, at := range plannedRandomTimes(d.Namespace, d.Name, t.Name, day, t.Count, from, to, minGap) {
+				if at.After(now) {
+					t.NextDueAt = timestamppb.New(at)
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+	}
 }
 
 // CreateWebhookSecret creates or rotates a webhook trigger's secret.

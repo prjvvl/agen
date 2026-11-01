@@ -29,6 +29,23 @@
     "traceToolArguments": { "type": "boolean", "description": "Record each tool call's arguments (secrets redacted, up to 4 KiB) on its trace span" },
     "baseUrl": { "type": "string" },
     "apiKeySecret": { "type": "string", "description": "Secret name holding the API key" },
+    "fallbackProviders": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "Other providers, each its own full account, tried in order only after an account error (invalid key, no credit) on the primary -- never for a transient error, and never just because a model on the primary kept failing (fallbackModels is for that). Off by default.",
+      "items": {
+        "type": "object",
+        "required": ["provider", "model"],
+        "properties": {
+          "provider": { "enum": ["openrouter", "openai", "fake", "replay"] },
+          "model": { "type": "string", "minLength": 1 },
+          "fallbackModels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "maxItems": 5 },
+          "baseUrl": { "type": "string" },
+          "apiKeySecret": { "type": "string", "description": "Secret name holding this provider's own API key" }
+        },
+        "additionalProperties": false
+      }
+    },
     "openrouter": {
       "type": "object",
       "description": "OpenRouter request settings, sent as given (provider: openrouter only)",

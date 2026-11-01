@@ -84,6 +84,12 @@ pub struct Harness {
     pub cassette: Option<String>,
     /// The structured result a run returns through `finish`.
     pub result: Option<ResultSpec>,
+    /// Tried in order, each as its own full provider/account, only after
+    /// an account error (bad key, no credit) on the primary — never for a
+    /// transient one, and never just because a model on the primary kept
+    /// failing (that's what fallback_models is for). Off by default (2.30).
+    #[serde(default)]
+    pub fallback_providers: Vec<Harness>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
