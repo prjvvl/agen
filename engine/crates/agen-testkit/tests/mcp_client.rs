@@ -394,6 +394,7 @@ async fn calls_carry_task_context_and_hints() {
     assert_eq!(got["agen/conversationKey"], "api:chat");
     assert_eq!(got["agen/labels"]["project"], "apollo");
     assert_eq!(got["agen/deployment"], "d");
+    assert_eq!(got["agen/trust"], "trusted");
     assert_eq!(got["traceparent"], ctx.traceparent);
 
     // idempotentHint from the server, or config (by either name form).

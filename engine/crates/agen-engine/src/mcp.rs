@@ -9,8 +9,9 @@
 //!   safe to retry after an interruption if it marks them `idempotentHint`;
 //!   `x-agen/config.json` `tools.<server>.<tool>` `sideEffect` / `idempotent`
 //!   override.
-//! - Every call carries the task, run and conversation it belongs to, and the
-//!   task's labels, in `_meta` (`agen/…` keys) plus the W3C `traceparent`.
+//! - Every call carries the task, run and conversation it belongs to, the
+//!   task's labels, and its current trust, in `_meta` (`agen/…` keys) plus
+//!   the W3C `traceparent` (2.12, part).
 //! - Every call has a timeout and honours run cancellation.
 //! - Server stderr is redacted and forwarded to the agent's log.
 
@@ -369,6 +370,11 @@ fn call_meta(ctx: &ToolContext) -> serde_json::Map<String, Value> {
     );
     put("agen/conversationId", &ctx.conversation_id);
     put("agen/conversationKey", &ctx.conversation_key);
+    // 2.12, part: a tool server can see the calling run's current trust
+    // (already lowered by any taint it picked up) to decide for itself
+    // whether a sensitive action is appropriate, the same information
+    // the engine's own permission rules act on.
+    put("agen/trust", ctx.trust.as_str());
     put("traceparent", &ctx.traceparent);
     if !ctx.labels.is_empty() {
         m.insert("agen/labels".into(), serde_json::json!(ctx.labels));
