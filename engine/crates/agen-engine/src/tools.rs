@@ -81,6 +81,9 @@ pub struct ToolContext {
     /// The run's trust right now (already lowered by any taint picked up
     /// earlier in the run); a child task started from here inherits it.
     pub trust: Trust,
+    /// This run's workspace directory (2.45), already created; empty
+    /// when the bundle sets no `workspace`.
+    pub workspace_dir: String,
 }
 
 #[async_trait]

@@ -85,6 +85,9 @@ pub struct AgentConfig {
     /// Other providers tried in order, each its own full account, only
     /// after an account error on the primary (2.30). Empty by default.
     pub fallback_providers: Vec<FallbackProvider>,
+    /// A directory the host creates and shares with every MCP server and
+    /// the model (2.45). None: no workspace directory.
+    pub workspace: Option<crate::bundle::WorkspaceConfig>,
     /// Provider-specific request fields (OpenRouter `provider`, `plugins`,
     /// `reasoning`), sent with every model request.
     pub request_extra: serde_json::Map<String, Value>,
@@ -136,6 +139,7 @@ impl AgentConfig {
             model: model.into(),
             fallback_models: vec![],
             fallback_providers: vec![],
+            workspace: None,
             request_extra: Default::default(),
             router: None,
             temperature: None,
@@ -452,10 +456,13 @@ struct Live {
     /// The run's trust right now: starts at the task's and only ever drops,
     /// when a tool whose result may carry untrusted content is called.
     current_trust: Mutex<Trust>,
+    /// This run's workspace directory (2.45), already created; empty
+    /// when the bundle sets no `workspace`.
+    workspace_dir: String,
 }
 
 impl Live {
-    fn new(rec: RunRecord, epoch: i64, trust: Trust) -> Self {
+    fn new(rec: RunRecord, epoch: i64, trust: Trust, workspace_dir: String) -> Self {
         Self {
             rec,
             epoch,
@@ -467,6 +474,7 @@ impl Live {
             turns: vec![],
             stuck_nudged: false,
             current_trust: Mutex::new(trust),
+            workspace_dir,
         }
     }
 
@@ -547,6 +555,7 @@ impl Agent {
                 fallback_models: fb_harness.fallback_models.clone(),
             });
         }
+        cfg.workspace = bundle.config.workspace.clone();
         cfg.router = bundle.harness.router.clone();
         cfg.request_extra = request_extra(&bundle.harness);
         cfg.max_output_tokens = Some(
@@ -821,8 +830,36 @@ impl Agent {
         self.store
             .checkpoint(&run_id, epoch, &conversation_id, Some(&first), None)
             .await?;
-        self.drive(Live::new(rec, epoch, opts.trust), &parent, "agen.run", opts)
-            .await
+        let workspace_dir = self.workspace_dir_for(&rec, &opts.conversation_key).await;
+        self.drive(
+            Live::new(rec, epoch, opts.trust, workspace_dir),
+            &parent,
+            "agen.run",
+            opts,
+        )
+        .await
+    }
+
+    /// This run's workspace directory (2.45), created now so it exists by
+    /// the time the model or a tool server is first told about it.
+    /// Best-effort: a creation failure is logged and leaves it unset
+    /// rather than failing the run over something optional.
+    async fn workspace_dir_for(&self, rec: &RunRecord, conversation_key: &str) -> String {
+        let Some(ws) = &self.cfg.workspace else {
+            return String::new();
+        };
+        let dir = ws.dir(&rec.namespace, &rec.deployment, &rec.task_id, conversation_key, &rec.id);
+        match tokio::fs::create_dir_all(&dir).await {
+            Ok(()) => dir.to_string_lossy().into_owned(),
+            Err(e) => {
+                self.log(
+                    "warn",
+                    &format!("run {}: could not create workspace directory {dir:?}: {e}", rec.id),
+                )
+                .await;
+                String::new()
+            }
+        }
     }
 
     /// Take ownership of an unfinished run and continue it from its last
@@ -848,8 +885,14 @@ impl Agent {
             self.store.insert_span(&old).await?;
             parent.span_id = old.span_id;
         }
-        self.drive(Live::new(rec, epoch, opts.trust), &parent, "agen.run.resume", &opts)
-            .await
+        let workspace_dir = self.workspace_dir_for(&rec, &opts.conversation_key).await;
+        self.drive(
+            Live::new(rec, epoch, opts.trust, workspace_dir),
+            &parent,
+            "agen.run.resume",
+            &opts,
+        )
+        .await
     }
 
     async fn drive(
@@ -958,6 +1001,21 @@ impl Agent {
                 Some(&ended),
             )
             .await?;
+        // Workspace cleanup (2.45): only per_task, and only when the
+        // bundle didn't ask to keep it — per_conversation and shared
+        // directories are never removed here, since another task may
+        // still need them. Best-effort, same as creating it.
+        if let Some(ws) = &self.cfg.workspace {
+            if ws.mode == crate::bundle::WorkspaceMode::PerTask && !ws.retain && !live.workspace_dir.is_empty() {
+                if let Err(e) = tokio::fs::remove_dir_all(&live.workspace_dir).await {
+                    self.log(
+                        "warn",
+                        &format!("run {}: could not remove its workspace directory: {e}", live.rec.id),
+                    )
+                    .await;
+                }
+            }
+        }
         // 3.6, part: agen replay. Only a RecordingProvider (wired in for a
         // deployment with recordInteractions on) returns Some here; every
         // other provider is a no-op. Best-effort: a run's own result is
@@ -1096,7 +1154,7 @@ impl Agent {
             let concurrent = self.cfg.parallel_tool_calls
                 && pending
                     .iter()
-                    .all(|c| self.policy(opts, &c.name, live.trust()) != Action::Ask);
+                    .all(|c| self.policy(opts, &c.name, live.trust(), &c.arguments) != Action::Ask);
             let width = if concurrent { pending.len().max(1) } else { 1 };
             let shared: &Live = live;
             let mut results = futures_util::stream::iter(pending.into_iter().map(|call| async move {
@@ -1224,7 +1282,9 @@ impl Agent {
                     }
                 }
             }
-            let mut system = self.redactor.redact(&self.system_prompt(opts).await?);
+            let mut system = self
+                .redactor
+                .redact(&self.system_prompt(opts, &live.workspace_dir).await?);
             // Added after redaction, at the very end: it changes every
             // turn, so appending it keeps the rest of the system prompt
             // (and the provider's prompt cache over it) stable.
@@ -1350,7 +1410,7 @@ impl Agent {
         self.tools
             .specs()
             .into_iter()
-            .filter(|t| self.policy(opts, &t.name, live.trust()) != Action::Deny)
+            .filter(|t| self.policy(opts, &t.name, live.trust(), &Value::Null) != Action::Deny)
             .collect()
     }
 
@@ -1391,7 +1451,11 @@ impl Agent {
     /// a tool outside its `tools` allowlist is denied outright, and its
     /// extra `permissions` rules (deny/ask only) are checked alongside the
     /// bundle's own.
-    fn policy(&self, opts: &RunOptions, tool: &str, trust: Trust) -> Action {
+    /// `args`: `Value::Null` when there is no specific call yet (building
+    /// the tool list shown to the model) — a rule with a `when.args`
+    /// condition then never matches, the same as a call missing the
+    /// argument it names.
+    fn policy(&self, opts: &RunOptions, tool: &str, trust: Trust, args: &Value) -> Action {
         if self.finish && tool == crate::outcome::FINISH {
             return Action::Allow;
         }
@@ -1401,13 +1465,13 @@ impl Agent {
             return Action::Allow;
         }
         let Some(ov) = &opts.overrides else {
-            return permissions::evaluate(&self.cfg.permissions, tool, trust);
+            return permissions::evaluate(&self.cfg.permissions, tool, trust, args, &opts.labels);
         };
         if !override_allows_tool(ov, tool) {
             return Action::Deny;
         }
         if ov.permissions.is_empty() {
-            return permissions::evaluate(&self.cfg.permissions, tool, trust);
+            return permissions::evaluate(&self.cfg.permissions, tool, trust, args, &opts.labels);
         }
         let mut rules: Vec<PermissionRule> = ov
             .permissions
@@ -1431,7 +1495,7 @@ impl Agent {
             rules,
             approval_timeout: self.cfg.permissions.approval_timeout.clone(),
         };
-        permissions::evaluate(&combined, tool, trust)
+        permissions::evaluate(&combined, tool, trust, args, &opts.labels)
     }
 
     /// The outcome of an accepted `finish` call in the run's last turn.
@@ -1563,7 +1627,9 @@ impl Agent {
         extra.insert("tool_choice".into(), Value::String("none".into()));
         let req = ModelRequest {
             model: self.cfg.model.clone(),
-            system: self.redactor.redact(&self.system_prompt(opts).await?),
+            system: self
+                .redactor
+                .redact(&self.system_prompt(opts, &live.workspace_dir).await?),
             messages: self.request_messages(&live.rec).await?,
             tools: self.visible_tools(live, opts),
             temperature: self.cfg.temperature,
@@ -1998,9 +2064,14 @@ impl Agent {
     /// The bundle's system prompt, with skills preloaded (the bundle's
     /// `preloadSkills` plus any a task's overrides add), and the task's
     /// `overrides.systemAddendum`, if any, appended last.
-    async fn system_prompt(&self, opts: &RunOptions) -> Result<String, AgentError> {
+    async fn system_prompt(&self, opts: &RunOptions, workspace_dir: &str) -> Result<String, AgentError> {
         let extra_preload: &[String] = opts.overrides.as_ref().map(|o| o.skills.as_slice()).unwrap_or(&[]);
         let mut s = self.cfg.system_prompt.clone();
+        if !workspace_dir.is_empty() {
+            s.push_str(&format!(
+                "\n\n## Workspace\nYou have a working directory at {workspace_dir:?}. Tools that read or write files use it unless told otherwise."
+            ));
+        }
         let (pre, lazy): (Vec<&Skill>, Vec<&Skill>) = self
             .cfg
             .skills
@@ -2169,7 +2240,7 @@ impl Agent {
                 ));
             }
         }
-        let decision = self.policy(opts, &call.name, live.trust());
+        let decision = self.policy(opts, &call.name, live.trust(), &call.arguments);
         span.set("agen.permission.action", format!("{decision:?}").to_lowercase());
         match decision {
             Action::Deny => {
@@ -2253,6 +2324,7 @@ impl Agent {
             },
             depth: opts.depth,
             trust: live.trust(),
+            workspace_dir: live.workspace_dir.clone(),
         };
         if !tool.side_effect() {
             let r = self.invoke(tool.as_ref(), call, tctx).await;

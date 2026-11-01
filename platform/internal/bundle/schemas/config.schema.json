@@ -4,7 +4,16 @@
   "title": "x-agen/config.json",
   "type": "object",
   "properties": {
-    "workspace": { "type": "string" },
+    "workspace": {
+      "type": "object",
+      "description": "A directory the host creates and shares with every MCP server (_meta agen/workspace) and the model",
+      "properties": {
+        "mode": { "enum": ["per_task", "per_conversation", "shared"], "description": "per_task: its own directory, cleaned up when the task ends unless retain is set. per_conversation: shared by every task of one conversation. shared: one directory for the whole deployment. per_conversation and shared are never cleaned up automatically." },
+        "retain": { "type": "boolean", "description": "per_task only: keep the directory after the task ends instead of removing it (default false)" }
+      },
+      "required": ["mode"],
+      "additionalProperties": false
+    },
     "permissions": {
       "type": "object",
       "properties": {
@@ -22,7 +31,27 @@
                 "description": "The rule only matches when this holds too",
                 "properties": {
                   "trust": { "enum": ["operator", "trusted", "untrusted"], "description": "The run's current trust is exactly this" },
-                  "trustBelow": { "enum": ["operator", "trusted", "untrusted"], "description": "The run's current trust is below this" }
+                  "trustBelow": { "enum": ["operator", "trusted", "untrusted"], "description": "The run's current trust is below this" },
+                  "args": {
+                    "type": "object",
+                    "description": "Every named argument of the call must match (missing from the call: never matches). A value is an exact match, or an object naming one comparison: glob, lt, lte, gt, or gte",
+                    "additionalProperties": true
+                  },
+                  "labels": {
+                    "type": "object",
+                    "description": "Every named label of the task must equal this value",
+                    "additionalProperties": { "type": "string" }
+                  },
+                  "time": {
+                    "type": "object",
+                    "description": "A time-of-day/day-of-week window, in UTC",
+                    "properties": {
+                      "window": { "type": "string", "pattern": "^[0-9]{1,2}:[0-9]{2}-[0-9]{1,2}:[0-9]{2}$", "description": "HH:MM-HH:MM, UTC" },
+                      "days": { "type": "array", "items": { "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }, "description": "Limits to these days too; empty/omitted: every day" }
+                    },
+                    "required": ["window"],
+                    "additionalProperties": false
+                  }
                 },
                 "additionalProperties": false
               }
@@ -56,7 +85,8 @@
         "max": { "type": "integer", "minimum": 1 },
         "targetQueuePerInstance": { "type": "integer", "minimum": 1 },
         "idleTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
-        "maxConcurrency": { "type": "integer", "minimum": 1 }
+        "maxConcurrency": { "type": "integer", "minimum": 1 },
+        "reserve": { "type": "integer", "minimum": 0, "description": "Keep this many instances beyond what urgent/high priority load alone needs, so one arriving later finds an instance free (default 0: no floor beyond queue depth)" }
       },
       "additionalProperties": false
     },

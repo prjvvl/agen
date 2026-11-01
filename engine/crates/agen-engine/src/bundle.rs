@@ -146,9 +146,9 @@ impl Trust {
     }
 }
 
-/// A permission rule's extra condition (a subset of the full conditional
-/// rule language: `args`/`labels`/`time`/`rate` matchers are not yet
-/// implemented).
+/// A permission rule's extra condition (1.3; `rate`, a count in a window,
+/// is not yet implemented — it needs its own persistent counter, a bigger
+/// piece than the others here).
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct When {
     /// The run's current trust is exactly this.
@@ -156,12 +156,104 @@ pub struct When {
     /// The run's current trust is below this.
     #[serde(rename = "trustBelow")]
     pub trust_below: Option<Trust>,
+    /// Every named argument must match (missing from the call: never
+    /// matches). Checked only against a specific call's own arguments;
+    /// never narrows which tools are merely listed to the model.
+    #[serde(default)]
+    pub args: std::collections::BTreeMap<String, ArgMatch>,
+    /// Every named label of the task must equal this value.
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    /// A time-of-day/day-of-week window, in UTC (no time zone database
+    /// dependency here, unlike the Hub's own random triggers).
+    pub time: Option<TimeWindow>,
 }
 
 impl When {
-    fn matches(&self, trust: Trust) -> bool {
-        self.trust.is_none_or(|t| t == trust) && self.trust_below.is_none_or(|t| trust < t)
+    fn matches(&self, trust: Trust, args: &Value, labels: &std::collections::BTreeMap<String, String>) -> bool {
+        self.trust.is_none_or(|t| t == trust)
+            && self.trust_below.is_none_or(|t| trust < t)
+            && self.args.iter().all(|(k, m)| m.matches(args.get(k)))
+            && self.labels.iter().all(|(k, v)| labels.get(k) == Some(v))
+            && self.time.as_ref().is_none_or(TimeWindow::now_within)
     }
+}
+
+/// One `when.args` condition (1.3): an exact JSON value, or a tagged
+/// comparison. Tried in this order (an untagged enum uses the first
+/// variant that deserializes), so a bare value — a string, a number, a
+/// bool — always falls through to `Exact` once the tagged shapes above
+/// it don't match.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ArgMatch {
+    Glob { glob: String },
+    Lt { lt: f64 },
+    Lte { lte: f64 },
+    Gt { gt: f64 },
+    Gte { gte: f64 },
+    Exact(Value),
+}
+
+impl ArgMatch {
+    fn matches(&self, val: Option<&Value>) -> bool {
+        match self {
+            ArgMatch::Glob { glob } => val
+                .and_then(Value::as_str)
+                .is_some_and(|s| crate::permissions::glob_match(glob, s)),
+            ArgMatch::Lt { lt } => val.and_then(Value::as_f64).is_some_and(|n| n < *lt),
+            ArgMatch::Lte { lte } => val.and_then(Value::as_f64).is_some_and(|n| n <= *lte),
+            ArgMatch::Gt { gt } => val.and_then(Value::as_f64).is_some_and(|n| n > *gt),
+            ArgMatch::Gte { gte } => val.and_then(Value::as_f64).is_some_and(|n| n >= *gte),
+            ArgMatch::Exact(want) => val == Some(want),
+        }
+    }
+}
+
+/// `when.time` (1.3): a "HH:MM-HH:MM" UTC time-of-day window, optionally
+/// also limited to `days` ("mon".."sun"; empty: every day).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TimeWindow {
+    pub window: String,
+    #[serde(default)]
+    pub days: Vec<String>,
+}
+
+impl TimeWindow {
+    fn now_within(&self) -> bool {
+        self.contains(std::time::SystemTime::now())
+    }
+
+    fn contains(&self, now: std::time::SystemTime) -> bool {
+        let Some((from, to)) = parse_time_window(&self.window) else {
+            return false;
+        };
+        let secs = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if !self.days.is_empty() {
+            const NAMES: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+            // 1970-01-01 (epoch day 0) was a Thursday (index 4).
+            let weekday = NAMES[((secs / 86_400 + 4) % 7) as usize];
+            if !self.days.iter().any(|d| d == weekday) {
+                return false;
+            }
+        }
+        let sod = (secs % 86_400) as i64;
+        from <= sod && sod < to
+    }
+}
+
+/// Parses "HH:MM-HH:MM" into seconds-since-midnight bounds.
+fn parse_time_window(w: &str) -> Option<(i64, i64)> {
+    let (s, e) = w.split_once('-')?;
+    let parse_hm = |t: &str| -> Option<i64> {
+        let (h, m) = t.split_once(':')?;
+        Some(h.parse::<i64>().ok()? * 3600 + m.parse::<i64>().ok()? * 60)
+    };
+    let (from, to) = (parse_hm(s)?, parse_hm(e)?);
+    (to > from).then_some((from, to))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -173,8 +265,8 @@ pub struct PermissionRule {
 }
 
 impl PermissionRule {
-    pub fn matches_trust(&self, trust: Trust) -> bool {
-        self.when.as_ref().is_none_or(|w| w.matches(trust))
+    pub fn matches(&self, trust: Trust, args: &Value, labels: &std::collections::BTreeMap<String, String>) -> bool {
+        self.when.as_ref().is_none_or(|w| w.matches(trust, args, labels))
     }
 }
 
@@ -335,11 +427,85 @@ pub struct ToolMeta {
     pub untrusted_output: Option<bool>,
 }
 
+/// `x-agen/config.json` `workspace` (2.45).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceConfig {
+    /// "per_task" (its own directory, cleaned up when the task ends
+    /// unless retain is set): "per_conversation" (shared by every task of
+    /// one conversation, never cleaned up here): "shared" (one directory
+    /// for the whole deployment, never cleaned up here).
+    pub mode: WorkspaceMode,
+    /// per_task only: keep the directory after the task ends instead of
+    /// removing it. Default false.
+    #[serde(default)]
+    pub retain: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceMode {
+    PerTask,
+    PerConversation,
+    Shared,
+}
+
+impl WorkspaceConfig {
+    /// The directory for one run (2.45): under `AGEN_WORKSPACE_ROOT`
+    /// (default the OS temp directory's own `agen-workspaces`), namespaced
+    /// by namespace/deployment, then keyed by mode — a task with no
+    /// task_id (standalone/embedded use) or no conversation_key falls
+    /// back to run_id, so per_task/per_conversation still give each run
+    /// its own directory rather than colliding on an empty key.
+    pub fn dir(
+        &self,
+        namespace: &str,
+        deployment: &str,
+        task_id: &str,
+        conversation_key: &str,
+        run_id: &str,
+    ) -> std::path::PathBuf {
+        let root = std::env::var_os("AGEN_WORKSPACE_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("agen-workspaces"));
+        let key = match self.mode {
+            WorkspaceMode::Shared => "shared".to_string(),
+            WorkspaceMode::PerConversation if !conversation_key.is_empty() => {
+                format!("conversation-{}", sanitize_key(conversation_key))
+            }
+            WorkspaceMode::PerConversation => format!("run-{run_id}"),
+            WorkspaceMode::PerTask if !task_id.is_empty() => format!("task-{task_id}"),
+            WorkspaceMode::PerTask => format!("run-{run_id}"),
+        };
+        root.join(sanitize_key(namespace))
+            .join(sanitize_key(deployment))
+            .join(key)
+    }
+}
+
+/// Keeps a key filesystem-safe: only ASCII letters, digits, `-` and `_`
+/// pass through; anything else (including `/`, which would otherwise
+/// escape the intended directory) becomes `_`.
+fn sanitize_key(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// `x-agen/config.json`. Platform-only sections (scale, triggers, kind) are
 /// kept as raw JSON; the platform owns their meaning.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
-    pub workspace: Option<String>,
+    /// A directory the host creates and shares with every MCP server
+    /// (via `_meta` `agen/workspace`) and the model (2.45). Unset: no
+    /// workspace directory at all.
+    pub workspace: Option<WorkspaceConfig>,
     #[serde(default)]
     pub permissions: Permissions,
     #[serde(default)]
@@ -1006,5 +1172,73 @@ mod tests {
         );
         assert_eq!(split_frontmatter("no frontmatter"), None);
         assert_eq!(split_frontmatter("---\nunterminated"), None);
+    }
+
+    #[test]
+    fn when_matches_against_specific_argument_values() {
+        let glob = When {
+            trust: None,
+            trust_below: None,
+            args: BTreeMap::from([("path".to_string(), ArgMatch::Glob { glob: "/tmp/*".into() })]),
+            labels: BTreeMap::new(),
+            time: None,
+        };
+        assert!(glob.matches(Trust::Trusted, &serde_json::json!({"path": "/tmp/x"}), &BTreeMap::new()));
+        assert!(!glob.matches(Trust::Trusted, &serde_json::json!({"path": "/etc/x"}), &BTreeMap::new()));
+
+        let threshold = When {
+            trust: None,
+            trust_below: None,
+            args: BTreeMap::from([("amount".to_string(), ArgMatch::Gt { gt: 100.0 })]),
+            labels: BTreeMap::new(),
+            time: None,
+        };
+        assert!(threshold.matches(Trust::Trusted, &serde_json::json!({"amount": 150}), &BTreeMap::new()));
+        assert!(!threshold.matches(Trust::Trusted, &serde_json::json!({"amount": 50}), &BTreeMap::new()));
+        assert!(
+            !threshold.matches(Trust::Trusted, &serde_json::json!({}), &BTreeMap::new()),
+            "a missing argument never matches"
+        );
+    }
+
+    #[test]
+    fn when_matches_against_task_labels() {
+        let w = When {
+            trust: None,
+            trust_below: None,
+            args: BTreeMap::new(),
+            labels: BTreeMap::from([("env".to_string(), "prod".to_string())]),
+            time: None,
+        };
+        assert!(w.matches(
+            Trust::Trusted,
+            &Value::Null,
+            &BTreeMap::from([("env".to_string(), "prod".to_string())])
+        ));
+        assert!(!w.matches(
+            Trust::Trusted,
+            &Value::Null,
+            &BTreeMap::from([("env".to_string(), "staging".to_string())])
+        ));
+        assert!(
+            !w.matches(Trust::Trusted, &Value::Null, &BTreeMap::new()),
+            "a missing label never matches"
+        );
+    }
+
+    #[test]
+    fn time_window_matches_within_bounds_and_day() {
+        let w = TimeWindow {
+            window: "09:00-17:00".into(),
+            days: vec!["wed".into()],
+        };
+        // Epoch day 6 (1970-01-07) is a Wednesday.
+        let within = std::time::UNIX_EPOCH + std::time::Duration::from_secs(6 * 86_400 + 10 * 3600);
+        assert!(w.contains(within));
+        let outside_hours = std::time::UNIX_EPOCH + std::time::Duration::from_secs(6 * 86_400 + 20 * 3600);
+        assert!(!w.contains(outside_hours));
+        // Epoch day 5 (1970-01-06) is a Tuesday, same time of day.
+        let wrong_day = std::time::UNIX_EPOCH + std::time::Duration::from_secs(5 * 86_400 + 10 * 3600);
+        assert!(!w.contains(wrong_day));
     }
 }

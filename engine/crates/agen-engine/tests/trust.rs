@@ -116,6 +116,7 @@ async fn trust_below_rule_asks_only_after_a_tainting_call() {
         when: Some(When {
             trust: None,
             trust_below: Some(Trust::Trusted),
+            ..Default::default()
         }),
     }];
     struct DenyAll;
@@ -159,6 +160,7 @@ async fn a_task_submitted_untrusted_asks_from_the_start() {
         when: Some(When {
             trust: None,
             trust_below: Some(Trust::Trusted),
+            ..Default::default()
         }),
     }];
     struct DenyAll;

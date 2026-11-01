@@ -458,6 +458,39 @@ async fn cached_input_tokens_count_at_a_discount_against_the_token_budget() {
     assert_eq!(r.outcome.unwrap().status, "done");
 }
 
+// The system prompt mentions a run's workspace directory once it has one
+// (2.45); with no `workspace` configured, it says nothing extra.
+#[tokio::test]
+async fn system_prompt_mentions_the_workspace_directory_when_configured() {
+    let (s, _d) = store().await;
+    let base = tempfile::tempdir().unwrap();
+    let mut c = cfg();
+    c.workspace = Some(agen_engine::bundle::WorkspaceConfig {
+        mode: agen_engine::bundle::WorkspaceMode::PerTask,
+        retain: true,
+    });
+    std::env::set_var("AGEN_WORKSPACE_ROOT", base.path());
+    let p = Arc::new(FakeProvider::new(vec![say("ok", None)]));
+    let agent = Agent::builder(c, s.clone()).provider(p.clone()).build().unwrap();
+    let r = agent
+        .run(
+            "x",
+            RunOptions {
+                task_id: "t-workspace".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    let req = &p.requests()[0];
+    assert!(
+        req.system.contains("## Workspace") && req.system.contains("t-workspace"),
+        "{}",
+        req.system
+    );
+}
+
 #[tokio::test]
 async fn budget_and_max_turns_stop_runs() {
     let (s, _d) = store().await;

@@ -30,11 +30,19 @@ pub fn glob_match(pattern: &str, name: &str) -> bool {
     true
 }
 
-pub fn evaluate(policy: &Permissions, tool: &str, trust: Trust) -> Action {
+pub fn evaluate(
+    policy: &Permissions,
+    tool: &str,
+    trust: Trust,
+    args: &serde_json::Value,
+    labels: &std::collections::BTreeMap<String, String>,
+) -> Action {
     let wire = crate::provider::openai::wire_name(tool);
     for action in [Action::Deny, Action::Ask, Action::Allow] {
         if policy.rules.iter().any(|r| {
-            r.action == action && r.matches_trust(trust) && (glob_match(&r.tool, tool) || glob_match(&r.tool, &wire))
+            r.action == action
+                && r.matches(trust, args, labels)
+                && (glob_match(&r.tool, tool) || glob_match(&r.tool, &wire))
         }) {
             return action;
         }
@@ -46,6 +54,10 @@ pub fn evaluate(policy: &Permissions, tool: &str, trust: Trust) -> Action {
 mod tests {
     use super::*;
     use crate::bundle::{PermissionRule, When};
+
+    fn eval(p: &Permissions, tool: &str, trust: Trust) -> Action {
+        evaluate(p, tool, trust, &serde_json::Value::Null, &Default::default())
+    }
 
     fn rule(tool: &str, action: Action) -> PermissionRule {
         PermissionRule {
@@ -84,16 +96,16 @@ mod tests {
                 rule("*.withdraw", Action::Deny),
             ],
         };
-        assert_eq!(evaluate(&p, "exchange.get_price", Trust::Trusted), Action::Allow);
-        assert_eq!(evaluate(&p, "exchange.place_order", Trust::Trusted), Action::Ask);
-        assert_eq!(evaluate(&p, "exchange.withdraw", Trust::Trusted), Action::Deny);
-        assert_eq!(evaluate(&p, "other.tool", Trust::Trusted), Action::Ask);
+        assert_eq!(eval(&p, "exchange.get_price", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "exchange.place_order", Trust::Trusted), Action::Ask);
+        assert_eq!(eval(&p, "exchange.withdraw", Trust::Trusted), Action::Deny);
+        assert_eq!(eval(&p, "other.tool", Trust::Trusted), Action::Ask);
         let open = Permissions {
             approval_timeout: None,
             default: Action::Allow,
             rules: vec![],
         };
-        assert_eq!(evaluate(&open, "x", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&open, "x", Trust::Trusted), Action::Allow);
     }
 
     #[test]
@@ -103,9 +115,9 @@ mod tests {
             default: Action::Allow,
             rules: vec![rule("exchange_place_order", Action::Deny), rule("bank_*", Action::Ask)],
         };
-        assert_eq!(evaluate(&p, "exchange.place_order", Trust::Trusted), Action::Deny);
-        assert_eq!(evaluate(&p, "bank.pay", Trust::Trusted), Action::Ask);
-        assert_eq!(evaluate(&p, "exchange.get_price", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "exchange.place_order", Trust::Trusted), Action::Deny);
+        assert_eq!(eval(&p, "bank.pay", Trust::Trusted), Action::Ask);
+        assert_eq!(eval(&p, "exchange.get_price", Trust::Trusted), Action::Allow);
     }
 
     #[test]
@@ -125,12 +137,13 @@ mod tests {
                 When {
                     trust: Some(Trust::Untrusted),
                     trust_below: None,
+                    ..Default::default()
                 },
             )],
         };
-        assert_eq!(evaluate(&p, "x", Trust::Untrusted), Action::Ask);
-        assert_eq!(evaluate(&p, "x", Trust::Trusted), Action::Allow);
-        assert_eq!(evaluate(&p, "x", Trust::Operator), Action::Allow);
+        assert_eq!(eval(&p, "x", Trust::Untrusted), Action::Ask);
+        assert_eq!(eval(&p, "x", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "x", Trust::Operator), Action::Allow);
     }
 
     #[test]
@@ -146,11 +159,12 @@ mod tests {
                 When {
                     trust: None,
                     trust_below: Some(Trust::Trusted),
+                    ..Default::default()
                 },
             )],
         };
-        assert_eq!(evaluate(&p, "x", Trust::Untrusted), Action::Ask);
-        assert_eq!(evaluate(&p, "x", Trust::Trusted), Action::Allow);
-        assert_eq!(evaluate(&p, "x", Trust::Operator), Action::Allow);
+        assert_eq!(eval(&p, "x", Trust::Untrusted), Action::Ask);
+        assert_eq!(eval(&p, "x", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "x", Trust::Operator), Action::Allow);
     }
 }

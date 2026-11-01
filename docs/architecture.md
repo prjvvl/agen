@@ -79,7 +79,7 @@ Deployment kinds:
 | `pool` | min..max | Interchangeable workers sharing a task queue. |
 | `task` | one per task | Instance is created for one task and exits when it finishes (the autoscaler starts up to `max` at once for queued tasks). |
 
-Scale policy: `{min, max, target_queue_per_instance, idle_timeout, max_concurrency}`.
+Scale policy: `{min, max, target_queue_per_instance, idle_timeout, max_concurrency, reserve}`.
 
 A deployment can be **paused** (`agen stop`, `PauseDeployment`): its instances
 drain and stop, the autoscaler and wake-ups leave it at 0, queued tasks and
@@ -132,7 +132,11 @@ instance (one agen-host) is started differs.
 
 **Autoscaler** (runs on the Hub leader, every tick):
 want = clamp(ceil(queued_and_running_tasks / target_queue_per_instance), min, max)
-(target defaults to 1). Scale up to `want` at once; scale down to `want` only
+(target defaults to 1). **`reserve`** (2.46, part) raises that floor to
+`urgent_or_high_load + reserve`, still capped by `max`, whenever any
+urgent/high priority task is queued or running — so one arriving later
+finds an instance already idle instead of waiting on a scale-up; with no
+such load right now, `reserve` has no effect at all. Scale up to `want` at once; scale down to `want` only
 after no task or A2A activity for `idle_timeout` (default 5 min for pools and
 singletons, 0 for `task` deployments, which therefore stop as soon as their
 queue is empty). A manual scale counts as activity, so it holds for one idle
@@ -217,7 +221,10 @@ again on resume, rather than trusting the `run_inbox` payload directly.
 It may carry `model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
-the bundle's `router.budgetTier`. When the Hub fails a
+the bundle's `router.budgetTier`; a `background`-priority candidate is
+released right back under the same pressure (2.46, part — the same
+mechanism an exhausted label's candidate already uses), so whatever
+budget is left goes to higher-priority work instead. When the Hub fails a
 task (lease expired too often) or cancels it, it also ends the task's
 unfinished run and bumps its epoch, so the conversation is not left blocked
 and a host still running it is fenced off. Deleting a deployment cancels its
@@ -961,7 +968,25 @@ Agent → Session → Conversation → Run → Span.
   `agen/conversationKey`, `agen/labels`, `agen/trust` (2.12, part — the
   calling run's current trust, already lowered by any taint, so a tool
   server can decide for itself whether a sensitive action fits the
-  caller) and the `traceparent`.
+  caller), `agen/workspace` (2.45, part — the run's workspace directory,
+  empty when the bundle sets no `workspace`) and the `traceparent`.
+
+**Task workspaces** (2.45): `config.json` `workspace: {mode, retain}`.
+`mode` is `per_task` (its own directory, removed when the run ends unless
+`retain`), `per_conversation` (shared by every task of one conversation,
+keyed by `conversation_key`, never auto-removed) or `shared` (one
+directory for the whole deployment, never auto-removed). The host
+creates it (`AGEN_WORKSPACE_ROOT`, default the OS temp directory's own
+`agen-workspaces`, namespaced by namespace/deployment) before the run's
+first model call, tells the model about it in the system prompt, and
+passes it to every MCP server via `_meta` `agen/workspace` — any tool
+server that wants to read or write files there reads that key itself;
+the host does not pass it any other way. A task or run id missing (the
+run has neither, e.g. standalone use) falls back to the run id, so
+`per_task`/`per_conversation` still get a directory of their own rather
+than colliding on an empty key. Directory creation and removal are both
+best-effort: a failure is logged, never fails the run over something
+optional.
 - A failed tool call's span carries `error.message` (redacted, at most 1000
   characters), so a trace explains the failure without the transcript.
 - A run's top-level span is written as `unfinished` when the run starts. On
@@ -988,11 +1013,19 @@ Agent → Session → Conversation → Run → Span.
   marked `untrustedOutput` (bundle config, or an MCP server's `openWorldHint`)
   drops the run's trust to `untrusted` for the rest of the run the first time
   it is called, logged as `agen.trust.lowered` on the tool span. A permission
-  rule's `when.trust` / `when.trustBelow` conditions it on the run's current
-  trust, evaluated alongside the plain deny → ask → allow match (the engine
-  tracks the run's trust in memory; it is not persisted, so a resumed run
-  restarts from the task's original trust). The fuller conditional rule
-  language (`args`, `labels`, `time`, `rate`) is not yet implemented.
+  rule's `when` conditions it on the run's current trust and more (1.3),
+  evaluated alongside the plain deny → ask → allow match: `trust` /
+  `trustBelow` (the engine tracks the run's trust in memory; it is not
+  persisted, so a resumed run restarts from the task's original trust),
+  `args` (every named argument of the specific call must match — a glob, a
+  numeric `lt`/`lte`/`gt`/`gte`, or else an exact value; a call argument the
+  rule names but the call omits never matches, and a rule with an `args`
+  condition never narrows the tool list shown to the model, since no
+  specific call exists yet there), `labels` (every named label of the task
+  must equal this value) and `time` (a "HH:MM-HH:MM" UTC time-of-day window,
+  optionally also limited to `days`; no time zone database dependency).
+  `rate`, a count in a window, is not yet implemented — it needs its own
+  persistent counter, a bigger piece than the others here.
 - Feedback: a judgement on how a task went (score 0.0-1.0, labels, a note, who
   gave it), recorded by `RecordFeedback` and read back by `ListFeedback`.
   `DecideApproval` records one too (`by: "approval"`, score 1.0/0.0), so
