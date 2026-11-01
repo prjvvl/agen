@@ -505,8 +505,15 @@ type ScalePolicy struct {
 	IdleTimeoutSeconds int32 `protobuf:"varint,4,opt,name=idle_timeout_seconds,json=idleTimeoutSeconds,proto3" json:"idle_timeout_seconds,omitempty"`
 	// Tasks one instance may run at once.
 	MaxConcurrency int32 `protobuf:"varint,5,opt,name=max_concurrency,json=maxConcurrency,proto3" json:"max_concurrency,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Keep this many instances beyond what urgent/high priority load alone
+	// needs (2.46, part), so one arriving finds an instance free rather
+	// than waiting on a scale-up: desired is at least
+	// urgent_or_high_load + reserve whenever any is queued or running,
+	// still capped by max. 0 (default): no floor beyond the normal
+	// queue-depth target.
+	Reserve       int32 `protobuf:"varint,6,opt,name=reserve,proto3" json:"reserve,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ScalePolicy) Reset() {
@@ -570,6 +577,13 @@ func (x *ScalePolicy) GetIdleTimeoutSeconds() int32 {
 func (x *ScalePolicy) GetMaxConcurrency() int32 {
 	if x != nil {
 		return x.MaxConcurrency
+	}
+	return 0
+}
+
+func (x *ScalePolicy) GetReserve() int32 {
+	if x != nil {
+		return x.Reserve
 	}
 	return 0
 }
@@ -4281,13 +4295,14 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\n" +
 	"FilesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xc7\x01\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xe1\x01\n" +
 	"\vScalePolicy\x12\x10\n" +
 	"\x03min\x18\x01 \x01(\x05R\x03min\x12\x10\n" +
 	"\x03max\x18\x02 \x01(\x05R\x03max\x129\n" +
 	"\x19target_queue_per_instance\x18\x03 \x01(\x05R\x16targetQueuePerInstance\x120\n" +
 	"\x14idle_timeout_seconds\x18\x04 \x01(\x05R\x12idleTimeoutSeconds\x12'\n" +
-	"\x0fmax_concurrency\x18\x05 \x01(\x05R\x0emaxConcurrency\"\x96\x02\n" +
+	"\x0fmax_concurrency\x18\x05 \x01(\x05R\x0emaxConcurrency\x12\x18\n" +
+	"\areserve\x18\x06 \x01(\x05R\areserve\"\x96\x02\n" +
 	"\x06Budget\x12+\n" +
 	"\x12max_tokens_per_run\x18\x01 \x01(\x03R\x0fmaxTokensPerRun\x12%\n" +
 	"\x0fmax_usd_per_run\x18\x02 \x01(\x01R\fmaxUsdPerRun\x12%\n" +

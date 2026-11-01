@@ -1444,15 +1444,20 @@ func (s *Store) AssignedCount(ctx context.Context, ns, deployment string) (int, 
 	return n, err
 }
 
-// QueueStats counts unfinished tasks of a deployment.
-type QueueStats struct{ Queued, InFlight int }
+// QueueStats counts unfinished tasks of a deployment. HighPriority is the
+// subset of Queued+InFlight with priority urgent or high (2.46, part:
+// scale.reserve).
+type QueueStats struct{ Queued, InFlight, HighPriority int }
 
 // Queue returns queued (and due) and in-flight (leased or running) counts.
 func (s *Store) Queue(ctx context.Context, ns, deployment string) (QueueStats, error) {
 	var q QueueStats
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(CASE WHEN state = 'queued' AND not_before_ms <= $3 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN state IN ('leased', 'running') THEN 1 ELSE 0 END), 0) FROM tasks WHERE namespace = $1 AND deployment = $2 AND state IN ('queued', 'leased', 'running')",
-		ns, deployment, NowMs()).Scan(&q.Queued, &q.InFlight)
+		"SELECT COALESCE(SUM(CASE WHEN state = 'queued' AND not_before_ms <= $3 THEN 1 ELSE 0 END), 0), "+
+			"COALESCE(SUM(CASE WHEN state IN ('leased', 'running') THEN 1 ELSE 0 END), 0), "+
+			"COALESCE(SUM(CASE WHEN priority IN ('urgent', 'high') AND (state IN ('leased', 'running') OR (state = 'queued' AND not_before_ms <= $3)) THEN 1 ELSE 0 END), 0) "+
+			"FROM tasks WHERE namespace = $1 AND deployment = $2 AND state IN ('queued', 'leased', 'running')",
+		ns, deployment, NowMs()).Scan(&q.Queued, &q.InFlight, &q.HighPriority)
 	return q, err
 }
 

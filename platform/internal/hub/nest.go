@@ -402,6 +402,14 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 			_ = n.hub.Store.ReleaseTask(ctx, t.ID, t.LeaseID, true)
 			continue
 		}
+		// Under budget pressure (2.46, part), background-priority work
+		// stops first: released back the same way an exhausted label's
+		// candidate is, so whatever budget is left goes to higher-priority
+		// work instead.
+		if pressure && t.Priority == "background" {
+			_ = n.hub.Store.ReleaseTask(ctx, t.ID, t.LeaseID, true)
+			continue
+		}
 		pt := TaskProto(t)
 		pt.BudgetPressure = pressure
 		out.Tasks = append(out.Tasks, pt)

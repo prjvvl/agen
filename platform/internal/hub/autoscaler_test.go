@@ -36,9 +36,27 @@ func TestDesiredFor(t *testing.T) {
 		{"singleton max one", dep("singleton", 0, old, `{"min":0,"max":1}`), 9, 1},
 	}
 	for _, c := range cases {
-		if got := DesiredFor(c.d, c.load, now); got != c.want {
+		if got := DesiredFor(c.d, c.load, 0, now); got != c.want {
 			t.Errorf("%s: got %d want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// scale.reserve (2.46, part): with any urgent/high priority load, desired
+// is at least that load plus reserve, even if the queue depth alone
+// wouldn't ask for that many — but still capped by max, and not a floor
+// at all when nothing high-priority is queued or running.
+func TestDesiredForScaleReserve(t *testing.T) {
+	now := time.Now().UnixMilli()
+	d := dep("pool", 0, now-10*60*1000, `{"min":0,"max":5,"targetQueuePerInstance":10,"reserve":2}`)
+	if got := DesiredFor(d, 1, 0, now); got != 1 {
+		t.Fatalf("no high-priority load: got %d, want 1 (queue depth alone)", got)
+	}
+	if got := DesiredFor(d, 1, 1, now); got != 3 {
+		t.Fatalf("1 high-priority + reserve 2: got %d, want 3", got)
+	}
+	if got := DesiredFor(d, 1, 10, now); got != 5 {
+		t.Fatalf("reserve still capped by max: got %d, want 5", got)
 	}
 }
 
