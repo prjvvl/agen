@@ -8,6 +8,7 @@
 *.db-wal
 *.db-shm
 /bin/
+/platform/bin/
 .env
 .env.*
 *.log
