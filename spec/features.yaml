@@ -167,8 +167,8 @@ features:
     contract: [rpc:GetTaskTree, field:GetTaskTree.task_id, cli:tree]
     on: [api, mcp, cli]
   - id: tasks.queue-modes
-    title: How a busy conversation's queue behaves (followup, the default, queues separately; collect merges; steer delivers into the running turn; interrupt gracefully cancels it first)
-    contract: [config:conversations, field:CreateDeployment.conversations, field:UpdateDeployment.conversations]
+    title: How a busy conversation's queue behaves (followup, the default, queues separately; collect merges; steer delivers into the running turn; interrupt gracefully cancels it first); SubmitTask.delivery overrides it for one submission
+    contract: [config:conversations, field:CreateDeployment.conversations, field:UpdateDeployment.conversations, field:SubmitTask.delivery]
     on: [api, mcp, cli]
   - id: tasks.progress
     title: An agent reports its own progress; query a task's progress, activity and outcome without waiting on it
@@ -205,7 +205,7 @@ features:
     contract: [field:SubmitTask.not_before, field:ListTasks.scheduled, field:SubmitTask.not_after, field:SubmitTask.schedule_key]
     on: [api, mcp, cli, console]
   - id: triggers
-    title: Cron and webhook triggers
+    title: Cron, webhook and event triggers; a burst of events a trigger matches within coalesce merges into one task
     contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
       field:ListTriggerEvents.state, rpc:CreateWebhookSecret, field:CreateWebhookSecret.trigger, cli:triggers, cli:webhook-secret]
     on: [api, mcp, cli, console]

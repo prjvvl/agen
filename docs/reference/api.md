@@ -611,6 +611,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `trust` | string | A trust at most this high (3.7): narrows the submitting principal's own trust, never raises it. Empty: the principal's trust as is. |
 | `locks` | list of string | Extra locks this task needs, on top of the deployment's own `locks` config (3.11, part): it waits in the queue until it can take all of them at once, then holds them until it ends. |
 | `onParentEnd` | string | Temporal's parent-close policy for this task's own children (3.4, part): "cancel" (default, also empty) or "abandon". See Task.on_parent_end. |
+| `delivery` | string | Override the conversation's own conversations.queueMode (followup, collect, steer or interrupt) for this submission only. Empty: use the deployment's policy. Has no effect without conversation_key. |
 
 ## UpdateDeployment
 

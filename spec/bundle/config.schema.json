@@ -94,7 +94,7 @@
       "type": "object",
       "description": "How a conversation's queue behaves when a new task arrives while an earlier one of the same conversation is still unfinished",
       "properties": {
-        "queueMode": { "enum": ["followup", "collect"], "description": "followup (default): queue it, run after the earlier one. collect: merge it into the still-queued one if there is one, waiting debounce after the last merge before it is finally queued for real" },
+        "queueMode": { "enum": ["followup", "collect", "steer", "interrupt"], "description": "followup (default): queue it, run after the earlier one. collect: merge it into the still-queued one if there is one, waiting debounce after the last merge before it is finally queued for real. steer: deliver it into the running turn instead of queuing it. interrupt: gracefully cancel the running turn first, then queue it" },
         "debounce": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "collect only: how long to wait after the last merge before queueing the merged task for real (default 2s)" }
       },
       "additionalProperties": false
@@ -178,6 +178,7 @@
                 "additionalProperties": false
               },
               "conversation": { "type": "string", "description": "Conversation key from the event: {{event.taskId}}, {{event.parentTaskId}}, {{event.deployment}}, {{event.type}}, {{event.labels.<key>}}" },
+              "coalesce": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$", "description": "A matching event that arrives while this trigger already has a task queued in the target conversation merges into it instead of firing a separate one, extending it by this long (default: off, every matching event fires its own task)" },
               "labels": { "$ref": "#/$defs/labels" }
             },
             "required": ["name", "on"],

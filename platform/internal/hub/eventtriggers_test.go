@@ -132,6 +132,54 @@ func TestEventTriggerCountsWithinAWindow(t *testing.T) {
 	}
 }
 
+// Coalescing (M4, scenario S13): a trigger whose "coalesce" is set merges a
+// matching event that arrives while it already has a task queued in the
+// target conversation into that task, instead of firing a separate one.
+// features: triggers
+func TestEventTriggerCoalescesABurstIntoOneTask(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	sched := e.scheduler()
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "watcher", BundleFiles: withTriggers(t,
+		`[{"type":"event","name":"burst","on":{"types":["task.queued"],"deployment":"hello"},"conversation":"fixed","coalesce":"10m"}]`)})); err != nil {
+		t.Fatal(err)
+	}
+	sched.Step(ctx)
+	submit := func() {
+		if _, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "x"})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	submit()
+	sched.Step(ctx)
+	got := tasksOf(t, e, "watcher")
+	if len(got) != 1 {
+		t.Fatalf("after the first event: %d watcher tasks, want 1", len(got))
+	}
+	first := got[0]
+
+	// Two more events arrive while the first watcher task is still queued:
+	// both merge into it rather than firing their own.
+	submit()
+	submit()
+	sched.Step(ctx)
+	got = tasksOf(t, e, "watcher")
+	if len(got) != 1 || got[0].ID != first.ID {
+		t.Fatalf("a burst did not coalesce into the first task: %v", got)
+	}
+	if n := strings.Count(got[0].Input, `"task.queued"`); n != 3 {
+		t.Fatalf("merged task should list all 3 events, found %d", n)
+	}
+	if ev := events(t, c, "watcher"); ev["burst:fired"] != 3 {
+		t.Fatalf("trigger events (merged or not, each still fires): %v", ev)
+	}
+}
+
 // A trigger never reacts to its own tasks, and a loop between triggers of
 // two deployments stops after maxEventChain tasks.
 // features: triggers

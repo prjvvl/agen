@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -130,6 +131,88 @@ func TestSubmitTaskSteerDeliversIntoTheRunningTask(t *testing.T) {
 	}
 	if kind != "steer" || payload != "third" {
 		t.Fatalf("got kind=%q payload=%q, want steer/third", kind, payload)
+	}
+}
+
+// A bundle's own x-agen/config.json may set conversations.queueMode to any
+// of the four modes the Hub handles (the schema previously only allowed
+// followup and collect, even though steer and interrupt already worked).
+// features: tasks.queue-modes
+func TestBundleConversationsQueueModeSchemaAllowsAllFourModes(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	for i, mode := range []string{"followup", "collect", "steer", "interrupt"} {
+		f := helloFiles(t)
+		f["x-agen/config.json"] = []byte(fmt.Sprintf(`{"conversations":{"queueMode":%q}}`, mode))
+		if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: fmt.Sprintf("hello-%d", i), BundleFiles: f})); err != nil {
+			t.Fatalf("queueMode %q rejected: %v", mode, err)
+		}
+	}
+}
+
+// SubmitTask.delivery overrides the deployment's own queueMode for one
+// submission: a "followup" deployment still collects when a submission
+// asks for it, and an invalid value is rejected the same as an invalid
+// deployment-level queueMode.
+// features: tasks.queue-modes
+func TestSubmitTaskDeliveryOverridesTheDeploymentsQueueMode(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "x", Delivery: "whenever"})); code(err) != connect.CodeInvalidArgument {
+		t.Fatalf("invalid delivery accepted: %v", err)
+	}
+	first, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "first", ConversationKey: "c1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The deployment's own queueMode is unset ("followup"); this one
+	// submission still collects because it says so itself.
+	second, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "second", ConversationKey: "c1", Delivery: "collect"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Msg.Task.Id != first.Msg.Task.Id {
+		t.Fatalf("delivery=collect did not merge: got task %s, want merged into %s", second.Msg.Task.Id, first.Msg.Task.Id)
+	}
+	got, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: first.Msg.Task.Id}))
+	if err != nil || got.Msg.Task.Input != "first\n\nsecond" {
+		t.Fatalf("merged task: %v %v", got, err)
+	}
+}
+
+// A merged ("collect") submission's own idempotency key is recorded, so
+// retrying it returns the task it already merged into instead of merging a
+// second time.
+// features: tasks.queue-modes
+func TestCollectMergeIsIdempotencyKeyAware(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t),
+		Conversations: &agenv1.ConversationPolicy{QueueMode: "collect"}})); err != nil {
+		t.Fatal(err)
+	}
+	first, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "first", ConversationKey: "c1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "second", ConversationKey: "c1", IdempotencyKey: "k1"}))
+	if err != nil || merged.Msg.Task.Id != first.Msg.Task.Id {
+		t.Fatalf("first merge: %v %v", merged, err)
+	}
+	// Retrying the same key must not merge "second" into the task again.
+	retried, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "second", ConversationKey: "c1", IdempotencyKey: "k1"}))
+	if err != nil || retried.Msg.Task.Id != first.Msg.Task.Id {
+		t.Fatalf("retried merge: %v %v", retried, err)
+	}
+	got, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: first.Msg.Task.Id}))
+	if err != nil || got.Msg.Task.Input != "first\n\nsecond" {
+		t.Fatalf("retrying the same idempotency key merged again: %v %v", got, err)
 	}
 }
 

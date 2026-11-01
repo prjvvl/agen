@@ -133,6 +133,14 @@ message Trigger {
   // Webhooks (3.7): the trust of tasks this trigger submits. Empty:
   // untrusted. Cron tasks are always trusted; this has no effect there.
   string trust = 19;
+  // Event triggers (3.9/3.6, event coalescing): a matching event that
+  // arrives while the target conversation already has a task queued from
+  // this trigger merges into it (Store.MergeIntoQueuedConversationTask,
+  // the same mechanism "collect" queue mode uses) instead of submitting a
+  // separate task, extending the still-queued task's not_before by this
+  // long (a Go duration, e.g. "30s"). Empty: every matching event fires
+  // its own task, same as before.
+  string coalesce = 20;
 }
 
 // Which events fire an event trigger.

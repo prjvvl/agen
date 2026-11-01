@@ -26,7 +26,7 @@ use crate::outcome::RunOutcome;
 use crate::permissions;
 use crate::provider::{self, Message, ModelProvider, ModelRequest, ProviderError, Role, ToolCall, Usage};
 use crate::secrets::{PlatformSecrets, Redactor, Secrets, StreamRedactor};
-use crate::store::{new_id, now_ms, EffectBegin, RunRecord, RunStatus, Store, StoreError};
+use crate::store::{new_id, now_ms, EffectBegin, NewArtifact, RunRecord, RunStatus, Store, StoreError};
 use crate::tools::{LoadSkill, Tool, ToolContext, ToolRegistry};
 use crate::trace::{OpenSpan, TraceContext, Tracer};
 
@@ -118,6 +118,9 @@ pub struct AgentConfig {
     /// Memory blocks attached to this bundle (`x-agen/config.json`
     /// `memory`), rendered into the system prompt.
     pub memory: Vec<crate::bundle::MemoryAttachment>,
+    /// A tool result longer than this many characters is saved as an
+    /// artifact instead of going into the conversation whole (0: no cap).
+    pub max_tool_result_chars: u32,
 }
 
 impl AgentConfig {
@@ -154,6 +157,7 @@ impl AgentConfig {
             result_schema: None,
             report_tokens: default_limits::REPORT_TOKENS,
             memory: vec![],
+            max_tool_result_chars: default_limits::MAX_TOOL_RESULT_CHARS,
         }
     }
 }
@@ -513,6 +517,10 @@ impl Agent {
         );
         cfg.parallel_tool_calls = bundle.harness.parallel_tool_calls.unwrap_or(true);
         cfg.trace_tool_arguments = bundle.harness.trace_tool_arguments.unwrap_or(false);
+        cfg.max_tool_result_chars = bundle
+            .harness
+            .max_tool_result_chars
+            .unwrap_or(default_limits::MAX_TOOL_RESULT_CHARS);
         cfg.max_turns = bundle.agent.max_turns.unwrap_or(16);
         cfg.permissions = bundle.config.permissions.clone();
         if let Some(t) = bundle.config.permissions.approval_timeout.as_deref() {
@@ -2130,6 +2138,9 @@ impl Agent {
 
     async fn invoke(&self, tool: &dyn Tool, call: &ToolCall, ctx: ToolContext) -> Invoked {
         let cancel = ctx.cancel.clone();
+        let namespace = ctx.namespace.clone();
+        let task_id = ctx.task_id.clone();
+        let run_id = ctx.run_id.clone();
         // Delegated runs are bounded by the callee's own limits.
         let limit = match self.cfg.tool_timeout {
             t if t.is_zero() || call.name == crate::delegate::CALL_AGENT => Duration::MAX,
@@ -2148,12 +2159,16 @@ impl Agent {
             _ = cancel.cancelled() => return Invoked { text: "error: cancelled".into(), status: "cancelled", uncertain: true, suspend: None },
         };
         match r {
-            Ok(text) => Invoked {
-                text: self.redactor.redact(&text),
-                status: "ok",
-                uncertain: false,
-                suspend: None,
-            },
+            Ok(text) => {
+                let text = self.redactor.redact(&text);
+                let text = self.cap_result(&call.name, &namespace, &task_id, &run_id, text).await;
+                Invoked {
+                    text,
+                    status: "ok",
+                    uncertain: false,
+                    suspend: None,
+                }
+            }
             Err(e) if e.suspend.is_some() => Invoked {
                 text: String::new(),
                 status: "suspended",
@@ -2166,6 +2181,49 @@ impl Agent {
                 uncertain: e.outcome_unknown,
                 suspend: None,
             },
+        }
+    }
+
+    /// Caps a tool result to `max_tool_result_chars` (2.23/2.36, part): a
+    /// longer one is saved as an artifact (the already-redacted text, so a
+    /// secret never reaches durable storage unmasked) and replaced with a
+    /// preview plus how to read the rest. Called after redaction, on every
+    /// successful call `invoke` makes — MCP tools, delegate calls
+    /// (`call_agent`/`start_agent`/`query_agent`, which reach here the same
+    /// way any other tool does) and `save_artifact`/`read_artifact`
+    /// themselves alike, so no layer of agen drops part of a result
+    /// without a way back. 0 (the bundle turned the cap off): unchanged.
+    async fn cap_result(&self, tool_name: &str, namespace: &str, task_id: &str, run_id: &str, text: String) -> String {
+        let cap = self.cfg.max_tool_result_chars as usize;
+        if cap == 0 {
+            return text;
+        }
+        let chars: Vec<char> = text.chars().collect();
+        if chars.len() <= cap {
+            return text;
+        }
+        let preview: String = chars[..cap].iter().collect();
+        let total = chars.len();
+        match self
+            .store
+            .save_artifact(
+                namespace,
+                NewArtifact {
+                    name: &format!("{tool_name} result"),
+                    content: &text,
+                    media_type: "text/plain",
+                    task_id,
+                    run_id,
+                },
+                crate::artifacts::DEFAULT_NAMESPACE_QUOTA,
+            )
+            .await
+        {
+            Ok(a) => format!(
+                "{preview}\n(truncated: {cap} of {total} characters shown; the rest was saved as artifact {:?} — read_artifact({:?}, offset={cap}) for more)",
+                a.id, a.id
+            ),
+            Err(e) => format!("{preview}\n(truncated: {cap} of {total} characters shown; it could not be saved as an artifact: {e})"),
         }
     }
 }

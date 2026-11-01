@@ -345,6 +345,15 @@ until the count is reached within `on.within`, and a task records how many
 event triggers led to it (`event_chain`): at 5 the next firing is rejected. A
 held provider account keeps the cursor where it is.
 
+**Event coalescing** (M4, scenario S13): a trigger's `coalesce` (a Go
+duration, e.g. `"30s"`) merges a matching event that arrives while it
+already has a task queued in the target conversation into that task,
+instead of firing a separate one — the exact same
+`Store.MergeIntoQueuedConversationTask` mechanism "collect" queue mode
+uses, called from `fireEventTask` before it falls back to a plain
+`SubmitTask`. Unset (the default): every matching event still fires its
+own task, same as before this field existed.
+
 **Nest failure**: heartbeat missing for `nest_lost_after` → Nest marked `lost`,
 its Assignments are rescheduled, its task leases expire. Singleton sessions
 resume from the Store.
@@ -701,8 +710,8 @@ than an Update: fire-and-forget, no independent result of its own (the
 `SubmitTaskResponse` is the running task itself, the same way `collect`
 returns the task it merged into rather than a new one); a caller after a
 result should query that task, not treat the steer submission as having
-one. Same documented idempotency-key gap as `collect` (not addressed
-here). `interrupt` reuses graceful cancel's own mechanism
+one. `steer`'s own idempotency-key gap stands (a repeated steer delivers
+its payload again); `collect`'s is now closed, see below. `interrupt` reuses graceful cancel's own mechanism
 (`Hub.gracefulCancelReason`) on the conversation's running task — a new
 `Hub.InterruptGrace` field (default `defaultGracePeriod`, since
 `SubmitTask` has no field of its own for a longer one, unlike
@@ -719,6 +728,25 @@ existing `conversations.queueMode` string and `Store.WriteInbox`/
 cancel respectively. With nothing running in the conversation right now
 (it's idle, queued, or suspended waiting on something else), both modes
 fall through and queue normally, same as `followup`.
+
+**`collect`'s idempotency-key gap, closed**: a merge now checks a new
+`task_merge_keys` table (namespace, deployment, idempotency_key → task_id)
+before merging, in `Store.MergeIntoQueuedConversationTask` — a submission
+whose key was already used, either as some task's own original
+`idempotency_key` or recorded here by an earlier merge, returns that same
+task instead of merging a second time; a successful merge then records
+its own key there, if it has one. Event-trigger coalescing (above) shares
+this same merge call, and the same fix, for free.
+
+**`SubmitTask.delivery`** (3.9, part): overrides `conversations.queueMode`
+for one submission, when the deployment allows a mode that reaches it
+(any value, including `""`/`followup`, which always falls through to a
+plain queued submission regardless of the deployment's own policy) —
+`Hub.SubmitTask` picks `req.Msg.Delivery` over `PolicyOf(d).Conversations`
+when it is set, then runs the exact same `collect`/`steer`/`interrupt`
+branches as before. Lets a `followup` deployment still have one urgent
+submission interrupt or steer the running conversation without changing
+the deployment's default for everyone else. `agen run --delivery MODE`.
 
 The rest of the "Tree" design is otherwise done; 3.9's queue modes are
 now all four built. These eight (parent-close, `GetTaskTree`, tree-wide
@@ -924,8 +952,17 @@ Agent → Session → Conversation → Run → Span.
   bundle's permissions and any task overrides entirely (storage mechanics,
   not an action on the outside world). Saving the same bytes again in a
   namespace returns the existing row. Limits: 25 MB per artifact, 500 MB
-  per namespace. The tool-result cap (`harness.maxToolResultChars`,
-  auto-saving an over-long tool result) and carrying artifacts over A2A are
+  per namespace. **Tool-result cap** (2.23/2.36, part): `harness.maxToolResultChars`
+  (default 32000 characters, 0 off) is applied in `Agent::invoke` to every
+  successful tool call's result, after redaction — MCP tools, `call_agent`/
+  `start_agent`/`query_agent` (delegate answers reach here the same way any
+  other tool's result does, no separate mechanism needed) and
+  `save_artifact`/`read_artifact` themselves alike. An over-cap result is
+  saved as its own artifact (the redacted text, so a secret never reaches
+  durable storage unmasked; identical content dedupes to the artifact
+  already saved) and replaced with a preview plus the artifact id and a
+  `read_artifact` call for the rest. Carrying an artifact id over A2A, in
+  `finish`'s own text, and Hub tools returning compact rows by default are
   not yet implemented.
 - Secrets: resolved by name (env or the platform secret store; the OS keychain
   is reserved). Values

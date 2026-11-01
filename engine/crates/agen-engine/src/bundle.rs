@@ -73,6 +73,11 @@ pub struct Harness {
     pub context_tokens: Option<u64>,
     pub parallel_tool_calls: Option<bool>,
     pub trace_tool_arguments: Option<bool>,
+    /// A tool result longer than this many characters is saved as an
+    /// artifact instead of going into the conversation whole; the
+    /// conversation gets a preview plus the artifact id and how to read
+    /// the rest. 0: no cap. Default `default_limits::MAX_TOOL_RESULT_CHARS`.
+    pub max_tool_result_chars: Option<u32>,
     pub base_url: Option<String>,
     pub api_key_secret: Option<String>,
     pub script: Option<String>,
@@ -239,6 +244,7 @@ pub mod default_limits {
     pub const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
     pub const TOOL_TIMEOUT: Duration = Duration::from_secs(600);
     pub const MAX_OUTPUT_TOKENS: u32 = 8192;
+    pub const MAX_TOOL_RESULT_CHARS: u32 = 32_000;
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
     pub const REPORT_TOKENS: u32 = 1024;
     pub const STUCK_REPEATS: u32 = 4;

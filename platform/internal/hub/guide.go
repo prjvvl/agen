@@ -159,6 +159,17 @@ func checkOnParentEnd(v string) error {
 	return invalid(fmt.Sprintf("on_parent_end %q: use cancel or abandon", v))
 }
 
+// checkDelivery validates SubmitTaskRequest.delivery (3.9, part): a
+// per-task override of the deployment's own conversations.queueMode, for
+// this submission only.
+func checkDelivery(v string) error {
+	switch v {
+	case "", "followup", "collect", "steer", "interrupt":
+		return nil
+	}
+	return invalid(fmt.Sprintf("delivery %q: use followup, collect, steer or interrupt", v))
+}
+
 // checkConversationPolicy validates a deployment's conversations policy
 // (3.9, part): queue_mode and debounce (collect only).
 func checkConversationPolicy(p *agenv1.ConversationPolicy) error {

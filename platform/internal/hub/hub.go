@@ -479,6 +479,9 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkOnParentEnd(req.Msg.OnParentEnd); err != nil {
 		return nil, err
 	}
+	if err := checkDelivery(req.Msg.Delivery); err != nil {
+		return nil, err
+	}
 	trust := PrincipalFrom(ctx).Trust
 	if req.Msg.Trust != "" {
 		trust = narrowTrust(trust, req.Msg.Trust)
@@ -511,15 +514,21 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 		return nil, err
 	}
 	cp := PolicyOf(d).Conversations
+	mode := cp.QueueMode
+	// SubmitTask.delivery (3.9, part): overrides the deployment's own
+	// queueMode for this submission only. "followup" (or any value that
+	// matches none of the cases below) always falls through to a plain
+	// queued submission, regardless of the deployment's policy.
+	if req.Msg.Delivery != "" {
+		mode = req.Msg.Delivery
+	}
 	switch {
 	// "collect" queue mode (3.9, part): merge into the conversation's
-	// still-queued task instead of queuing a separate one. Not
-	// idempotency-key aware yet: a merged submission's own
-	// idempotency_key is not recorded anywhere, so retrying it with the
-	// same key merges again rather than returning the earlier result.
-	// Submissions that rely on idempotency should not also use collect
-	// mode until this is addressed.
-	case cp.QueueMode == "collect" && task.ConversationKey != "":
+	// still-queued task instead of queuing a separate one. Idempotency-key
+	// aware (3.9, part): MergeIntoQueuedConversationTask itself returns the
+	// earlier task instead of merging again when this submission's key was
+	// already used, by this call or an earlier merge.
+	case mode == "collect" && task.ConversationKey != "":
 		merged, ok, err := h.Store.MergeIntoQueuedConversationTask(ctx, task, conversationDebounce(cp.Debounce).Milliseconds())
 		if err != nil {
 			return nil, connectErr(err)
@@ -534,10 +543,11 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	// (no independent result of its own — this submission's "outcome" is
 	// whatever the steered run ends with; a caller after its own result
 	// should query the returned task, not this submission). Same
-	// idempotency-key gap as collect: not addressed here. Nothing running
-	// right now (queued, waiting, or idle): falls through and queues
-	// normally, same as followup.
-	case cp.QueueMode == "steer" && task.ConversationKey != "":
+	// idempotency-key gap as before (not addressed here: a repeated steer
+	// delivers its payload again). Nothing running right now (queued,
+	// waiting, or idle): falls through and queues normally, same as
+	// followup.
+	case mode == "steer" && task.ConversationKey != "":
 		live, err := h.Store.RunningConversationTask(ctx, ns, name, task.ConversationKey)
 		if err != nil {
 			return nil, connectErr(err)
@@ -557,7 +567,7 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	// A run that calls finish on its own within the grace period ends
 	// however it finished, not cancelled, same as graceful cancel always
 	// does; nothing running right now falls through the same as steer.
-	case cp.QueueMode == "interrupt" && task.ConversationKey != "":
+	case mode == "interrupt" && task.ConversationKey != "":
 		if live, err := h.Store.RunningConversationTask(ctx, ns, name, task.ConversationKey); err == nil && live.ID != "" {
 			h.interruptRunningTask(ctx, live)
 		}

@@ -350,6 +350,8 @@ Usage of run:
     	pin the Hub CA of an https Hub
   -conversation string
     	continue the conversation of earlier tasks with this key
+  -delivery string
+    	override the conversation's queue mode for this submission only: followup, collect, steer or interrupt
   -expires-in duration
     	fail as expired if still queued this long from now, instead of waiting indefinitely
   -hub string

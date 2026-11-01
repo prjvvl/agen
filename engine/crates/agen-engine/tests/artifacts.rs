@@ -146,6 +146,83 @@ async fn save_artifact_refuses_a_name_that_is_empty() {
     assert!(saved.content.contains("name is required"), "{}", saved.content);
 }
 
+// A tool result over harness.maxToolResultChars is capped and the full
+// text saved as its own artifact instead, so nothing is dropped without a
+// way back (2.23/2.36, part) — proven here through read_artifact's own
+// result, which goes through the exact same cap every other tool's does.
+#[tokio::test]
+async fn a_long_tool_result_is_capped_and_saved_as_an_artifact() {
+    let (s, _d) = store().await;
+    s.save_artifact(
+        "default",
+        agen_engine::store::NewArtifact {
+            name: "long",
+            content: "0123456789abcdefghij",
+            media_type: "text/plain",
+            task_id: "",
+            run_id: "",
+        },
+        0,
+    )
+    .await
+    .unwrap();
+    let id = s.list_artifacts("default", "").await.unwrap()[0].id.clone();
+    let p = Arc::new(FakeProvider::new(vec![
+        call("read_artifact", json!({"id": id, "length": 20})),
+        say("ok"),
+    ]));
+    let mut cfg = AgentConfig::new("a", "x", "fake-1");
+    cfg.max_tool_result_chars = 5;
+    let agent = Agent::builder(cfg, s.clone()).provider(p).build().unwrap();
+    let r = agent.run("go", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, agen_engine::store::RunStatus::Succeeded, "{}", r.error);
+    let msgs = s.run_messages(&r.run_id).await.unwrap();
+    let read = msgs.iter().find(|m| m.role == Role::Tool).unwrap();
+    let want = format!("01234\n(truncated: 5 of 20 characters shown; the rest was saved as artifact {id:?}");
+    assert!(read.content.starts_with(&want), "{}", read.content);
+    // The uncapped result is exactly what was already stored under that id
+    // (content-addressed): saving it again found the same artifact, not a
+    // second one.
+    let listed = s.list_artifacts("default", "").await.unwrap();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
+// max_tool_result_chars: 0 turns the cap off.
+#[tokio::test]
+async fn a_zero_cap_leaves_a_long_result_whole() {
+    let (s, _d) = store().await;
+    s.save_artifact(
+        "default",
+        agen_engine::store::NewArtifact {
+            name: "long",
+            content: "0123456789",
+            media_type: "text/plain",
+            task_id: "",
+            run_id: "",
+        },
+        0,
+    )
+    .await
+    .unwrap();
+    let id = s.list_artifacts("default", "").await.unwrap()[0].id.clone();
+    let p = Arc::new(FakeProvider::new(vec![
+        call("read_artifact", json!({"id": id, "length": 10})),
+        say("ok"),
+    ]));
+    let mut cfg = AgentConfig::new("a", "x", "fake-1");
+    cfg.max_tool_result_chars = 0;
+    let agent = Agent::builder(cfg, s.clone()).provider(p).build().unwrap();
+    let r = agent.run("go", RunOptions::default()).await.unwrap();
+    let msgs = s.run_messages(&r.run_id).await.unwrap();
+    let read = msgs.iter().find(|m| m.role == Role::Tool).unwrap();
+    assert_eq!(read.content, "0123456789");
+    assert_eq!(
+        s.list_artifacts("default", "").await.unwrap().len(),
+        1,
+        "no second artifact was saved"
+    );
+}
+
 #[tokio::test]
 async fn save_artifact_enforces_the_namespace_quota() {
     let (s, _d) = store().await;

@@ -35,6 +35,11 @@ func validateEventTrigger(t *agenv1.Trigger) error {
 			return fmt.Errorf("on.count needs on.within, a duration such as 10m")
 		}
 	}
+	if t.Coalesce != "" {
+		if d, err := time.ParseDuration(t.Coalesce); err != nil || d <= 0 {
+			return fmt.Errorf("coalesce %q: a duration such as 30s", t.Coalesce)
+		}
+	}
 	for _, v := range conversationVar.FindAllStringSubmatch(t.Conversation, -1) {
 		switch k := v[1]; {
 		case k == "taskId", k == "parentTaskId", k == "deployment", k == "type", strings.HasPrefix(k, "labels."):
@@ -184,17 +189,42 @@ func (s *Scheduler) fireEventTask(ctx context.Context, d store.Deployment, t *ag
 			conversation = "event:" + t.Name + ":" + value
 		}
 	}
-	task, err := st.SubmitTask(ctx, store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: b.String(), Source: "event:" + t.Name,
+	candidate := store.Task{Namespace: d.Namespace, Deployment: d.Name, Input: b.String(), Source: "event:" + t.Name,
 		IdempotencyKey: fmt.Sprintf("event:%s:%d", t.Name, last.Seq), SubmittedBy: "trigger:event:" + t.Name, Labels: labels,
-		ConversationKey: conversation, EventChain: chain, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), Trust: "trusted"})
-	if err != nil {
-		return err
+		ConversationKey: conversation, EventChain: chain, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), Trust: "trusted"}
+	merged := false
+	var task store.Task
+	// Coalescing (3.6/M4, event coalescing): a matching event that arrives
+	// while this trigger already has a task queued in the target
+	// conversation merges into it instead of firing a separate one, the
+	// same mechanism "collect" queue mode uses.
+	if t.Coalesce != "" && candidate.ConversationKey != "" {
+		if cd, err := time.ParseDuration(t.Coalesce); err == nil {
+			m, ok, err := st.MergeIntoQueuedConversationTask(ctx, candidate, cd.Milliseconds())
+			if err != nil {
+				return err
+			}
+			if ok {
+				task, merged = m, true
+			}
+		}
+	}
+	if !merged {
+		var err error
+		task, err = st.SubmitTask(ctx, candidate)
+		if err != nil {
+			return err
+		}
+	}
+	msg := fmt.Sprintf("%d event(s), the last %s (seq %d)", len(events), last.Type, last.Seq)
+	if merged {
+		msg += "; merged into the conversation's still-queued task"
 	}
 	if _, err := st.RecordTriggerEvent(ctx, store.TriggerEvent{Namespace: d.Namespace, Deployment: d.Name, Trigger: t.Name, State: "fired",
-		TaskID: task.ID, DueMs: last.Seq, Message: fmt.Sprintf("%d event(s), the last %s (seq %d)", len(events), last.Type, last.Seq)}); err != nil {
+		TaskID: task.ID, DueMs: last.Seq, Message: msg}); err != nil {
 		return err
 	}
 	_ = st.TouchActivity(ctx, d.Namespace, d.Name)
-	s.Log.Info("event trigger fired", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "task", task.ID, "events", len(events))
+	s.Log.Info("event trigger fired", "deployment", d.Namespace+"/"+d.Name, "trigger", t.Name, "task", task.ID, "events", len(events), "merged", merged)
 	return nil
 }

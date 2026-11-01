@@ -430,13 +430,28 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 
 // MergeIntoQueuedConversationTask merges t's input into the most recently
 // created still-queued task of its conversation (3.9, part: "collect" queue
-// mode), extending its not_before by debounceMs from now, instead of
-// queuing t as a separate task. The caller queues t normally when this
-// returns false (nothing to merge into, or it lost the race to a lease
-// that took the row it would have merged into).
+// mode; also used for event-trigger coalescing), extending its not_before
+// by debounceMs from now, instead of queuing t as a separate task. The
+// caller queues t normally when this returns false (nothing to merge into,
+// or it lost the race to a lease that took the row it would have merged
+// into).
+//
+// Idempotency-key aware: a merge never happens twice under the same key.
+// With an IdempotencyKey, a submission whose key was already used — either
+// as some task's own original idempotency_key, or recorded here by an
+// earlier merge — returns that same task instead of merging again; a
+// successful merge then records its own key here, if it has one, so a
+// retry finds it next time.
 func (s *Store) MergeIntoQueuedConversationTask(ctx context.Context, t Task, debounceMs int64) (Task, bool, error) {
 	if t.ConversationKey == "" {
 		return Task{}, false, nil
+	}
+	if t.IdempotencyKey != "" {
+		if prev, ok, err := s.taskByIdempotencyKey(ctx, t.Namespace, t.Deployment, t.IdempotencyKey); err != nil {
+			return Task{}, false, err
+		} else if ok {
+			return prev, true, nil
+		}
 	}
 	now := NowMs()
 	var merged Task
@@ -460,6 +475,14 @@ func (s *Store) MergeIntoQueuedConversationTask(ctx context.Context, t Task, deb
 		if err != nil {
 			return err
 		}
+		if t.IdempotencyKey != "" {
+			if _, err := tx.ExecContext(ctx,
+				"INSERT INTO task_merge_keys (namespace, deployment, idempotency_key, task_id, created_ms) VALUES ($1, $2, $3, $4, $5) "+
+					"ON CONFLICT (namespace, deployment, idempotency_key) DO NOTHING",
+				t.Namespace, t.Deployment, t.IdempotencyKey, m.ID, now); err != nil {
+				return err
+			}
+		}
 		merged = m
 		return nil
 	})
@@ -467,6 +490,36 @@ func (s *Store) MergeIntoQueuedConversationTask(ctx context.Context, t Task, deb
 		return Task{}, false, err
 	}
 	return merged, merged.ID != "", nil
+}
+
+// taskByIdempotencyKey finds the task a key already belongs to, whether as
+// its own original idempotency_key or as a later merge recorded in
+// task_merge_keys.
+func (s *Store) taskByIdempotencyKey(ctx context.Context, namespace, deployment, key string) (Task, bool, error) {
+	t, err := scanTask(s.db.QueryRowContext(ctx,
+		"SELECT "+taskCols+" FROM tasks WHERE namespace = $1 AND deployment = $2 AND idempotency_key = $3",
+		namespace, deployment, key))
+	if err == nil {
+		return t, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Task{}, false, err
+	}
+	var id string
+	err = s.db.QueryRowContext(ctx,
+		"SELECT task_id FROM task_merge_keys WHERE namespace = $1 AND deployment = $2 AND idempotency_key = $3",
+		namespace, deployment, key).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, false, nil
+	}
+	if err != nil {
+		return Task{}, false, err
+	}
+	t, err = s.GetTask(ctx, id)
+	if err != nil {
+		return Task{}, false, err
+	}
+	return t, true, nil
 }
 
 // RunningConversationTask returns the conversation's one currently

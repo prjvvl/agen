@@ -54,7 +54,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Artifacts (save_artifact / read_artifact; a long result need not stay in context) | ✓ | ✓ | ✓ | –[^14] |  |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
 | Every task of the tree a task belongs to (its root and descendants) | ✓ | ✓ | ✓ |  |  |
-| How a busy conversation's queue behaves (followup, the default, queues separately; collect merges; steer delivers into the running turn; interrupt gracefully cancels it first) | ✓ | ✓ | ✓ |  |  |
+| How a busy conversation's queue behaves (followup, the default, queues separately; collect merges; steer delivers into the running turn; interrupt gracefully cancels it first); SubmitTask.delivery overrides it for one submission | ✓ | ✓ | ✓ |  |  |
 | An agent reports its own progress; query a task's progress, activity and outcome without waiting on it | ✓ | ✓ | ✓ |  |  |
 | Cancel a task or run | ✓ | ✓ | ✓ | ✓ |  |
 | Cancel a task gracefully, giving each run a last turn to call finish before it is stopped | ✓ | ✓ | ✓ |  |  |
@@ -63,7 +63,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Conversations and labels | ✓ | ✓ | ✓ |  |  |
 | Per-task cost tier | ✓ | ✓ | ✓ | ✓ |  |
 | Tasks with a start time, an expiry, or at most one queued per key | ✓ | ✓ | ✓ | ✓ |  |
-| Cron and webhook triggers | ✓ | ✓ | ✓ | ✓ |  |
+| Cron, webhook and event triggers; a burst of events a trigger matches within coalesce merges into one task | ✓ | ✓ | ✓ | ✓ |  |
 | Agents calling agents (call_agent) | ✓ |  | ✓ |  | ✓ |
 | Start an agent without waiting (start_agent) | ✓ |  |  |  | ✓ |
 | Deploy, update, scale, pause and delete | ✓ | ✓ | ✓ | ✓ |  |

@@ -837,7 +837,15 @@ type Trigger struct {
 	MinStartSpacing string `protobuf:"bytes,18,opt,name=min_start_spacing,json=minStartSpacing,proto3" json:"min_start_spacing,omitempty"`
 	// Webhooks (3.7): the trust of tasks this trigger submits. Empty:
 	// untrusted. Cron tasks are always trusted; this has no effect there.
-	Trust         string `protobuf:"bytes,19,opt,name=trust,proto3" json:"trust,omitempty"`
+	Trust string `protobuf:"bytes,19,opt,name=trust,proto3" json:"trust,omitempty"`
+	// Event triggers (3.9/3.6, event coalescing): a matching event that
+	// arrives while the target conversation already has a task queued from
+	// this trigger merges into it (Store.MergeIntoQueuedConversationTask,
+	// the same mechanism "collect" queue mode uses) instead of submitting a
+	// separate task, extending the still-queued task's not_before by this
+	// long (a Go duration, e.g. "30s"). Empty: every matching event fires
+	// its own task, same as before.
+	Coalesce      string `protobuf:"bytes,20,opt,name=coalesce,proto3" json:"coalesce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1001,6 +1009,13 @@ func (x *Trigger) GetMinStartSpacing() string {
 func (x *Trigger) GetTrust() string {
 	if x != nil {
 		return x.Trust
+	}
+	return ""
+}
+
+func (x *Trigger) GetCoalesce() string {
+	if x != nil {
+		return x.Coalesce
 	}
 	return ""
 }
@@ -4240,7 +4255,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x12ConversationPolicy\x12\x1d\n" +
 	"\n" +
 	"queue_mode\x18\x01 \x01(\tR\tqueueMode\x12\x1a\n" +
-	"\bdebounce\x18\x02 \x01(\tR\bdebounce\"\x9a\x06\n" +
+	"\bdebounce\x18\x02 \x01(\tR\bdebounce\"\xb6\x06\n" +
 	"\aTrigger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -4261,7 +4276,8 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\x0fcatch_up_window\x18\x10 \x01(\tR\rcatchUpWindow\x12\x18\n" +
 	"\aoverlap\x18\x11 \x01(\tR\aoverlap\x12*\n" +
 	"\x11min_start_spacing\x18\x12 \x01(\tR\x0fminStartSpacing\x12\x14\n" +
-	"\x05trust\x18\x13 \x01(\tR\x05trust\x1a9\n" +
+	"\x05trust\x18\x13 \x01(\tR\x05trust\x12\x1a\n" +
+	"\bcoalesce\x18\x14 \x01(\tR\bcoalesce\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x02\n" +
