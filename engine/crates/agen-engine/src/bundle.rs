@@ -203,6 +203,10 @@ pub struct Budget {
     pub max_tokens_per_run: Option<u64>,
     pub max_usd_per_run: Option<f64>,
     pub max_usd_per_day: Option<f64>,
+    /// How much a cached input token counts against max_tokens_per_run
+    /// (2.21), relative to a fresh one. Default 0.1 (a cache hit costs a
+    /// tenth as much as a fresh prompt token).
+    pub cached_input_weight: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -245,6 +249,7 @@ pub mod default_limits {
     pub const TOOL_TIMEOUT: Duration = Duration::from_secs(600);
     pub const MAX_OUTPUT_TOKENS: u32 = 8192;
     pub const MAX_TOOL_RESULT_CHARS: u32 = 32_000;
+    pub const CACHED_INPUT_WEIGHT: f64 = 0.1;
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
     pub const REPORT_TOKENS: u32 = 1024;
     pub const STUCK_REPEATS: u32 = 4;

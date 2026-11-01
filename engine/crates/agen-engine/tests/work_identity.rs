@@ -122,6 +122,7 @@ async fn output_is_capped_by_the_remaining_token_budget() {
     let usage = Usage {
         input_tokens: 300,
         output_tokens: 100,
+        cached_input_tokens: 0,
         cost_usd: 0.0,
     };
     let mut first = calls(&["noop"]);

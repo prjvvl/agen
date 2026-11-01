@@ -92,6 +92,11 @@ pub struct ModelRequest {
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// The subset of input_tokens served from the provider's prompt cache
+    /// (2.21; OpenRouter reports it). 0 when the provider doesn't report
+    /// it, or there was no hit.
+    #[serde(default)]
+    pub cached_input_tokens: u64,
     /// Reported by the provider when known.
     #[serde(default)]
     pub cost_usd: f64,
@@ -101,10 +106,20 @@ impl Usage {
     pub fn add(&mut self, other: Usage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
+        self.cached_input_tokens += other.cached_input_tokens;
         self.cost_usd += other.cost_usd;
     }
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens + self.output_tokens
+    }
+    /// Tokens counted against budget.maxTokensPerRun (2.21): cached input
+    /// is charged at `weight` instead of its full cost (a cache hit is far
+    /// cheaper than a fresh prompt token), everything else at its full
+    /// cost.
+    pub fn budget_tokens(&self, weight: f64) -> u64 {
+        let fresh_input = self.input_tokens.saturating_sub(self.cached_input_tokens);
+        let weighted_cached = (self.cached_input_tokens as f64 * weight).round() as u64;
+        fresh_input + weighted_cached + self.output_tokens
     }
 }
 

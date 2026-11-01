@@ -104,6 +104,65 @@ func TestSubmitChildTaskNarrowsToTheTreesRemainingBudget(t *testing.T) {
 	}
 }
 
+// treeBudgetThresholds fires budget.threshold events (scope "tree") at
+// 50/80/100% of the root's own overrides.budget, once each for the
+// tree's whole lifetime (not re-fired by a later call at the same spend).
+// features: budgets
+func TestTreeBudgetThresholdsFireOncePerCrossing(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	root, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "root",
+		Overrides: &agenv1.TaskOverrides{Budget: &agenv1.RunBudget{MaxUsd: 0.10}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertRun(t, e, root.Msg.Task.Id, 0, 0, 0.06) // 60%: crosses 50.
+	task, err := e.store.GetTask(ctx, root.Msg.Task.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.hub.treeBudgetThresholds(ctx, task)
+	e.hub.treeBudgetThresholds(ctx, task) // same spend again: no duplicate.
+
+	evs, _, err := e.store.ListEvents(ctx, store.EventFilter{Namespaces: []string{"default"}, Types: []string{"budget.threshold"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree []store.Event
+	for _, ev := range evs {
+		if ev.Data["scope"] == "tree" {
+			tree = append(tree, ev)
+		}
+	}
+	if len(tree) != 1 || tree[0].Data["percent"].(float64) != 50 {
+		t.Fatalf("tree threshold events: %+v, want exactly one at 50%%", tree)
+	}
+
+	child, err := e.store.SubmitTask(ctx, store.Task{Namespace: "default", Deployment: "hello", Input: "child", ParentTaskID: root.Msg.Task.Id, RootTaskID: root.Msg.Task.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertRun(t, e, child.ID, 0, 0, 0.02) // 80% of the tree total: crosses 80 too.
+	e.hub.treeBudgetThresholds(ctx, task)
+	evs, _, err = e.store.ListEvents(ctx, store.EventFilter{Namespaces: []string{"default"}, Types: []string{"budget.threshold"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree = nil
+	for _, ev := range evs {
+		if ev.Data["scope"] == "tree" {
+			tree = append(tree, ev)
+		}
+	}
+	if len(tree) != 2 {
+		t.Fatalf("after crossing 80%%: %+v, want 50 and 80, not a re-fired 50", tree)
+	}
+}
+
 // With no budget on the root at all, a child's overrides are unaffected:
 // nothing narrows.
 // features: tasks.run

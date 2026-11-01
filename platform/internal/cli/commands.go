@@ -211,18 +211,39 @@ func (e *env) pause(ctx context.Context, args []string, paused bool) error {
 	if paused {
 		name = "stop"
 	}
-	pos, err := parse(e.flags(name, &cf), args)
+	fs := e.flags(name, &cf)
+	// hold_runs (2.8): stop only, also holds every unfinished task of the
+	// deployment (PauseTask/PauseTree's own mechanism, applied deployment
+	// wide) rather than just letting them run to completion.
+	holdRuns := fs.Bool("hold-runs", false, "also hold every unfinished task of the deployment, not just stop leasing new ones")
+	at := fs.String("at", "", "hold-runs only: end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for `agen start`")
+	in := fs.Duration("in", 0, "hold-runs only: end the hold this long from now (e.g. 30m)")
+	reason := fs.String("reason", "", "hold-runs only: why, for anyone who looks at a held task later")
+	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen stop|start <name>")
+		return usageErr("agen stop <name> [--hold-runs] [--at TIME | --in D] [--reason TEXT] | agen start <name>")
+	}
+	var until *timestamppb.Timestamp
+	switch {
+	case *at != "" && *in != 0:
+		return usageErr("use --at or --in, not both")
+	case *at != "":
+		ts, err := time.Parse(time.RFC3339, *at)
+		if err != nil {
+			return usageErr("--at: " + err.Error())
+		}
+		until = timestamppb.New(ts)
+	case *in > 0:
+		until = timestamppb.New(time.Now().Add(*in))
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
-	r, err := c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref(cf, pos[0]), Paused: paused}))
+	r, err := c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref(cf, pos[0]), Paused: paused, HoldRuns: *holdRuns, Until: until, Reason: *reason}))
 	if err != nil {
 		return err
 	}
@@ -231,7 +252,11 @@ func (e *env) pause(ctx context.Context, args []string, paused bool) error {
 	}
 	d := r.Msg.Deployment
 	if paused {
-		fmt.Fprintf(e.stdout, "%s/%s stopped (paused)\n", d.Namespace, d.Name)
+		fmt.Fprintf(e.stdout, "%s/%s stopped (paused)", d.Namespace, d.Name)
+		if *holdRuns {
+			fmt.Fprintf(e.stdout, ", %d task(s) held", len(r.Msg.Held))
+		}
+		fmt.Fprintln(e.stdout)
 	} else {
 		fmt.Fprintf(e.stdout, "%s/%s started, desired %d\n", d.Namespace, d.Name, d.Desired)
 	}

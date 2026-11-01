@@ -382,9 +382,22 @@ message PauseDeploymentRequest {
   DeploymentRef ref = 1;
   // false resumes.
   bool paused = 2;
+  // Also hold every currently unfinished task of the deployment (2.8),
+  // the deployment-wide form of PauseTask/PauseTree: a leased/running one
+  // suspends at its next model call, a queued/waiting one stays put.
+  // Ignored (nothing to hold) when paused is false; a resume (paused:
+  // false) always clears any hold this put in place, whether or not
+  // hold_runs is set on that call.
+  bool hold_runs = 3;
+  // hold_runs only: the hold's deadline. Unset: holds until explicitly
+  // resumed.
+  google.protobuf.Timestamp until = 4;
+  string reason = 5;
 }
 message PauseDeploymentResponse {
   Deployment deployment = 1;
+  // hold_runs only: the tasks it actually held.
+  repeated Task held = 2;
 }
 
 message ListInstancesRequest {
@@ -679,6 +692,16 @@ message DeploymentMetrics {
   Usage usage = 8;
   // Oldest first, each bucket_seconds long.
   repeated MetricsBucket buckets = 9;
+  // Today's spend against each of the deployment's own
+  // budget.labelUsdPerDay rules (3.5, part), regardless of the window:
+  // label budgets reset daily, not by this call's own window/buckets.
+  repeated LabelBudgetMetric label_budgets = 10;
+}
+message LabelBudgetMetric {
+  // "key=value", same spelling as budget.labelUsdPerDay's own keys.
+  string label = 1;
+  double spent_usd = 2;
+  double limit_usd = 3;
 }
 message CallEdge {
   DeploymentRef from = 1;

@@ -108,6 +108,7 @@ async fn runs_lifecycle(s: &Store) {
     let u = Usage {
         input_tokens: 10,
         output_tokens: 5,
+        cached_input_tokens: 0,
         cost_usd: 0.25,
     };
     s.checkpoint(

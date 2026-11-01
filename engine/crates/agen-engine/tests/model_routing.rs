@@ -262,6 +262,7 @@ async fn tokens_of_empty_answers_count_when_the_fallback_fails() {
         usage: Some(Usage {
             input_tokens: 100,
             output_tokens: 50,
+            cached_input_tokens: 0,
             cost_usd: 0.0,
         }),
         ..empty(model)

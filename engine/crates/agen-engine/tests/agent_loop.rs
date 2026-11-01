@@ -389,6 +389,76 @@ async fn secrets_never_reach_store_traces_model_or_stream() {
 }
 
 #[tokio::test]
+async fn budget_status_line_appears_past_half_the_limit() {
+    let (s, _d) = store().await;
+    let mut c = cfg();
+    c.budget.max_usd_per_run = Some(0.20);
+    let costly = |resp: FakeResponse| FakeResponse {
+        usage: Some(agen_engine::provider::Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+            cached_input_tokens: 0,
+            cost_usd: 0.12,
+        }),
+        ..resp
+    };
+    let p = Arc::new(FakeProvider::new(vec![
+        costly(call("add", json!({"a": 1, "b": 2}))),
+        say("done", None),
+    ]));
+    let agent = Agent::builder(c, s.clone())
+        .provider(p.clone())
+        .tool(add_tool())
+        .build()
+        .unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    let reqs = p.requests();
+    assert_eq!(reqs.len(), 2);
+    assert!(
+        !reqs[0].system.contains("[agen]"),
+        "nothing spent yet on the first turn: {}",
+        reqs[0].system
+    );
+    assert!(
+        reqs[1].system.contains("[agen] turn 2 of 16") && reqs[1].system.contains("$0.12 of $0.20"),
+        "{}",
+        reqs[1].system
+    );
+}
+
+// A cached input token counts at budget.cachedInputWeight (default 0.1,
+// 2.21), not its full cost: a turn whose tokens would exceed
+// max_tokens_per_run if counted in full stays under it once most of them
+// are cache hits.
+#[tokio::test]
+async fn cached_input_tokens_count_at_a_discount_against_the_token_budget() {
+    let (s, _d) = store().await;
+    let mut c = cfg();
+    c.budget.max_tokens_per_run = Some(100);
+    let cached = FakeResponse {
+        usage: Some(agen_engine::provider::Usage {
+            input_tokens: 500,
+            cached_input_tokens: 480,
+            output_tokens: 0,
+            cost_usd: 0.0,
+        }),
+        ..call("add", json!({"a": 1, "b": 2}))
+    };
+    let p = Arc::new(FakeProvider::new(vec![cached, say("done", None)]));
+    let agent = Agent::builder(c, s.clone())
+        .provider(p)
+        .tool(add_tool())
+        .build()
+        .unwrap();
+    let r = agent.run("x", RunOptions::default()).await.unwrap();
+    // 20 fresh + 480*0.1 = 68 counted tokens: under the 100 limit, so the
+    // run finishes normally rather than stopping as "partial"/"budget".
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    assert_eq!(r.outcome.unwrap().status, "done");
+}
+
+#[tokio::test]
 async fn budget_and_max_turns_stop_runs() {
     let (s, _d) = store().await;
     let mut c = cfg();
@@ -417,6 +487,7 @@ async fn budget_and_max_turns_stop_runs() {
         usage: Some(agen_engine::provider::Usage {
             input_tokens: 10,
             output_tokens: 5,
+            cached_input_tokens: 0,
             cost_usd: 0.04,
         }),
         ..resp

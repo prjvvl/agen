@@ -296,14 +296,22 @@ Usage of logs:
 
 ```text
 Usage of stop:
+  -at agen start
+    	hold-runs only: end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for agen start
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -hold-runs
+    	also hold every unfinished task of the deployment, not just stop leasing new ones
   -hub string
     	Hub URL
+  -in duration
+    	hold-runs only: end the hold this long from now (e.g. 30m)
   -json
     	print the API response as JSON
   -n string
     	namespace (default "default")
+  -reason string
+    	hold-runs only: why, for anyone who looks at a held task later
   -token string
     	API token
 ```
@@ -312,14 +320,22 @@ Usage of stop:
 
 ```text
 Usage of start:
+  -at agen start
+    	hold-runs only: end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for agen start
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -hold-runs
+    	also hold every unfinished task of the deployment, not just stop leasing new ones
   -hub string
     	Hub URL
+  -in duration
+    	hold-runs only: end the hold this long from now (e.g. 30m)
   -json
     	print the API response as JSON
   -n string
     	namespace (default "default")
+  -reason string
+    	hold-runs only: why, for anyone who looks at a held task later
   -token string
     	API token
 ```

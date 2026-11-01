@@ -248,6 +248,7 @@ func (h *Hub) GetMetrics(ctx context.Context, req *connect.Request[agenv1.GetMet
 		a := byDep[k]
 		slices.Sort(a.durations)
 		a.m.P50Ms, a.m.P95Ms = percentile(a.durations, 0.5), percentile(a.durations, 0.95)
+		a.m.LabelBudgets = h.labelBudgetMetrics(ctx, a.m.Ref.Namespace, a.m.Ref.Name)
 		out.Deployments = append(out.Deployments, a.m)
 	}
 	calls, err := h.Store.CallStats(ctx, nss, since)

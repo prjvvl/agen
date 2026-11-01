@@ -124,5 +124,7 @@ func (h *Hub) afterTaskEnded(ctx context.Context, taskID string) {
 	h.replyResult(ctx, t)
 	if d, err := h.Store.GetDeployment(ctx, t.Namespace, t.Deployment); err == nil {
 		h.budgetThresholds(ctx, d)
+		h.treeBudgetThresholds(ctx, t)
+		h.labelBudgetThresholds(ctx, d, t)
 	}
 }

@@ -218,6 +218,7 @@ impl ModelProvider for FakeProvider {
             Usage {
                 input_tokens: input,
                 output_tokens: estimate_tokens(&r.text).max(1),
+                cached_input_tokens: 0,
                 cost_usd: 0.0,
             }
         });

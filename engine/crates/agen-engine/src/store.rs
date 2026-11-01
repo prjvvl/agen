@@ -1590,6 +1590,11 @@ fn run_from_row(r: &AnyRow) -> Result<RunRecord> {
         usage: Usage {
             input_tokens: r.get::<i64, _>(14) as u64,
             output_tokens: r.get::<i64, _>(15) as u64,
+            // Not persisted (2.21): a resumed run's cached-token discount
+            // resets to 0, counting its earlier cache hits at full price
+            // instead of their cached weight — conservative (it can only
+            // undercount the discount, never overcount a run's spend).
+            cached_input_tokens: 0,
             cost_usd: r.get(16),
         },
         trace_id: r.get(17),

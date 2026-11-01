@@ -25,6 +25,7 @@
       "description": "Reasoning effort for models that reason (OpenRouter reasoning.effort, OpenAI reasoning_effort)"
     },
     "parallelToolCalls": { "type": "boolean", "description": "Run the tool calls of one model turn concurrently (default true)" },
+    "maxToolResultChars": { "type": "integer", "minimum": 0, "description": "A tool result longer than this is saved as an artifact instead of going into the conversation whole, with a preview and the artifact id in its place (default about 32000; 0: no cap)" },
     "traceToolArguments": { "type": "boolean", "description": "Record each tool call's arguments (secrets redacted, up to 4 KiB) on its trace span" },
     "baseUrl": { "type": "string" },
     "apiKeySecret": { "type": "string", "description": "Secret name holding the API key" },

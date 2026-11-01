@@ -188,6 +188,13 @@ impl StreamState {
             self.usage = Usage {
                 input_tokens: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0),
                 output_tokens: u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0),
+                // OpenAI-compatible shape (OpenRouter passes it through):
+                // prompt_tokens already counts a cache hit; this is the
+                // subset of it that was served from cache (2.21).
+                cached_input_tokens: u
+                    .pointer("/prompt_tokens_details/cached_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
                 cost_usd: u.get("cost").and_then(Value::as_f64).unwrap_or(0.0),
             };
         }

@@ -150,7 +150,7 @@ features:
     not: {console: "no UI yet; use agen memory or the API"}
   - id: artifacts
     title: Artifacts (save_artifact / read_artifact; a long result need not stay in context)
-    contract: [rpc:GetArtifact, rpc:ListArtifacts, field:GetArtifact.id, field:ListArtifacts.task_id, cli:artifacts]
+    contract: [rpc:GetArtifact, rpc:ListArtifacts, field:GetArtifact.id, field:ListArtifacts.task_id, cli:artifacts, harness:maxToolResultChars]
     on: [api, mcp, cli]
     not: {console: "no UI yet; use agen artifacts or the API"}
 
@@ -226,6 +226,7 @@ features:
       field:CreateDeployment.bundle_text, field:CreateDeployment.kind, field:CreateDeployment.scale, field:CreateDeployment.placement,
       field:UpdateDeployment.bundle_files, field:UpdateDeployment.bundle_text, field:UpdateDeployment.scale,
       field:UpdateDeployment.placement, field:ScaleDeployment.desired, field:PauseDeployment.paused,
+      field:PauseDeployment.hold_runs, field:PauseDeployment.until, field:PauseDeployment.reason,
       field:ListInstances.deployment, field:ListInstances.nest_id, config:kind, config:scale,
       cli:deploy, cli:scale, cli:ps, cli:stop, cli:start, cli:rm]
     on: [api, mcp, cli, console, docker, kubernetes]

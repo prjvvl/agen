@@ -1168,7 +1168,28 @@ func (h *Hub) PauseDeployment(ctx context.Context, req *connect.Request[agenv1.P
 		return nil, connectErr(err)
 	}
 	h.deploymentEvent(ctx, "deployment.updated", ns, d.Name, map[string]any{"paused": d.Paused})
-	return connect.NewResponse(&agenv1.PauseDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name)))}), nil
+	resp := &agenv1.PauseDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name)))}
+	switch {
+	case !d.Paused:
+		// A resume always clears any hold this RPC put in place, whether
+		// or not this call asked for hold_runs.
+		if _, err := h.Store.ResumeDeploymentHold(ctx, ns, d.Name); err != nil {
+			return nil, connectErr(err)
+		}
+	case req.Msg.HoldRuns:
+		var untilMs int64
+		if u := req.Msg.GetUntil(); u != nil {
+			untilMs = u.AsTime().UnixMilli()
+		}
+		held, err := h.Store.HoldDeployment(ctx, ns, d.Name, untilMs, req.Msg.Reason)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		for _, t := range held {
+			resp.Held = append(resp.Held, TaskProto(t))
+		}
+	}
+	return connect.NewResponse(resp), nil
 }
 
 // ---- approvals ----

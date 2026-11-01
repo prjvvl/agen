@@ -441,6 +441,9 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/PauseDeployment` · MCP too
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `paused` | bool | false resumes. |
+| `holdRuns` | bool | Also hold every currently unfinished task of the deployment (2.8), the deployment-wide form of PauseTask/PauseTree: a leased/running one suspends at its next model call, a queued/waiting one stays put. Ignored (nothing to hold) when paused is false; a resume (paused: false) always clears any hold this put in place, whether or not hold_runs is set on that call. |
+| `until` | Timestamp | hold_runs only: the hold's deadline. Unset: holds until explicitly resumed. |
+| `reason` | string |  |
 
 ## PauseTask
 

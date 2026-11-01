@@ -1222,6 +1222,98 @@ func (s *Store) ResumeTree(ctx context.Context, rootTaskID string) ([]Task, erro
 // either with no deadline or one still in the future. A past deadline
 // reports false without clearing the stored hold (lazy expiry: LeaseTasks
 // and WakeExpiredHolds are what actually move the task on).
+// HoldDeployment holds every unfinished task of a deployment (2.8: the
+// plan's PauseDeployment(holdRuns=true) extension), the same snapshot-only
+// semantics as PauseTree but scoped by namespace+deployment instead of a
+// tree. A task submitted after this call is unaffected — pausing (the
+// deployment's existing Desired=0) already stops anything new from being
+// leased, so there is nothing further for a hold to do there.
+func (s *Store) HoldDeployment(ctx context.Context, namespace, deployment string, untilMs int64, reason string) ([]Task, error) {
+	var held []Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND state IN ('queued', 'leased', 'running', 'waiting') ORDER BY created_ms",
+			namespace, deployment)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		now := NowMs()
+		for _, id := range ids {
+			t, err := scanTask(tx.QueryRowContext(ctx,
+				"UPDATE tasks SET held = 1, held_until_ms = $1, hold_reason = $2, updated_ms = $3 WHERE id = $4 AND state IN ('queued', 'leased', 'running', 'waiting') RETURNING "+taskCols,
+				untilMs, reason, now, id))
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // ended between the select above and here
+			}
+			if err != nil {
+				return err
+			}
+			held = append(held, t)
+		}
+		return nil
+	})
+	return held, err
+}
+
+// ResumeDeploymentHold ends the hold HoldDeployment put on a deployment's
+// tasks, the same snapshot-only pattern as ResumeTree.
+func (s *Store) ResumeDeploymentHold(ctx context.Context, namespace, deployment string) ([]Task, error) {
+	var resumed []Task
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT id FROM tasks WHERE namespace = $1 AND deployment = $2 AND held = 1 ORDER BY created_ms", namespace, deployment)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		now := NowMs()
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE tasks SET held = 0, held_until_ms = 0, hold_reason = '', updated_ms = $1 WHERE id = $2",
+				now, id); err != nil {
+				return err
+			}
+			t, err := scanTask(tx.QueryRowContext(ctx,
+				"UPDATE tasks SET state = 'queued', wait_for = '', priority = 'urgent', updated_ms = $1 WHERE id = $2 AND state = 'waiting' AND wait_for = 'resume' RETURNING "+taskCols,
+				now, id))
+			if errors.Is(err, sql.ErrNoRows) {
+				t, err = scanTask(tx.QueryRowContext(ctx, "SELECT "+taskCols+" FROM tasks WHERE id = $1", id))
+			}
+			if err != nil {
+				return err
+			}
+			resumed = append(resumed, t)
+		}
+		return nil
+	})
+	return resumed, err
+}
+
 func (s *Store) IsHeld(ctx context.Context, taskID string) (bool, error) {
 	var held int
 	var heldUntilMs int64

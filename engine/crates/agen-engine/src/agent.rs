@@ -1184,9 +1184,17 @@ impl Agent {
                     }
                 }
             }
+            let mut system = self.redactor.redact(&self.system_prompt(opts).await?);
+            // Added after redaction, at the very end: it changes every
+            // turn, so appending it keeps the rest of the system prompt
+            // (and the provider's prompt cache over it) stable.
+            if let Some(line) = self.budget_status_line(live, opts) {
+                system.push_str("\n\n");
+                system.push_str(&line);
+            }
             let req = ModelRequest {
                 model: self.cfg.model.clone(),
-                system: self.redactor.redact(&self.system_prompt(opts).await?),
+                system,
                 messages: self.request_messages(&live.rec).await?,
                 tools: self.visible_tools(live, opts),
                 temperature: self.cfg.temperature,
@@ -1803,11 +1811,14 @@ impl Agent {
             opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
         );
         if let Some(max) = budget.max_tokens_per_run {
-            if u.total_tokens() >= max {
-                return Some(format!(
-                    "budget_exceeded: {} tokens used, limit {max}",
-                    u.total_tokens()
-                ));
+            let weight = self
+                .cfg
+                .budget
+                .cached_input_weight
+                .unwrap_or(default_limits::CACHED_INPUT_WEIGHT);
+            let counted = u.budget_tokens(weight);
+            if counted >= max {
+                return Some(format!("budget_exceeded: {counted} tokens used, limit {max}"));
             }
         }
         // Only enforceable when the provider reports cost (OpenRouter does).
@@ -1817,6 +1828,63 @@ impl Agent {
             }
         }
         None
+    }
+
+    /// Budget visible to the model (2.19): past 50% of any limit that
+    /// applies (turns, cost or tokens, wall-clock duration — whichever the
+    /// bundle/task actually set), a short status line, so the model can
+    /// pace itself rather than running out with nothing to show. None of
+    /// these limits are new: this only surfaces numbers the engine already
+    /// tracks for `budget_exceeded`/`max_turns`/`max_run_duration`, so it
+    /// has no notion of whether a run's current limit came from the
+    /// bundle, a task override, or the Hub's tree-budget narrowing — it
+    /// only ever sees its own already-effective limit, same as those
+    /// checks do.
+    fn budget_status_line(&self, live: &Live, opts: &RunOptions) -> Option<String> {
+        let budget = narrow_budget(
+            &self.cfg.budget,
+            opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+        );
+        let max_turns = narrow_max_turns(
+            self.cfg.max_turns,
+            opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+        );
+        let max_duration = narrow_max_run_duration(
+            self.cfg.max_run_duration,
+            opts.overrides.as_ref().and_then(|o| o.budget.as_ref()),
+        );
+        let u = &live.rec.usage;
+        let mut parts = vec![];
+        let mut worst = 0.0f64;
+        if max_turns > 0 {
+            worst = worst.max(live.rec.step as f64 / max_turns as f64);
+            parts.push(format!("turn {} of {max_turns}", live.rec.step + 1));
+        }
+        if let Some(max) = budget.max_usd_per_run.filter(|m| *m > 0.0) {
+            worst = worst.max(u.cost_usd / max);
+            parts.push(format!("${:.2} of ${max:.2}", u.cost_usd));
+        } else if let Some(max) = budget.max_tokens_per_run.filter(|m| *m > 0) {
+            let weight = self
+                .cfg
+                .budget
+                .cached_input_weight
+                .unwrap_or(default_limits::CACHED_INPUT_WEIGHT);
+            let counted = u.budget_tokens(weight);
+            worst = worst.max(counted as f64 / max as f64);
+            parts.push(format!("{counted} of {max} tokens"));
+        }
+        if !max_duration.is_zero() {
+            worst = worst.max(live.worked().as_secs_f64() / max_duration.as_secs_f64());
+            parts.push(format!(
+                "{} of {} min",
+                live.worked().as_secs() / 60,
+                max_duration.as_secs() / 60
+            ));
+        }
+        if parts.is_empty() || worst < 0.5 {
+            return None;
+        }
+        Some(format!("[agen] {}", parts.join(" · ")))
     }
 
     /// The bundle's system prompt, with skills preloaded (the bundle's
@@ -2320,6 +2388,7 @@ fn narrow_budget(base: &Budget, over: Option<&crate::overrides::RunBudgetOverrid
         max_tokens_per_run: narrow_opt(base.max_tokens_per_run, over.max_tokens),
         max_usd_per_run: narrow_opt_f(base.max_usd_per_run, over.max_usd),
         max_usd_per_day: base.max_usd_per_day,
+        cached_input_weight: base.cached_input_weight,
     }
 }
 
