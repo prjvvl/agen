@@ -453,6 +453,7 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 	// Lineage is recorded only for authenticated agent callers: anyone else
 	// could otherwise attach a run to another trace or reset its depth.
 	depth, parentRun, rootRun := 0, "", ""
+	trust := ""
 	if who.agent() {
 		depth, parentRun, rootRun = metaInt(p, "agen.depth"), metaString(p, "agen.parent_run_id"), metaString(p, "agen.root_run_id")
 		// Without a parent run there is no lineage to check: a root claim
@@ -460,6 +461,22 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 		if parentRun == "" {
 			depth, rootRun = 0, ""
 		}
+		// A verified agent caller's own live trust, already lowered by any
+		// taint it picked up and never raised (same boundary as the
+		// lineage fields above: a call token proves which deployment is
+		// calling, not anything about the request body, so this is only
+		// ever as trustworthy as that deployment's own engine already is).
+		trust = metaString(p, "agen.trust")
+	}
+	switch trust {
+	case "operator", "trusted", "untrusted":
+	default:
+		// No verified caller, or one that predates this field: the same
+		// safe default every other untrusted-by-default source already
+		// uses (a webhook trigger's own default), not Trust's bare zero
+		// value (Trusted) — an inbound A2A task never starts trusted
+		// just because nothing said otherwise.
+		trust = "untrusted"
 	}
 	if a, ok := g.Fleet.Assignment(ns, dep); ok && a.MaxDelegationDepth > 0 && depth > int(a.MaxDelegationDepth) {
 		return nil, errf(codeDepthExceeded, http.StatusOK, "delegation depth %d exceeds max_delegation_depth %d of %s/%s", depth, a.MaxDelegationDepth, ns, dep)
@@ -522,7 +539,7 @@ func (g *Gateway) send(ctx context.Context, ns, dep string, raw json.RawMessage,
 	conversationKey := "a2a:" + who.sub() + ":" + contextID
 	host := manager.HostTask{ID: taskID, Input: strings.Join(text, "\n"), ParentRunID: parentRun,
 		RootRunID: rootRun, Traceparent: metaString(p, "traceparent"), Depth: depth, ConversationKey: conversationKey, Labels: labels,
-		ModelTier: metaString(p, "agen.model_tier")}
+		ModelTier: metaString(p, "agen.model_tier"), Trust: trust}
 	// A person (user token) asking directly: the run is theirs, so they
 	// cannot approve its asks. The signed token itself is recorded, so the
 	// Hub can check it (a host cannot forge a requester). Agent calls

@@ -908,7 +908,16 @@ impl Tool for CallAgent {
                     "agen.depth": depth,
                     "agen.root_run_id": root,
                     "agen.parent_run_id": ctx.run_id,
-                    "agen.labels": ctx.labels
+                    "agen.labels": ctx.labels,
+                    // The caller's live trust right now, already lowered by
+                    // any taint it picked up (never raised) — read by the
+                    // Gateway only from a cryptographically verified agent
+                    // caller (calltoken.Claims.Agent()), the same trust
+                    // boundary that already gates agen.depth/root_run_id
+                    // above. Closes the taint-propagation gap this
+                    // call_agent path (via:"a2a") previously had: without
+                    // it, an inbound A2A task defaulted to Trust::Trusted.
+                    "agen.trust": ctx.trust.as_str()
                 }
             }
         });
