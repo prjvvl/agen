@@ -277,10 +277,28 @@ the next child submitted after it. A live per-turn check (mirroring
 that gap, but needs its own new RPC chain
 (`TaskStarter::tree_budget_exceeded` → `ManagerService` →
 `NestService` → `Store`) comparable in size to join or hold, and is not
-built. `budget.threshold` events, `GetMetrics` rolled up per tree/label,
-and showing budget status to the model mid-run are separate, additive
-pieces of the original design, not part of enforcement itself, and are
-not built either.
+built.
+
+**Budget visibility** (2.19/2.21, additive — not part of enforcement
+itself): `Hub.treeBudgetThresholds`/`labelBudgetThresholds` fire the same
+`budget.threshold` event (50/80/100%, deduped) `afterTaskEnded` already
+fires for the deployment-wide daily budget, scoped `"tree"`/`"label"`
+instead. `GetMetrics`'s `DeploymentMetrics.label_budgets` rolls up
+today's spend against every configured `labelUsdPerDay` rule regardless
+of the call's own time window, since a label budget resets daily, not by
+buckets; a tree's own rolled-up cost already existed via
+`ListRuns(rootsOnly=true)`'s `Run.TreeUsage`. The engine appends a late
+system-prompt line (after the cached prefix, so the provider's prompt
+cache over the rest of it stays valid) past 50% of any limit that
+applies — it has no notion of whether that limit came from the bundle, a
+task override, or this section's own tree narrowing, since by the time
+it checks it only ever sees one already-effective number, the same one
+`budget_exceeded`/`max_turns`/`max_run_duration` check. `Usage` also now
+carries `cached_input_tokens` (OpenRouter's
+`prompt_tokens_details.cached_tokens`); `Usage::budget_tokens(weight)`
+counts it at `budget.cachedInputWeight` (default 0.1) instead of full
+price for `maxTokensPerRun` — not persisted across a resume, which can
+only overcount a resumed run's spend, never undercount it.
 
 **Label budgets** (3.5, part), scoped down from the plan's own
 `labelBudgets` namespace-config wording to a per-deployment rule set,
@@ -665,10 +683,19 @@ including async ones — an explicit hold is not the automatic
 `on_parent_end` cascade. `is_held` returns a bare bool rather than the
 deadline itself: a deadline is the Hub's job to act on (lazily or via the
 sweep), not the engine's, and a bool sidesteps the int64/protojson string
-pitfall `unfinished_children` hit entirely. The deployment-wide
-`PauseDeployment(hold_runs=true)` extension from the plan's wording is not
-built — scoped down to the per-task case, which is what `agen pause`/
-`agen resume` and the `PauseTask`/`ResumeTask` RPCs expose today.
+pitfall `unfinished_children` hit entirely.
+
+**Deployment-wide hold** (2.8): `PauseDeployment(ref, paused=true, hold_runs=true, until?, reason?)`
+also holds every currently unfinished task of the deployment —
+`Store.HoldDeployment`/`ResumeDeploymentHold` apply the exact same
+`held`/`held_until_ms`/`hold_reason` columns `PauseTask`/`PauseTree`
+already use, just scoped by namespace+deployment instead of a single
+task or `root_task_id`. No engine change was needed: a leased/running
+task's own `is_held` check (above) already notices the flag at its next
+turn boundary regardless of who set it. A resume (`paused: false`)
+always clears any hold this put in place, whether or not that call also
+asks for `hold_runs`. Exposed via `agen stop --hold-runs [--at|--in]
+[--reason]`; `agen start` resumes both the pause and any hold.
 
 **Graceful cancel** (3.4, part): `CancelTask(id, tree=false, mode="hard"|"graceful", grace_period_seconds?)`.
 `mode: "graceful"` gives every task of the scope (just `id`, or the whole
