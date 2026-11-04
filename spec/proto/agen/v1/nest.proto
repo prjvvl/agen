@@ -63,6 +63,11 @@ service NestService {
   // Drops a lock a task this Nest currently leases holds (1.5, part: the
   // release_lock built-in). A no-op if it doesn't hold one by that name.
   rpc ReleaseLock(NestReleaseLockRequest) returns (NestReleaseLockResponse);
+  // Whether a task this Nest currently leases' tree has, right now,
+  // spent at least as much as its root's own declared budget (3.5,
+  // part: the live check). Low-stakes like IsHeld: requireNest only, no
+  // lease fencing.
+  rpc TreeBudgetExceeded(NestTreeBudgetExceededRequest) returns (NestTreeBudgetExceededResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -273,6 +278,14 @@ message NestReleaseLockRequest {
   string name = 3;
 }
 message NestReleaseLockResponse {}
+
+message NestTreeBudgetExceededRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestTreeBudgetExceededResponse {
+  bool exceeded = 1;
+}
 
 message CreateApprovalRequest {
   Approval approval = 1;

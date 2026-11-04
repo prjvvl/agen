@@ -709,6 +709,25 @@ func (n *NestAPI) ReleaseLock(ctx context.Context, req *connect.Request[agenv1.N
 	return connect.NewResponse(&agenv1.NestReleaseLockResponse{}), nil
 }
 
+// TreeBudgetExceeded reports whether a task this Nest currently leases'
+// tree has, right now, spent at least as much as its root's own declared
+// budget (3.5, part: the live check). Low-stakes like IsHeld: requireNest
+// only, no lease fencing.
+func (n *NestAPI) TreeBudgetExceeded(ctx context.Context, req *connect.Request[agenv1.NestTreeBudgetExceededRequest]) (*connect.Response[agenv1.NestTreeBudgetExceededResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	exceeded, err := n.hub.treeBudgetExceeded(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestTreeBudgetExceededResponse{Exceeded: exceeded}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

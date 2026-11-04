@@ -142,6 +142,15 @@ pub trait TaskStarter: Send + Sync {
     /// built-in), whether declared up front or acquired mid-run. A no-op
     /// if it doesn't currently hold one by that name.
     async fn release_lock(&self, task_id: &str, name: &str) -> Result<(), String>;
+    /// Whether the current task's tree has, right now, spent at least as
+    /// much as the root task's own declared budget (3.5, part: the live
+    /// check — a sibling's spend while another is still running never
+    /// shrinks that other sibling's own, already-fixed budget, which a
+    /// submission-time-only narrowing can't catch on its own). Checked
+    /// by the engine's own turn loop, ending the run the exact same way
+    /// its existing per-run budget check already does: a graceful
+    /// partial finish, never a hard stop or a suspend.
+    async fn tree_budget_exceeded(&self, task_id: &str) -> Result<bool, String>;
 }
 
 /// What waiting for a task found.
@@ -423,6 +432,27 @@ impl TaskStarter for ManagerResolver {
             ));
         }
         Ok(())
+    }
+
+    async fn tree_budget_exceeded(&self, task_id: &str) -> Result<bool, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/TreeBudgetExceeded", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "tree budget check for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v.get("exceeded").and_then(Value::as_bool).unwrap_or(false))
     }
 }
 

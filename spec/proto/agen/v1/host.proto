@@ -70,6 +70,13 @@ service ManagerService {
   // built-in) before the task ends, whether declared up front or
   // acquired mid-run. Releasing one it doesn't hold is a no-op.
   rpc ReleaseLock(ReleaseLockRequest) returns (ReleaseLockResponse);
+  // Whether the calling task's tree has, right now, spent at least as
+  // much as the root task's own declared budget (3.5, part: the live
+  // check), checked by the engine's turn loop alongside IsHeld and
+  // UnfinishedChildren. True ends the run as a graceful partial finish
+  // with a report, the same way the engine's own per-run budget check
+  // already does.
+  rpc TreeBudgetExceeded(TreeBudgetExceededRequest) returns (TreeBudgetExceededResponse);
 }
 
 message StartTaskRequest {
@@ -154,6 +161,13 @@ message ReleaseLockRequest {
   string name = 2;
 }
 message ReleaseLockResponse {}
+
+message TreeBudgetExceededRequest {
+  string task_id = 1;
+}
+message TreeBudgetExceededResponse {
+  bool exceeded = 1;
+}
 
 message RequestApprovalRequest {
   string instance_id = 1;

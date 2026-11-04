@@ -64,6 +64,9 @@ impl TaskStarter for JoinChildren {
     async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
         Ok(())
     }
+    async fn tree_budget_exceeded(&self, _task_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 fn start(agent: &str) -> FakeResponse {

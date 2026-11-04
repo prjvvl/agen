@@ -79,6 +79,9 @@ const (
 	// ManagerServiceReleaseLockProcedure is the fully-qualified name of the ManagerService's
 	// ReleaseLock RPC.
 	ManagerServiceReleaseLockProcedure = "/agen.v1.ManagerService/ReleaseLock"
+	// ManagerServiceTreeBudgetExceededProcedure is the fully-qualified name of the ManagerService's
+	// TreeBudgetExceeded RPC.
+	ManagerServiceTreeBudgetExceededProcedure = "/agen.v1.ManagerService/TreeBudgetExceeded"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -283,6 +286,13 @@ type ManagerServiceClient interface {
 	// built-in) before the task ends, whether declared up front or
 	// acquired mid-run. Releasing one it doesn't hold is a no-op.
 	ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error)
+	// Whether the calling task's tree has, right now, spent at least as
+	// much as the root task's own declared budget (3.5, part: the live
+	// check), checked by the engine's turn loop alongside IsHeld and
+	// UnfinishedChildren. True ends the run as a graceful partial finish
+	// with a report, the same way the engine's own per-run budget check
+	// already does.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -374,6 +384,12 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("ReleaseLock")),
 			connect.WithClientOptions(opts...),
 		),
+		treeBudgetExceeded: connect.NewClient[v1.TreeBudgetExceededRequest, v1.TreeBudgetExceededResponse](
+			httpClient,
+			baseURL+ManagerServiceTreeBudgetExceededProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("TreeBudgetExceeded")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -392,6 +408,7 @@ type managerServiceClient struct {
 	isHeld             *connect.Client[v1.IsHeldRequest, v1.IsHeldResponse]
 	acquireLock        *connect.Client[v1.AcquireLockRequest, v1.AcquireLockResponse]
 	releaseLock        *connect.Client[v1.ReleaseLockRequest, v1.ReleaseLockResponse]
+	treeBudgetExceeded *connect.Client[v1.TreeBudgetExceededRequest, v1.TreeBudgetExceededResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -459,6 +476,11 @@ func (c *managerServiceClient) ReleaseLock(ctx context.Context, req *connect.Req
 	return c.releaseLock.CallUnary(ctx, req)
 }
 
+// TreeBudgetExceeded calls agen.v1.ManagerService.TreeBudgetExceeded.
+func (c *managerServiceClient) TreeBudgetExceeded(ctx context.Context, req *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error) {
+	return c.treeBudgetExceeded.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -509,6 +531,13 @@ type ManagerServiceHandler interface {
 	// built-in) before the task ends, whether declared up front or
 	// acquired mid-run. Releasing one it doesn't hold is a no-op.
 	ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error)
+	// Whether the calling task's tree has, right now, spent at least as
+	// much as the root task's own declared budget (3.5, part: the live
+	// check), checked by the engine's turn loop alongside IsHeld and
+	// UnfinishedChildren. True ends the run as a graceful partial finish
+	// with a report, the same way the engine's own per-run budget check
+	// already does.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -596,6 +625,12 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("ReleaseLock")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceTreeBudgetExceededHandler := connect.NewUnaryHandler(
+		ManagerServiceTreeBudgetExceededProcedure,
+		svc.TreeBudgetExceeded,
+		connect.WithSchema(managerServiceMethods.ByName("TreeBudgetExceeded")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -624,6 +659,8 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceAcquireLockHandler.ServeHTTP(w, r)
 		case ManagerServiceReleaseLockProcedure:
 			managerServiceReleaseLockHandler.ServeHTTP(w, r)
+		case ManagerServiceTreeBudgetExceededProcedure:
+			managerServiceTreeBudgetExceededHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -683,4 +720,8 @@ func (UnimplementedManagerServiceHandler) AcquireLock(context.Context, *connect.
 
 func (UnimplementedManagerServiceHandler) ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.ReleaseLock is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) TreeBudgetExceeded(context.Context, *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.TreeBudgetExceeded is not implemented"))
 }

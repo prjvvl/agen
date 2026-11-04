@@ -64,6 +64,9 @@ impl TaskStarter for ScriptedInbox {
     async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
         Ok(())
     }
+    async fn tree_budget_exceeded(&self, _task_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 fn say(text: &str) -> FakeResponse {
@@ -236,6 +239,9 @@ async fn a_drain_error_does_not_fail_the_turn() {
         }
         async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
             Ok(())
+        }
+        async fn tree_budget_exceeded(&self, _task_id: &str) -> Result<bool, String> {
+            Ok(false)
         }
     }
     let d = tempfile::tempdir().unwrap();

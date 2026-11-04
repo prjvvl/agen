@@ -1323,6 +1323,33 @@ impl Agent {
                     }
                 }
             }
+            // Tree budget, live (3.5, part): a sibling's own spend never
+            // shrinks this run's already-fixed budget on its own — this
+            // closes that gap by checking the tree's current total
+            // against the root's declared limit on every turn, the same
+            // round trip is_held/unfinished_children already use. Ends
+            // the run exactly the way the per-run budget_exceeded check
+            // above already does: a graceful partial finish, not a hard
+            // stop or a suspend.
+            if !live.rec.task_id.is_empty() {
+                if let Some(starter) = &self.task_starter {
+                    match starter.tree_budget_exceeded(&live.rec.task_id).await {
+                        Ok(true) => {
+                            return self
+                                .report(live, tracer, ctx, opts, "tree_budget", "tree_budget_exceeded".into())
+                                .await
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            self.log(
+                                "warn",
+                                &format!("run {}: could not check the tree budget: {e}", live.rec.id),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
             let mut system = self
                 .redactor
                 .redact(&self.system_prompt(opts, &live.workspace_dir).await?);
@@ -2551,6 +2578,8 @@ fn failure_reason(err: &str) -> &'static str {
         "duration"
     } else if err.starts_with("budget_exceeded") {
         "budget"
+    } else if err.starts_with("tree_budget_exceeded") {
+        "tree_budget"
     } else {
         "error"
     }

@@ -74,6 +74,9 @@ const (
 	NestServiceAcquireLockProcedure = "/agen.v1.NestService/AcquireLock"
 	// NestServiceReleaseLockProcedure is the fully-qualified name of the NestService's ReleaseLock RPC.
 	NestServiceReleaseLockProcedure = "/agen.v1.NestService/ReleaseLock"
+	// NestServiceTreeBudgetExceededProcedure is the fully-qualified name of the NestService's
+	// TreeBudgetExceeded RPC.
+	NestServiceTreeBudgetExceededProcedure = "/agen.v1.NestService/TreeBudgetExceeded"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -156,6 +159,11 @@ type NestServiceClient interface {
 	// Drops a lock a task this Nest currently leases holds (1.5, part: the
 	// release_lock built-in). A no-op if it doesn't hold one by that name.
 	ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error)
+	// Whether a task this Nest currently leases' tree has, right now,
+	// spent at least as much as its root's own declared budget (3.5,
+	// part: the live check). Low-stakes like IsHeld: requireNest only, no
+	// lease fencing.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -291,6 +299,12 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("ReleaseLock")),
 			connect.WithClientOptions(opts...),
 		),
+		treeBudgetExceeded: connect.NewClient[v1.NestTreeBudgetExceededRequest, v1.NestTreeBudgetExceededResponse](
+			httpClient,
+			baseURL+NestServiceTreeBudgetExceededProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("TreeBudgetExceeded")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -367,6 +381,7 @@ type nestServiceClient struct {
 	isHeld             *connect.Client[v1.NestIsHeldRequest, v1.NestIsHeldResponse]
 	acquireLock        *connect.Client[v1.NestAcquireLockRequest, v1.NestAcquireLockResponse]
 	releaseLock        *connect.Client[v1.NestReleaseLockRequest, v1.NestReleaseLockResponse]
+	treeBudgetExceeded *connect.Client[v1.NestTreeBudgetExceededRequest, v1.NestTreeBudgetExceededResponse]
 	createApproval     *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval        *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity     *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -461,6 +476,11 @@ func (c *nestServiceClient) AcquireLock(ctx context.Context, req *connect.Reques
 // ReleaseLock calls agen.v1.NestService.ReleaseLock.
 func (c *nestServiceClient) ReleaseLock(ctx context.Context, req *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error) {
 	return c.releaseLock.CallUnary(ctx, req)
+}
+
+// TreeBudgetExceeded calls agen.v1.NestService.TreeBudgetExceeded.
+func (c *nestServiceClient) TreeBudgetExceeded(ctx context.Context, req *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error) {
+	return c.treeBudgetExceeded.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -563,6 +583,11 @@ type NestServiceHandler interface {
 	// Drops a lock a task this Nest currently leases holds (1.5, part: the
 	// release_lock built-in). A no-op if it doesn't hold one by that name.
 	ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error)
+	// Whether a task this Nest currently leases' tree has, right now,
+	// spent at least as much as its root's own declared budget (3.5,
+	// part: the live check). Low-stakes like IsHeld: requireNest only, no
+	// lease fencing.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -694,6 +719,12 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("ReleaseLock")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceTreeBudgetExceededHandler := connect.NewUnaryHandler(
+		NestServiceTreeBudgetExceededProcedure,
+		svc.TreeBudgetExceeded,
+		connect.WithSchema(nestServiceMethods.ByName("TreeBudgetExceeded")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -784,6 +815,8 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceAcquireLockHandler.ServeHTTP(w, r)
 		case NestServiceReleaseLockProcedure:
 			nestServiceReleaseLockHandler.ServeHTTP(w, r)
+		case NestServiceTreeBudgetExceededProcedure:
+			nestServiceTreeBudgetExceededHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -877,6 +910,10 @@ func (UnimplementedNestServiceHandler) AcquireLock(context.Context, *connect.Req
 
 func (UnimplementedNestServiceHandler) ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReleaseLock is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) TreeBudgetExceeded(context.Context, *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.TreeBudgetExceeded is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

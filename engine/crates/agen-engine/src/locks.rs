@@ -207,6 +207,9 @@ mod tests {
             async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
                 unreachable!()
             }
+            async fn tree_budget_exceeded(&self, _task_id: &str) -> Result<bool, String> {
+                unreachable!()
+            }
         }
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {

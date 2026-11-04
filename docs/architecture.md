@@ -289,16 +289,24 @@ limit), so it is cut off on its very next check instead — the same
 "overshoot of at most one model call" the deployment's own daily budget
 already documents and accepts.
 
-This is deliberately the "napkin math" slice, computed once at each
-child's own submission, not a continuously re-checked live budget: a
-sibling spending heavily *while* another is already running does not
-retroactively shrink the running one's own already-fixed budget, only
-the next child submitted after it. A live per-turn check (mirroring
-`is_held`/`unfinished_children`'s `TaskStarter` round trip) would close
-that gap, but needs its own new RPC chain
-(`TaskStarter::tree_budget_exceeded` → `ManagerService` →
-`NestService` → `Store`) comparable in size to join or hold, and is not
-built.
+`narrowForTreeBudget` alone is the "napkin math" slice, computed once
+at each child's own submission: a sibling spending heavily *while*
+another is already running would not, on its own, retroactively shrink
+the running one's already-fixed budget, only the next child submitted
+after it. **Closed** (3.5, the last gap, 2026-11-05): `Hub.treeBudgetExceeded`
+mirrors `narrowForTreeBudget`'s own read (the root's `overrides.budget`,
+`Store.TreeUsage`) but as a live, per-turn check instead — true once the
+tree's current usage reaches the root's limit, checked by the engine's
+turn loop via `TaskStarter::tree_budget_exceeded`, the exact same
+`ManagerService`/`NestService` round trip `is_held`/`unfinished_children`
+already use (turned out to need no new mechanism at all once actually
+designed, not comparable to join/hold in size as first assessed). A true
+result ends the run exactly the way the existing per-run `budget_exceeded`
+check already does — a graceful partial finish with a report, through
+`failure_reason`'s new `"tree_budget_exceeded"` → `"tree_budget"`
+mapping — never a hard stop or a suspend. A failed check (Manager
+unreachable) never stops or suspends the run on its own, same as every
+other `TaskStarter` check.
 
 **Budget visibility** (2.19/2.21, additive — not part of enforcement
 itself): `Hub.treeBudgetThresholds`/`labelBudgetThresholds` fire the same

@@ -163,6 +163,64 @@ func TestTreeBudgetThresholdsFireOncePerCrossing(t *testing.T) {
 	}
 }
 
+// treeBudgetExceeded (3.5, part: the live check, 2026-11-05) notices a
+// SIBLING's spend even though the task being checked recorded none of
+// it itself — the gap narrowForTreeBudget's submission-time-only
+// narrowing can't close on its own, since a running sibling's own,
+// already-fixed budget never shrinks just because another one is
+// spending in parallel.
+// features: tasks.run
+func TestTreeBudgetExceededNoticesASiblingsSpend(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	root, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "root",
+		Overrides: &agenv1.TaskOverrides{Budget: &agenv1.RunBudget{MaxUsd: 0.10}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	childA, err := e.store.SubmitTask(ctx, store.Task{Namespace: "default", Deployment: "hello", Input: "a", ParentTaskID: root.Msg.Task.Id, RootTaskID: root.Msg.Task.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childB, err := e.store.SubmitTask(ctx, store.Task{Namespace: "default", Deployment: "hello", Input: "b", ParentTaskID: root.Msg.Task.Id, RootTaskID: root.Msg.Task.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exceeded, err := e.hub.treeBudgetExceeded(ctx, childA.ID)
+	if err != nil || exceeded {
+		t.Fatalf("nothing spent yet: %v %v", exceeded, err)
+	}
+
+	// Only childB spends, past the root's own limit.
+	insertRun(t, e, childB.ID, 0, 0, 0.12)
+
+	exceeded, err = e.hub.treeBudgetExceeded(ctx, childA.ID)
+	if err != nil || !exceeded {
+		t.Fatalf("childA's own tree is over budget from childB's spend alone: %v %v", exceeded, err)
+	}
+	// And the root itself reads the same way.
+	exceeded, err = e.hub.treeBudgetExceeded(ctx, root.Msg.Task.Id)
+	if err != nil || !exceeded {
+		t.Fatalf("the root reads over budget too: %v %v", exceeded, err)
+	}
+
+	// A standalone task with no tree budget at all never errors, just
+	// reads as not exceeded.
+	bare, err := e.store.SubmitTask(ctx, store.Task{Namespace: "default", Deployment: "hello", Input: "bare"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exceeded, err = e.hub.treeBudgetExceeded(ctx, bare.ID)
+	if err != nil || exceeded {
+		t.Fatalf("a tree with no declared budget never reads as exceeded: %v %v", exceeded, err)
+	}
+}
+
 // With no budget on the root at all, a child's overrides are unaffected:
 // nothing narrows.
 // features: tasks.run

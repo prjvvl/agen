@@ -230,28 +230,40 @@ func (h *Hub) labelBudgetThresholds(ctx context.Context, d store.Deployment, t s
 	}
 }
 
-func (h *Hub) narrowForTreeBudget(ctx context.Context, rootTaskID string, combined *store.TaskOverrides) *store.TaskOverrides {
+// rootTreeBudget reads a tree's own declared budget (the root task's
+// overrides.budget) and its current cumulative usage, shared by
+// narrowForTreeBudget (a new child's submission-time remainder) and
+// treeBudgetExceeded (3.5, part: the live per-turn check, 2026-11-05).
+// hasLimit is false when the root never set a tree budget at all.
+func (h *Hub) rootTreeBudget(ctx context.Context, rootTaskID string) (maxTokens int64, maxUsd float64, usedTokens int64, usedUsd float64, hasLimit bool, err error) {
 	root, err := h.Store.GetTask(ctx, rootTaskID)
 	if err != nil {
-		return combined
+		return 0, 0, 0, 0, false, err
 	}
 	rootOv, _ := store.ParseOverrides(root.Overrides)
 	if rootOv == nil || rootOv.Budget == nil || (rootOv.Budget.MaxTokens <= 0 && rootOv.Budget.MaxUsd <= 0) {
-		return combined
+		return 0, 0, 0, 0, false, nil
 	}
 	inTok, outTok, usd, err := h.Store.TreeUsage(ctx, rootTaskID)
 	if err != nil {
+		return 0, 0, 0, 0, false, err
+	}
+	return rootOv.Budget.MaxTokens, rootOv.Budget.MaxUsd, inTok + outTok, usd, true, nil
+}
+
+func (h *Hub) narrowForTreeBudget(ctx context.Context, rootTaskID string, combined *store.TaskOverrides) *store.TaskOverrides {
+	maxTokens, maxUsd, tokens, usd, hasLimit, err := h.rootTreeBudget(ctx, rootTaskID)
+	if err != nil || !hasLimit {
 		return combined
 	}
-	tokens := inTok + outTok
 	if combined == nil {
 		combined = &store.TaskOverrides{}
 	}
 	if combined.Budget == nil {
 		combined.Budget = &store.RunBudget{}
 	}
-	if max := rootOv.Budget.MaxTokens; max > 0 {
-		remainder := max - tokens
+	if maxTokens > 0 {
+		remainder := maxTokens - tokens
 		if remainder < 1 {
 			remainder = 1
 		}
@@ -259,8 +271,8 @@ func (h *Hub) narrowForTreeBudget(ctx context.Context, rootTaskID string, combin
 			combined.Budget.MaxTokens = remainder
 		}
 	}
-	if max := rootOv.Budget.MaxUsd; max > 0 {
-		remainder := max - usd
+	if maxUsd > 0 {
+		remainder := maxUsd - usd
 		if remainder < 0.0001 {
 			remainder = 0.0001
 		}
@@ -269,4 +281,26 @@ func (h *Hub) narrowForTreeBudget(ctx context.Context, rootTaskID string, combin
 		}
 	}
 	return combined
+}
+
+// treeBudgetExceeded reports whether task's tree has, right now, spent at
+// least as much as the root task's own declared budget (3.5, part: the
+// live check narrowForTreeBudget alone can't give — a sibling's spend
+// while another is still running never shrinks that other sibling's own,
+// already-fixed budget). Checked by the engine's own turn loop (the same
+// per-turn round trip is_held/unfinished_children already use), ending
+// the run the exact same way its existing per-run budget_exceeded check
+// already does: a graceful partial finish with a report, never a hard
+// stop or a suspend. false (never an error) when the task has no root
+// task id yet, or its tree never declared a budget at all.
+func (h *Hub) treeBudgetExceeded(ctx context.Context, taskID string) (bool, error) {
+	t, err := h.Store.GetTask(ctx, taskID)
+	if err != nil || t.RootTaskID == "" {
+		return false, err
+	}
+	maxTokens, maxUsd, tokens, usd, hasLimit, err := h.rootTreeBudget(ctx, t.RootTaskID)
+	if err != nil || !hasLimit {
+		return false, err
+	}
+	return (maxTokens > 0 && tokens >= maxTokens) || (maxUsd > 0 && usd >= maxUsd), nil
 }

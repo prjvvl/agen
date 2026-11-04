@@ -364,6 +364,29 @@ func (s *managerService) IsHeld(ctx context.Context, req *connect.Request[agenv1
 	}
 }
 
+func (s *managerService) TreeBudgetExceeded(ctx context.Context, req *connect.Request[agenv1.TreeBudgetExceededRequest]) (*connect.Response[agenv1.TreeBudgetExceededResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().TreeBudgetExceeded(ctx, connect.NewRequest(&agenv1.NestTreeBudgetExceededRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.TreeBudgetExceededResponse{Exceeded: r.Msg.Exceeded}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
 func (s *managerService) AcquireLock(ctx context.Context, req *connect.Request[agenv1.AcquireLockRequest]) (*connect.Response[agenv1.AcquireLockResponse], error) {
 	id, _ := ctx.Value(instanceIDKey{}).(string)
 	s.m.mu.Lock()
