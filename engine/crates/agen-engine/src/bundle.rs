@@ -522,6 +522,11 @@ pub struct Config {
     pub triggers: Vec<Value>,
     #[serde(default)]
     pub memory: Vec<MemoryAttachment>,
+    /// Rollover (1.8, part): once a conversation's history no longer
+    /// fits `maxContextTokens`, the part about to be dropped is folded
+    /// into a running summary instead of just disappearing. Unset: a
+    /// built-in prompt.
+    pub rollover: Option<RolloverConfig>,
     /// Record every model call of every run as a replayable cassette
     /// (3.6, part: `agen replay`). Off by default: a cassette holds full
     /// prompts and tool-call payloads.
@@ -538,6 +543,13 @@ pub enum MemoryMode {
     Read,
     Append,
     Write,
+}
+
+/// `x-agen/config.json` `rollover` (1.8, part).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RolloverConfig {
+    /// Replaces the built-in summarization instruction.
+    pub prompt: Option<String>,
 }
 
 /// A memory block attached to this bundle, or a live context source
@@ -1203,6 +1215,18 @@ mod tests {
             2,
             "{msgs:?}"
         );
+    }
+
+    #[test]
+    fn rollover_prompt_parses_from_config_json() {
+        let d = temp_hello();
+        std::fs::write(
+            d.path().join("x-agen/config.json"),
+            r#"{"rollover": {"prompt": "Summarize briefly."}}"#,
+        )
+        .unwrap();
+        let b = Bundle::load(d.path()).unwrap();
+        assert_eq!(b.config.rollover.unwrap().prompt.as_deref(), Some("Summarize briefly."));
     }
 
     #[test]

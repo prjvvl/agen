@@ -277,6 +277,14 @@
         },
         "additionalProperties": false
       }
+    },
+    "rollover": {
+      "type": "object",
+      "description": "Once a conversation's history no longer fits maxContextTokens, the part about to be dropped is folded into a running summary (one extra model call) instead of just disappearing (1.8, part)",
+      "properties": {
+        "prompt": { "type": "string", "description": "Replaces the built-in summarization instruction" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

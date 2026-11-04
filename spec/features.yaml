@@ -150,10 +150,10 @@ features:
     on: [api, mcp, cli]
     not: {console: "no UI yet; use agen feedback or the API"}
   - id: memory.blocks
-    title: Memory blocks (durable, named text an agent reads and updates across runs)
+    title: Memory blocks (durable, named text an agent reads and updates across runs), live context sources and conversation rollover
     contract: [rpc:SetMemoryBlock, rpc:ListMemoryBlocks, field:SetMemoryBlock.id, field:SetMemoryBlock.label,
       field:SetMemoryBlock.description, field:SetMemoryBlock.value, field:SetMemoryBlock.limit_chars,
-      field:ListMemoryBlocks.namespace, config:memory, cli:memory]
+      field:ListMemoryBlocks.namespace, config:memory, config:rollover, cli:memory]
     on: [api, mcp, cli]
     not: {console: "no UI yet; use agen memory or the API"}
   - id: artifacts

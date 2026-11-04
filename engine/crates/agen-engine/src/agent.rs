@@ -127,6 +127,16 @@ pub struct AgentConfig {
     /// A tool result longer than this many characters is saved as an
     /// artifact instead of going into the conversation whole (0: no cap).
     pub max_tool_result_chars: u32,
+    /// Rollover (1.8, part), off by default: once this run's conversation
+    /// history no longer fits, the part about to be dropped is folded
+    /// into a running summary (one extra model call) instead of just
+    /// disappearing. Set by `x-agen/config.json` `rollover` being
+    /// present at all (an empty `{}` still turns it on).
+    pub rollover_enabled: bool,
+    /// Replaces rollover's built-in summarization instruction
+    /// (`x-agen/config.json` `rollover.prompt`, 1.8, part). `None`: the
+    /// built-in one.
+    pub rollover_prompt: Option<String>,
 }
 
 impl AgentConfig {
@@ -166,6 +176,8 @@ impl AgentConfig {
             report_tokens: default_limits::REPORT_TOKENS,
             memory: vec![],
             max_tool_result_chars: default_limits::MAX_TOOL_RESULT_CHARS,
+            rollover_enabled: false,
+            rollover_prompt: None,
         }
     }
 }
@@ -622,6 +634,8 @@ impl Agent {
         cfg.budget = bundle.config.budget.clone();
         cfg.limits = bundle.config.limits.clone();
         cfg.memory = bundle.config.memory.clone();
+        cfg.rollover_enabled = bundle.config.rollover.is_some();
+        cfg.rollover_prompt = bundle.config.rollover.as_ref().and_then(|r| r.prompt.clone());
         let limits = &bundle.config.limits;
         if let Some(t) = limits.max_run_duration.as_deref() {
             cfg.max_run_duration = duration_setting("limits.maxRunDuration", t)?;
@@ -1754,12 +1768,28 @@ impl Agent {
     /// Conversation history for the model: earlier runs' messages (trimmed
     /// oldest-first to fit `context_tokens`, starting at a user message) plus
     /// the current run's messages (oldest tool results shortened when they
-    /// alone exceed it), with orphaned tool calls answered.
+    /// alone exceed it), with orphaned tool calls answered. A message past
+    /// the conversation's own rollover point (1.8, part) is never resent
+    /// raw — its content lives on in the running summary prepended instead
+    /// — and a newly-dropped chunk is folded into that summary before it's
+    /// dropped, so the cut never costs the model its memory of it, only
+    /// the exact words.
     async fn request_messages(&self, rec: &RunRecord) -> Result<Vec<Message>, AgentError> {
         let all = self.store.messages(&rec.conversation_id).await?;
         let current = self.store.run_messages(&rec.id).await?;
         let split = all.len().saturating_sub(current.len());
         let mut history: Vec<Message> = all[..split].to_vec();
+        let (mut summary, mut summarized_through) = if self.cfg.rollover_enabled {
+            self.store
+                .conversation_summary(&rec.conversation_id)
+                .await
+                .unwrap_or_default()
+        } else {
+            (String::new(), 0)
+        };
+        if summarized_through > 0 {
+            history.drain(..(summarized_through as usize).min(history.len()));
+        }
         let current_tokens: u64 = current.iter().map(message_tokens).sum();
         let budget = self.cfg.context_tokens.saturating_sub(current_tokens);
         let mut total: u64 = history.iter().map(message_tokens).sum();
@@ -1771,9 +1801,83 @@ impl Agent {
         while drop < history.len() && history[drop].role != Role::User {
             drop += 1;
         }
+        if drop > 0 && self.cfg.rollover_enabled {
+            match self.rollover_summary(&summary, &history[..drop]).await {
+                Ok(updated) => {
+                    summary = updated;
+                    summarized_through += drop as i64;
+                    if let Err(e) = self
+                        .store
+                        .set_conversation_summary(&rec.conversation_id, &summary, summarized_through)
+                        .await
+                    {
+                        self.log(
+                            "warn",
+                            &format!(
+                                "run {}: could not save the conversation's rollover summary: {e}",
+                                rec.id
+                            ),
+                        )
+                        .await;
+                    }
+                }
+                Err(e) => {
+                    self.log(
+                        "warn",
+                        &format!(
+                            "run {}: could not summarize for rollover, dropping without one: {e}",
+                            rec.id
+                        ),
+                    )
+                    .await;
+                }
+            }
+        }
         history.drain(..drop);
         history.extend(compact_run(current, self.cfg.context_tokens));
-        Ok(answer_orphans(history))
+        let mut out = answer_orphans(history);
+        if !summary.is_empty() {
+            out.insert(0, Message::user(format!("[Earlier conversation summary]\n{summary}")));
+        }
+        Ok(out)
+    }
+
+    /// Extends a conversation's rolling summary to also cover `chunk`
+    /// (1.8, part: rollover), via one extra call to this agent's own
+    /// model provider — the same pattern `agen eval`'s judge call uses.
+    async fn rollover_summary(&self, existing: &str, chunk: &[Message]) -> Result<String, String> {
+        let transcript: String = chunk
+            .iter()
+            .map(|m| format!("{:?}: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let instruction = self.cfg.rollover_prompt.as_deref().unwrap_or(
+            "Summarize this part of a long conversation concisely, in a few sentences: what was \
+             asked, what was done, what was decided, and anything still open. Keep names, ids \
+             and numbers exact.",
+        );
+        let prompt = if existing.is_empty() {
+            format!("{instruction}\n\nConversation so far:\n{transcript}")
+        } else {
+            format!(
+                "{instruction}\n\nExisting summary so far:\n{existing}\n\nNew conversation to fold in:\n{transcript}"
+            )
+        };
+        let req = ModelRequest {
+            model: self.cfg.model.clone(),
+            system: "You write short, factual conversation summaries.".into(),
+            messages: vec![Message::user(prompt)],
+            tools: vec![],
+            temperature: None,
+            max_output_tokens: Some(500),
+            extra: Default::default(),
+        };
+        let resp = self
+            .provider
+            .complete(&req, &provider::no_deltas)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(resp.text)
     }
 
     /// The request for one model (extras, and a routing model's tier).

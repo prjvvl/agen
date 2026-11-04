@@ -273,6 +273,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0045_lock_fencing.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0045_lock_fencing.sql"),
     },
+    Migration {
+        version: 46,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0046_conversation_rollover.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0046_conversation_rollover.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -1056,6 +1061,40 @@ impl Store {
     pub async fn run_messages(&self, run_id: &str) -> Result<Vec<Message>> {
         self.load_messages("SELECT body FROM messages WHERE run_id = $1 ORDER BY seq", run_id)
             .await
+    }
+
+    /// A conversation's rolling summary and how many of its own messages
+    /// (oldest first) are already folded into it (1.8, part: rollover).
+    /// `("", 0)` for a conversation that has never needed one.
+    pub async fn conversation_summary(&self, conversation_id: &str) -> Result<(String, i64)> {
+        let row = sqlx::query("SELECT summary, summarized_through FROM conversations WHERE id = $1")
+            .bind(conversation_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(match row {
+            Some(r) => (r.get::<String, _>(0), r.get::<i64, _>(1)),
+            None => (String::new(), 0),
+        })
+    }
+
+    /// Replaces a conversation's rolling summary and advances
+    /// `summarized_through` (1.8, part: rollover) — never retreats, so a
+    /// retried or concurrent write can never un-summarize a message.
+    pub async fn set_conversation_summary(
+        &self,
+        conversation_id: &str,
+        summary: &str,
+        summarized_through: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE conversations SET summary = $1, summarized_through = $2 WHERE id = $3 AND summarized_through < $2",
+        )
+        .bind(summary)
+        .bind(summarized_through)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn load_messages(&self, sql: &'static str, key: &str) -> Result<Vec<Message>> {

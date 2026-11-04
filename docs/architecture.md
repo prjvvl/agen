@@ -1072,11 +1072,26 @@ optional.
   failure (unreachable, non-2xx, timeout) just leaves it out of that turn's
   prompt rather than failing the run — it is read-only, so `memory_update`
   never lists it. An `mcp` live source (reading an MCP resource instead of
-  a URL) and conversation rollover (continue-as-new with an auto-summary,
-  the old segment staying readable) are not yet implemented: the former
-  needs an MCP resources/read client this engine doesn't have at all yet
-  (today it only calls tools), and the latter needs a new segment-boundary
-  concept in the Store, both bigger than this slice.
+  a URL) is not yet implemented — this engine has no MCP resources/read
+  client at all yet, today it only calls tools.
+
+**Rollover** (1.8, part), `x-agen/config.json` `rollover: {prompt}`, off
+by default (no key at all: the exact old trimming behavior, nothing
+changes). `request_messages` already trims a conversation's own history
+oldest-first once it no longer fits `context_tokens`; with rollover on,
+the chunk about to be dropped is folded into a running summary — one
+extra call to the agent's own model provider, the same one-off-call
+pattern `agen eval`'s judge uses — instead of just disappearing.
+`conversations.summary`/`summarized_through` (how many of the
+conversation's own messages, oldest first, are already folded in) persist
+it; a message past that point is never resent raw again, but stays in
+`messages`, fully readable by anyone reading the conversation back
+directly — rollover only changes what reaches the model, never what the
+Store keeps. The summary is prepended to what's sent as a plain user
+note, `[Earlier conversation summary]`, every turn it's non-empty, not
+only the turn a cut just happened on. A failed summarization call logs a
+warning and drops the chunk without one, same as before rollover existed,
+rather than failing the run over something optional.
 - Artifacts (3.8, part): named, content-addressed text (`artifacts`:
   namespace, id = `sha256:<hex>` of content, name, media_type, size, content,
   task_id, run_id) an agent saves with the built-in `save_artifact` tool

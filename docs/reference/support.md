@@ -52,7 +52,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Built-in workspace and SQL tool servers |  |  | ✓ |  |  |
 | Permissions and approvals | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Record and list feedback on tasks (a person, a check, or a judge model) | ✓ | ✓ | ✓ | –[^20] |  |
-| Memory blocks (durable, named text an agent reads and updates across runs) | ✓ | ✓ | ✓ | –[^21] |  |
+| Memory blocks (durable, named text an agent reads and updates across runs), live context sources and conversation rollover | ✓ | ✓ | ✓ | –[^21] |  |
 | Artifacts (save_artifact / read_artifact; a long result need not stay in context) | ✓ | ✓ | ✓ | –[^22] |  |
 | Run tasks and wait for results | ✓ | ✓ | ✓ | ✓ |  |
 | Every task of the tree a task belongs to (its root and descendants) | ✓ | ✓ | ✓ |  |  |
@@ -113,6 +113,6 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 [^18]: Event log (ListEvents, event stream with a cursor) on Console: the console follows changes live through the same stream; it has no event log view yet
 [^19]: Host tools (functions in your program) on API: deployed agents get tools from MCP servers in the bundle (tools.mcp)
 [^20]: Record and list feedback on tasks (a person, a check, or a judge model) on Console: no UI yet; use agen feedback or the API
-[^21]: Memory blocks (durable, named text an agent reads and updates across runs) on Console: no UI yet; use agen memory or the API
+[^21]: Memory blocks (durable, named text an agent reads and updates across runs), live context sources and conversation rollover on Console: no UI yet; use agen memory or the API
 [^22]: Artifacts (save_artifact / read_artifact; a long result need not stay in context) on Console: no UI yet; use agen artifacts or the API
 [^23]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events
