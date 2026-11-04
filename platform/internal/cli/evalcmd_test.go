@@ -95,3 +95,28 @@ func TestEvalAllScenariosPassingExitsZeroWithJSON(t *testing.T) {
 		t.Fatalf("want 2 runs, got %d: %v", len(runs), r)
 	}
 }
+
+// evalComparisonLines (2.43, part: comparison against the last eval)
+// reports only what changed since the last recorded report: a regression
+// (passed before, fails now), a fix (failed before, passes now), nothing
+// for a scenario that's unchanged or new.
+func TestEvalComparisonLinesReportsOnlyWhatChanged(t *testing.T) {
+	old := `[{"scenario":"a","passK":true},{"scenario":"b","passK":false},{"scenario":"c","passK":true}]`
+	new_ := []map[string]any{
+		{"scenario": "a", "passK": false}, // regressed
+		{"scenario": "b", "passK": true},  // fixed
+		{"scenario": "c", "passK": true},  // unchanged: no line
+		{"scenario": "d", "passK": false}, // new: no line (nothing to compare against)
+	}
+	lines := evalComparisonLines(old, new_)
+	if len(lines) != 2 {
+		t.Fatalf("want exactly 2 lines, got %v", lines)
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "regressed: a") || !strings.Contains(joined, "fixed: b") {
+		t.Fatalf("lines: %v", lines)
+	}
+	if empty := evalComparisonLines("", new_); empty != nil {
+		t.Fatalf("no previous report should produce no lines: %v", empty)
+	}
+}

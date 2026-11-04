@@ -276,9 +276,10 @@ features:
     contract: [config:recordInteractions, rpc:GetCassette, field:GetCassette.run_id, cli:replay]
     on: [api, mcp, cli]
   - id: eval
-    title: Run scenario files against a bundle with mocked tools; report pass@1/pass^k
-    contract: [cli:eval]
-    on: [cli]
+    title: Run scenario files against a bundle with mocked tools; report pass@1/pass^k; eval history per deployment and deploy --require-eval
+    contract: [cli:eval, rpc:RecordEvalReport, rpc:ListEvalReports, field:RecordEvalReport.report_json, field:RecordEvalReport.definition_digest, field:ListEvalReports.limit]
+    on: [api, mcp, cli]
+    not: {console: "no UI yet; use agen eval/deploy --require-eval or the API"}
   - id: observe.metrics
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]

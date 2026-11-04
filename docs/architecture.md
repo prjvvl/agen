@@ -877,11 +877,27 @@ Agent → Session → Conversation → Run → Span.
   deterministic and side-effect free. All of this is local: `agen-host
   eval` (new subcommand) does the run+score work per scenario file, `agen
   eval` loops it the same way `agen replay` drives `agen-host` directly,
-  no Hub task or deployment involved. Comparing a report against the
-  deployed definition's own last recorded eval, and `deploy
-  --require-eval`, both need somewhere to persist eval history per
-  deployment (a new Hub RPC and storage, as cassettes needed for `agen
-  replay`) — not attempted here.
+  no Hub task or deployment involved.
+
+  **Eval history** (2.43, part): `eval_reports` (namespace, deployment,
+  definition_digest, the CLI's own per-scenario JSON report, created_ms)
+  persists every report `agen deploy --require-eval` runs, via
+  `RecordEvalReport`/`ListEvalReports` (the same write+list RPC shape
+  `RecordFeedback`/`ListFeedback` already use). `agen deploy
+  <bundle-dir> --require-eval [--scenarios DIR] [--eval-runs N]`: scenario
+  files default to `x-agen/evals/` inside the bundle (or `--scenarios`
+  explicitly); every one must pass^k or the deploy never happens — no
+  `CreateDeployment`/`UpdateDeployment` call is made at all. Once it
+  deploys, the report is recorded against the now-created/updated
+  deployment; a report already on file for that deployment is compared
+  against the new one first, printing one line per scenario that flipped
+  (`regressed: <name> now fails (passed last eval)` / `fixed: <name> now
+  passes (failed last eval)`) — silent for anything unchanged or new,
+  since only a change is worth a look. `agen eval history <deployment>`
+  reads the recorded reports back, newest first. `replay --turn N
+  [--model]` (replay recorded calls up to a point, then switch to a live
+  model) still needs a new replay-then-live composite provider, a
+  separate, meaningfully-sized piece of engine work — not attempted here.
 - **Run ownership**: every run has an `owner` and an `epoch`. Every
  checkpoint (message + progress, one transaction) and the final status write
  check the epoch; `resume` claims the run and increments it, so a previous

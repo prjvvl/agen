@@ -143,6 +143,13 @@ service HubService {
   rpc GetArtifact(GetArtifactRequest) returns (GetArtifactResponse);
   // A namespace's artifacts, newest first; optionally one task's.
   rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
+
+  // Records an `agen eval` report against a deployment (2.43, part: eval
+  // history), so a later `agen deploy --require-eval` can compare
+  // against it.
+  rpc RecordEvalReport(RecordEvalReportRequest) returns (RecordEvalReportResponse);
+  // A deployment's eval reports, newest first (2.43, part).
+  rpc ListEvalReports(ListEvalReportsRequest) returns (ListEvalReportsResponse);
 }
 
 message RecordFeedbackRequest {
@@ -195,6 +202,35 @@ message ListArtifactsRequest {
 }
 message ListArtifactsResponse {
   repeated Artifact artifacts = 1;
+}
+
+message EvalReport {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  // The deployed definition this report was run against, if known
+  // (empty for a report recorded before a deploy actually happens).
+  string definition_digest = 4;
+  // agen eval's own JSON report (scenario, runs, pass1, passK per
+  // scenario) -- opaque here, same shape it already prints today.
+  string report_json = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+message RecordEvalReportRequest {
+  DeploymentRef ref = 1;
+  string definition_digest = 2;
+  string report_json = 3;
+}
+message RecordEvalReportResponse {
+  EvalReport report = 1;
+}
+message ListEvalReportsRequest {
+  DeploymentRef ref = 1;
+  // 0: the default (20).
+  int32 limit = 2;
+}
+message ListEvalReportsResponse {
+  repeated EvalReport reports = 1;
 }
 
 message ListFeedbackResponse {

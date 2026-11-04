@@ -278,6 +278,11 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0046_conversation_rollover.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0046_conversation_rollover.sql"),
     },
+    Migration {
+        version: 47,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0047_eval_reports.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0047_eval_reports.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").

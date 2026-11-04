@@ -309,6 +309,13 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 	case "ListTriggerEvents":
 		n, name := ref()
 		c.args = []string{"triggers", name, "-n", n, "--json"}
+	case "ListEvalReports":
+		n, name := ref()
+		c.args = []string{"eval", "history", name, "-n", n, "--json"}
+		if v, ok := a["limit"].(float64); ok {
+			used["limit"] = true
+			c.args = append(c.args, "--limit", fmt.Sprintf("%d", int(v)))
+		}
 	case "CreateWebhookSecret":
 		n, name := ref()
 		c.args = []string{"webhook-secret", name, str("trigger"), "-n", n, "--json"}

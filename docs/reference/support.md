@@ -77,7 +77,7 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 | Runs, traces and transcripts | ✓ | ✓ | ✓ | ✓ |  |
 | Deployment logs | ✓ | ✓ | ✓ | ✓ |  |
 | Record a deployment's model calls and replay a run from its cassette offline | ✓ | ✓ | ✓ |  |  |
-| Run scenario files against a bundle with mocked tools; report pass@1/pass^k |  |  | ✓ |  |  |
+| Run scenario files against a bundle with mocked tools; report pass@1/pass^k; eval history per deployment and deploy --require-eval | ✓ | ✓ | ✓ | –[^24] |  |
 | Metrics, costs and live activity | ✓ | ✓ |  | ✓ |  |
 | Notification targets | ✓ | ✓ | ✓ | ✓ |  |
 | API tokens, scopes and namespaces | ✓ | ✓ | ✓ | ✓ |  |
@@ -116,3 +116,4 @@ MCP tools are generated from the same API methods, so a feature on the API is re
 [^21]: Memory blocks (durable, named text an agent reads and updates across runs), live context sources and conversation rollover on Console: no UI yet; use agen memory or the API
 [^22]: Artifacts (save_artifact / read_artifact; a long result need not stay in context) on Console: no UI yet; use agen artifacts or the API
 [^23]: Stream output while a run is in progress on API: tasks return the final result; follow live steps on /api/v1/events
+[^24]: Run scenario files against a bundle with mocked tools; report pass@1/pass^k; eval history per deployment and deploy --require-eval on Console: no UI yet; use agen eval/deploy --require-eval or the API

@@ -296,6 +296,17 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListDeployments` · MCP tool:
 |---|---|---|
 | `namespace` | string | Empty means all namespaces the caller may see. |
 
+## ListEvalReports
+
+A deployment's eval reports, newest first (2.43, part).
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListEvalReports` · MCP tool: `list_eval_reports`
+
+| Field | Type | Description |
+|---|---|---|
+| `ref` | DeploymentRef |  |
+| `limit` | int32 | 0: the default (20). |
+
 ## ListEvents
 
 The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
@@ -467,6 +478,18 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/QueryTask` · MCP tool: `quer
 | Field | Type | Description |
 |---|---|---|
 | `id` | string |  |
+
+## RecordEvalReport
+
+Records an `agen eval` report against a deployment (2.43, part: eval history), so a later `agen deploy --require-eval` can compare against it.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/RecordEvalReport` · MCP tool: `record_eval_report`
+
+| Field | Type | Description |
+|---|---|---|
+| `ref` | DeploymentRef |  |
+| `definitionDigest` | string |  |
+| `reportJson` | string |  |
 
 ## RecordFeedback
 

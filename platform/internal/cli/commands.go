@@ -82,12 +82,16 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	name := fs.String("name", "", "deployment name (default: bundle name)")
 	replicas := fs.Int("replicas", -1, "desired instances after deploying")
 	validate := fs.Bool("validate", false, "check the bundle and print warnings without deploying")
+	requireEval := fs.Bool("require-eval", false, "run the bundle's eval scenarios first (agen eval) and refuse to deploy unless every one passes (2.43)")
+	scenariosDir := fs.String("scenarios", "", "eval scenarios directory for --require-eval (default: x-agen/evals inside the bundle, if present)")
+	evalRuns := fs.Int("eval-runs", 1, "runs per scenario for --require-eval")
+	hostBin := fs.String("host-bin", "", "agen-host executable, for --require-eval (default: next to agen, $AGEN_HOST_BIN, or on PATH)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen deploy <bundle-dir> [--name N] [--replicas N] [--validate] [-n NS]")
+		return usageErr("agen deploy <bundle-dir> [--name N] [--replicas N] [--validate] [--require-eval] [-n NS]")
 	}
 	files, err := readBundle(pos[0])
 	if err != nil {
@@ -111,6 +115,53 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 		fmt.Fprintln(e.stdout, "bundle is valid")
 		return nil
 	}
+
+	var evalReportJSON string
+	n := *name
+	if n == "" {
+		n = bundleName(files)
+	}
+	if *requireEval {
+		dir := *scenariosDir
+		if dir == "" {
+			dir = filepath.Join(pos[0], "x-agen", "evals")
+			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+				return errors.New("--require-eval needs --scenarios DIR or an x-agen/evals directory in the bundle")
+			}
+		}
+		filesInDir, err := scenarioFiles(dir)
+		if err != nil {
+			return err
+		}
+		if len(filesInDir) == 0 {
+			return fmt.Errorf("--require-eval: no *.json scenario files in %s", dir)
+		}
+		bin, err := findHostBin(*hostBin)
+		if err != nil {
+			return err
+		}
+		reports, allPass, err := runEvalScenarios(ctx, bin, pos[0], filesInDir, *evalRuns, "")
+		if err != nil {
+			return fmt.Errorf("--require-eval: %w", err)
+		}
+		if !allPass {
+			return fmt.Errorf("--require-eval: scenarios in %s did not all pass^%d; not deploying", dir, *evalRuns)
+		}
+		b, err := json.Marshal(reports)
+		if err != nil {
+			return err
+		}
+		evalReportJSON = string(b)
+		if n != "" {
+			if last, err := c.ListEvalReports(ctx, connect.NewRequest(&agenv1.ListEvalReportsRequest{Ref: ref(cf, n), Limit: 1})); err == nil && len(last.Msg.Reports) > 0 {
+				for _, line := range evalComparisonLines(last.Msg.Reports[0].ReportJson, reports) {
+					fmt.Fprintln(e.stdout, line)
+				}
+			}
+		}
+		fmt.Fprintf(e.stdout, "eval: %d scenario(s) in %s passed^%d\n", len(filesInDir), dir, *evalRuns)
+	}
+
 	created, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Namespace: cf.namespace, Name: *name, BundleFiles: files}))
 	var d *agenv1.Deployment
 	var warnings []string
@@ -118,10 +169,6 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	case err == nil:
 		d, warnings = created.Msg.Deployment, created.Msg.Warnings
 	case connect.CodeOf(err) == connect.CodeAlreadyExists:
-		n := *name
-		if n == "" {
-			n = bundleName(files)
-		}
 		if n == "" {
 			return errors.New("deployment exists but the bundle has no name in plugin.json; pass --name")
 		}
@@ -135,6 +182,12 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	}
 	for _, w := range warnings {
 		fmt.Fprintln(e.stderr, "warning: "+w)
+	}
+	if evalReportJSON != "" {
+		if _, err := c.RecordEvalReport(ctx, connect.NewRequest(&agenv1.RecordEvalReportRequest{
+			Ref: ref(cf, d.Name), DefinitionDigest: d.DefinitionDigest, ReportJson: evalReportJSON})); err != nil {
+			fmt.Fprintln(e.stderr, "warning: could not record the eval report: "+err.Error())
+		}
 	}
 	if *replicas >= 0 {
 		s, err := c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref(cf, d.Name), Desired: int32(*replicas)}))

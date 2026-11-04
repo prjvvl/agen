@@ -220,6 +220,10 @@ Usage of init:
 Usage of deploy:
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -eval-runs int
+    	runs per scenario for --require-eval (default 1)
+  -host-bin string
+    	agen-host executable, for --require-eval (default: next to agen, $AGEN_HOST_BIN, or on PATH)
   -hub string
     	Hub URL
   -json
@@ -230,6 +234,10 @@ Usage of deploy:
     	deployment name (default: bundle name)
   -replicas int
     	desired instances after deploying (default -1)
+  -require-eval
+    	run the bundle's eval scenarios first (agen eval) and refuse to deploy unless every one passes (2.43)
+  -scenarios string
+    	eval scenarios directory for --require-eval (default: x-agen/evals inside the bundle, if present)
   -token string
     	API token
   -validate

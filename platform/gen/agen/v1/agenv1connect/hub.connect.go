@@ -173,6 +173,12 @@ const (
 	// HubServiceListArtifactsProcedure is the fully-qualified name of the HubService's ListArtifacts
 	// RPC.
 	HubServiceListArtifactsProcedure = "/agen.v1.HubService/ListArtifacts"
+	// HubServiceRecordEvalReportProcedure is the fully-qualified name of the HubService's
+	// RecordEvalReport RPC.
+	HubServiceRecordEvalReportProcedure = "/agen.v1.HubService/RecordEvalReport"
+	// HubServiceListEvalReportsProcedure is the fully-qualified name of the HubService's
+	// ListEvalReports RPC.
+	HubServiceListEvalReportsProcedure = "/agen.v1.HubService/ListEvalReports"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -296,6 +302,12 @@ type HubServiceClient interface {
 	GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error)
 	// A namespace's artifacts, newest first; optionally one task's.
 	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
+	// Records an `agen eval` report against a deployment (2.43, part: eval
+	// history), so a later `agen deploy --require-eval` can compare
+	// against it.
+	RecordEvalReport(context.Context, *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error)
+	// A deployment's eval reports, newest first (2.43, part).
+	ListEvalReports(context.Context, *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -639,6 +651,18 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("ListArtifacts")),
 			connect.WithClientOptions(opts...),
 		),
+		recordEvalReport: connect.NewClient[v1.RecordEvalReportRequest, v1.RecordEvalReportResponse](
+			httpClient,
+			baseURL+HubServiceRecordEvalReportProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("RecordEvalReport")),
+			connect.WithClientOptions(opts...),
+		),
+		listEvalReports: connect.NewClient[v1.ListEvalReportsRequest, v1.ListEvalReportsResponse](
+			httpClient,
+			baseURL+HubServiceListEvalReportsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListEvalReports")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -699,6 +723,8 @@ type hubServiceClient struct {
 	listMemoryBlocks         *connect.Client[v1.ListMemoryBlocksRequest, v1.ListMemoryBlocksResponse]
 	getArtifact              *connect.Client[v1.GetArtifactRequest, v1.GetArtifactResponse]
 	listArtifacts            *connect.Client[v1.ListArtifactsRequest, v1.ListArtifactsResponse]
+	recordEvalReport         *connect.Client[v1.RecordEvalReportRequest, v1.RecordEvalReportResponse]
+	listEvalReports          *connect.Client[v1.ListEvalReportsRequest, v1.ListEvalReportsResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -976,6 +1002,16 @@ func (c *hubServiceClient) ListArtifacts(ctx context.Context, req *connect.Reque
 	return c.listArtifacts.CallUnary(ctx, req)
 }
 
+// RecordEvalReport calls agen.v1.HubService.RecordEvalReport.
+func (c *hubServiceClient) RecordEvalReport(ctx context.Context, req *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error) {
+	return c.recordEvalReport.CallUnary(ctx, req)
+}
+
+// ListEvalReports calls agen.v1.HubService.ListEvalReports.
+func (c *hubServiceClient) ListEvalReports(ctx context.Context, req *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error) {
+	return c.listEvalReports.CallUnary(ctx, req)
+}
+
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
 	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
@@ -1097,6 +1133,12 @@ type HubServiceHandler interface {
 	GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error)
 	// A namespace's artifacts, newest first; optionally one task's.
 	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
+	// Records an `agen eval` report against a deployment (2.43, part: eval
+	// history), so a later `agen deploy --require-eval` can compare
+	// against it.
+	RecordEvalReport(context.Context, *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error)
+	// A deployment's eval reports, newest first (2.43, part).
+	ListEvalReports(context.Context, *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -1436,6 +1478,18 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("ListArtifacts")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceRecordEvalReportHandler := connect.NewUnaryHandler(
+		HubServiceRecordEvalReportProcedure,
+		svc.RecordEvalReport,
+		connect.WithSchema(hubServiceMethods.ByName("RecordEvalReport")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListEvalReportsHandler := connect.NewUnaryHandler(
+		HubServiceListEvalReportsProcedure,
+		svc.ListEvalReports,
+		connect.WithSchema(hubServiceMethods.ByName("ListEvalReports")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HubServiceCreateDeploymentProcedure:
@@ -1548,6 +1602,10 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetArtifactHandler.ServeHTTP(w, r)
 		case HubServiceListArtifactsProcedure:
 			hubServiceListArtifactsHandler.ServeHTTP(w, r)
+		case HubServiceRecordEvalReportProcedure:
+			hubServiceRecordEvalReportHandler.ServeHTTP(w, r)
+		case HubServiceListEvalReportsProcedure:
+			hubServiceListEvalReportsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1775,4 +1833,12 @@ func (UnimplementedHubServiceHandler) GetArtifact(context.Context, *connect.Requ
 
 func (UnimplementedHubServiceHandler) ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListArtifacts is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) RecordEvalReport(context.Context, *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.RecordEvalReport is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListEvalReports(context.Context, *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListEvalReports is not implemented"))
 }
