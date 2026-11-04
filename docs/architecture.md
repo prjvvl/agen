@@ -1050,13 +1050,25 @@ optional.
   (`memory_blocks`: namespace, id, label, description, value, limit_chars, a
   version bumped on every update), attached in `x-agen/config.json` `memory`
   (`block`, `mode`: `read` / `append` / `write`) and rendered into the system
-  prompt. With a non-`read` attachment the engine registers a
-  `memory_update` tool (`replace` / `append` / `str_replace`, an optional
-  `expectedVersion` compare-and-set) so parallel conversations cannot
-  silently overwrite each other; `SetMemoryBlock` (people, via
-  `agen memory set`) always replaces the value outright. Live `mcp:`/`url:`
-  context providers and conversation rollover (continue-as-new with an
-  auto-summary) are not yet implemented.
+  prompt, read fresh from the Store on every model call — not just once at
+  the start of a run — so two parallel conversations of the same agent
+  already see each other's writes at their very next turn. With a
+  non-`read` attachment the engine registers a `memory_update` tool
+  (`replace` / `append` / `str_replace`, an optional `expectedVersion`
+  compare-and-set) so parallel conversations cannot silently overwrite each
+  other; `SetMemoryBlock` (people, via `agen memory set`) always replaces
+  the value outright. The same `memory` list also carries live context
+  sources (1.8): a `url` entry instead of `block` is fetched with a plain
+  HTTP GET before every model call (`maxChars`, default 4000; `timeoutSeconds`,
+  default 5), rendered after the durable blocks as `## Live: <url>`; any
+  failure (unreachable, non-2xx, timeout) just leaves it out of that turn's
+  prompt rather than failing the run — it is read-only, so `memory_update`
+  never lists it. An `mcp` live source (reading an MCP resource instead of
+  a URL) and conversation rollover (continue-as-new with an auto-summary,
+  the old segment staying readable) are not yet implemented: the former
+  needs an MCP resources/read client this engine doesn't have at all yet
+  (today it only calls tools), and the latter needs a new segment-boundary
+  concept in the Store, both bigger than this slice.
 - Artifacts (3.8, part): named, content-addressed text (`artifacts`:
   namespace, id = `sha256:<hex>` of content, name, media_type, size, content,
   task_id, run_id) an agent saves with the built-in `save_artifact` tool

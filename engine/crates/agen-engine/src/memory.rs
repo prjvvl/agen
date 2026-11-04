@@ -2,9 +2,14 @@
 //! agent reads and updates across runs and conversations, rendered into
 //! the system prompt and changed through the `memory_update` built-in
 //! tool with compare-and-set (`store::update_memory_block`), so parallel
-//! conversations cannot silently overwrite each other.
+//! conversations cannot silently overwrite each other. The same `memory`
+//! list also carries live context sources (1.8): read-only content
+//! fetched fresh before every model call instead of coming from the
+//! Store (today: a plain `url`), appended after the durable blocks so a
+//! stable prefix is disturbed as little as possible.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -16,29 +21,66 @@ use crate::tools::{Tool, ToolContext, ToolError};
 
 pub const MEMORY_UPDATE: &str = "memory_update";
 
-/// Renders a namespace's attached memory blocks into the system prompt,
-/// one section per block with a value; a block never written yet (or
-/// written empty) is left out.
-pub async fn render(store: &Store, namespace: &str, attachments: &[MemoryAttachment]) -> Result<String, StoreError> {
+const DEFAULT_LIVE_MAX_CHARS: usize = 4000;
+const DEFAULT_LIVE_TIMEOUT_SECONDS: u64 = 5;
+
+/// Renders a namespace's attached memory blocks and live context sources
+/// into the system prompt. A block never written yet (or written empty)
+/// is left out; a live source that fails or times out to fetch is left
+/// out too, never turning into a run error (1.8).
+pub async fn render(
+    http: &reqwest::Client,
+    store: &Store,
+    namespace: &str,
+    attachments: &[MemoryAttachment],
+) -> Result<String, StoreError> {
     let mut s = String::new();
     for a in attachments {
-        let Some(b) = store.get_memory_block(namespace, &a.block).await? else {
-            continue;
-        };
-        if b.value.is_empty() {
-            continue;
+        if let Some(block) = &a.block {
+            let Some(b) = store.get_memory_block(namespace, block).await? else {
+                continue;
+            };
+            if b.value.is_empty() {
+                continue;
+            }
+            s.push_str("\n\n## Memory: ");
+            s.push_str(if b.label.is_empty() { block } else { &b.label });
+            if !b.description.is_empty() {
+                s.push_str(" (");
+                s.push_str(&b.description);
+                s.push(')');
+            }
+            s.push('\n');
+            s.push_str(&b.value);
+        } else if let Some(url) = &a.url {
+            if let Some(body) = fetch_live(http, url, a.max_chars, a.timeout_seconds).await {
+                s.push_str("\n\n## Live: ");
+                s.push_str(url);
+                s.push('\n');
+                s.push_str(&body);
+            }
         }
-        s.push_str("\n\n## Memory: ");
-        s.push_str(if b.label.is_empty() { &a.block } else { &b.label });
-        if !b.description.is_empty() {
-            s.push_str(" (");
-            s.push_str(&b.description);
-            s.push(')');
-        }
-        s.push('\n');
-        s.push_str(&b.value);
     }
     Ok(s)
+}
+
+/// Fetches a live context source's current content (1.8): `None` on any
+/// error (unreachable, non-2xx, timeout, not valid text) rather than
+/// failing the turn over something optional outside agen's control.
+async fn fetch_live(
+    http: &reqwest::Client,
+    url: &str,
+    max_chars: Option<usize>,
+    timeout_seconds: Option<u64>,
+) -> Option<String> {
+    let timeout = Duration::from_secs(timeout_seconds.unwrap_or(DEFAULT_LIVE_TIMEOUT_SECONDS));
+    let resp = http.get(url).timeout(timeout).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let text = resp.text().await.ok()?;
+    let max = max_chars.unwrap_or(DEFAULT_LIVE_MAX_CHARS);
+    Some(text.chars().take(max).collect())
 }
 
 /// The `memory_update` tool: `op` `replace` (the given `text`), `append`
@@ -65,7 +107,7 @@ impl MemoryUpdate {
 #[async_trait]
 impl Tool for MemoryUpdate {
     fn spec(&self) -> ToolSpec {
-        let names: Vec<&str> = self.attachments.iter().map(|a| a.block.as_str()).collect();
+        let names: Vec<&str> = self.attachments.iter().filter_map(|a| a.block.as_deref()).collect();
         ToolSpec {
             name: MEMORY_UPDATE.into(),
             description: "Update a memory block: durable text kept across runs and conversations. \
@@ -94,7 +136,7 @@ impl Tool for MemoryUpdate {
         let a = self
             .attachments
             .iter()
-            .find(|a| a.block == block)
+            .find(|a| a.block.as_deref() == Some(block))
             .ok_or_else(|| ToolError::new(format!("{block:?} is not a memory block of this agent")))?;
         let op_name = args.get("op").and_then(Value::as_str).unwrap_or_default();
         match a.mode {

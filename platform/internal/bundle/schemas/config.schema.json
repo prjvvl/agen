@@ -265,13 +265,15 @@
     },
     "memory": {
       "type": "array",
-      "description": "Memory blocks (durable, named text) this agent reads or updates, rendered into its system prompt",
+      "description": "Memory blocks (durable, named text) this agent reads or updates, or live context sources (read-only, fetched fresh before every model call); rendered into its system prompt. Exactly one of block or url is required per entry",
       "items": {
         "type": "object",
-        "required": ["block"],
         "properties": {
           "block": { "type": "string", "description": "The block's id (agen memory set / the API's SetMemoryBlock)" },
-          "mode": { "enum": ["read", "append", "write"], "description": "read (default): see it only. append: memory_update may add text. write: memory_update may also replace it or edit it in place" }
+          "mode": { "enum": ["read", "append", "write"], "description": "read (default): see it only. append: memory_update may add text. write: memory_update may also replace it or edit it in place" },
+          "url": { "type": "string", "format": "uri", "description": "A plain HTTP(S) URL, fetched with GET before every model call; skipped for that turn, never an error, if the fetch fails or times out" },
+          "maxChars": { "type": "integer", "minimum": 1, "description": "At most this many characters of the fetched body; the rest is dropped (default 4000)" },
+          "timeoutSeconds": { "type": "integer", "minimum": 1, "description": "How long to wait for the fetch before giving up (default 5)" }
         },
         "additionalProperties": false
       }

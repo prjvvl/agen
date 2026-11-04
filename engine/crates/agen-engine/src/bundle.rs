@@ -540,12 +540,26 @@ pub enum MemoryMode {
     Write,
 }
 
-/// A memory block attached to this bundle.
-#[derive(Debug, Clone, Deserialize)]
+/// A memory block attached to this bundle, or a live context source
+/// (1.8): read-only content fetched fresh before each model call instead
+/// of coming from the Store. Exactly one of `block` or `url` is set —
+/// checked by `Bundle::load`, since an untagged shape can't enforce it on
+/// its own.
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct MemoryAttachment {
-    pub block: String,
+    pub block: Option<String>,
     #[serde(default)]
     pub mode: MemoryMode,
+    /// A plain HTTP(S) URL, fetched with GET (1.8). Skipped for this
+    /// turn, never an error, if the fetch fails or times out.
+    pub url: Option<String>,
+    /// At most this many characters of the fetched body (1.8); the rest
+    /// is dropped. Default 4000.
+    #[serde(rename = "maxChars")]
+    pub max_chars: Option<usize>,
+    /// How long to wait for the fetch before giving up (1.8). Default 5.
+    #[serde(rename = "timeoutSeconds")]
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -729,6 +743,15 @@ impl Bundle {
         let config: Config = config_raw
             .and_then(|c| v.typed("x-agen/config.json", c))
             .unwrap_or_default();
+        for (i, a) in config.memory.iter().enumerate() {
+            if a.block.is_some() == a.url.is_some() {
+                v.issue(
+                    "x-agen/config.json",
+                    &format!("/memory/{i}"),
+                    "exactly one of block or url is required".into(),
+                );
+            }
+        }
         let secrets: BTreeMap<String, SecretRef> = secrets_raw
             .and_then(|s| v.typed("x-agen/secrets.json", s))
             .unwrap_or_default();
@@ -1161,6 +1184,25 @@ mod tests {
             "{msgs:?}"
         );
         assert!(msgs.iter().any(|m| m.contains("not found in bundle")), "{msgs:?}");
+    }
+
+    #[test]
+    fn a_memory_attachment_needs_exactly_one_of_block_or_url() {
+        let d = temp_hello();
+        std::fs::write(
+            d.path().join("x-agen/config.json"),
+            r#"{"memory": [{"block": "notes", "url": "https://example.com"}, {}]}"#,
+        )
+        .unwrap();
+        let err = Bundle::load(d.path()).unwrap_err();
+        let msgs: Vec<String> = err.issues.iter().map(|i| i.to_string()).collect();
+        assert_eq!(
+            msgs.iter()
+                .filter(|m| m.contains("exactly one of block or url"))
+                .count(),
+            2,
+            "{msgs:?}"
+        );
     }
 
     #[test]

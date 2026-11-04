@@ -289,6 +289,9 @@ pub struct Agent {
     /// Backs the run_inbox drain before each model call (3.4/3.9, part),
     /// same as `report_progress`/`signal_agent`/`query_agent`.
     task_starter: Option<Arc<dyn crate::delegate::TaskStarter>>,
+    /// Fetches live context sources (1.8, part), e.g. a `memory` `url`
+    /// attachment. Built once, not per fetch.
+    http: reqwest::Client,
 }
 
 /// Receives operational log lines (level, redacted message). Default: stderr.
@@ -427,6 +430,7 @@ impl AgentBuilder {
             log_sink: self.log_sink,
             finish,
             task_starter: self.task_starter,
+            http: reqwest::Client::new(),
         })
     }
 }
@@ -682,7 +686,7 @@ impl Agent {
         if let Some(starter) = opts.task_starter.clone() {
             b = b.task_starter(starter);
         }
-        if !bundle.config.memory.is_empty() {
+        if bundle.config.memory.iter().any(|a| a.block.is_some()) {
             b = b.tool(Arc::new(crate::memory::MemoryUpdate::new(
                 store.clone(),
                 &namespace,
@@ -2133,7 +2137,7 @@ impl Agent {
             s.push_str(addendum);
         }
         if !self.cfg.memory.is_empty() {
-            s.push_str(&crate::memory::render(&self.store, &self.cfg.namespace, &self.cfg.memory).await?);
+            s.push_str(&crate::memory::render(&self.http, &self.store, &self.cfg.namespace, &self.cfg.memory).await?);
         }
         Ok(s)
     }
