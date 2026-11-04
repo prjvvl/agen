@@ -1011,6 +1011,26 @@ Agent → Session → Conversation → Run → Span.
   every lock the run currently holds, name -> fencing token, omitted when
   it holds none) and the `traceparent`.
 
+**A tool server submitting its own task** (2.12, part — documented, not
+built further): a tool server reached via `_meta` already has everything
+it needs to submit a *same-conversation* task today, with its own public
+API token, no new mechanism at all — pass `_meta`'s `agen/conversationKey`
+as `SubmitTaskRequest.conversation_key` (so it lands in the same thread,
+sharing memory and history) and `agen/trust` as `SubmitTaskRequest.trust`
+(narrowing never raising it, same as any other caller), copying
+`agen/labels` through if it wants them carried along. This is deliberately
+*not* a true tree-linked child task (no shared `root_task_id`, no tree
+budget narrowing, no automatic cascade-cancel when the calling run ends):
+`SubmitChildTask`, the RPC that gives those, is `NestService`-only,
+authenticated by a Nest's own mTLS credential — a tool server has none,
+and the public `SubmitTaskRequest` has no `parent_task_id` field at all.
+Giving a tool server real tree-linkage would need a new, security-
+sensitive mechanism first — some signed capability token proving a given
+call genuinely acts on behalf of a specific task before the Hub accepts
+a claimed linkage on the public API, comparable in sensitivity to the
+A2A call-token trust boundary (§3.7) — not a quick SDK addition, and not
+attempted here.
+
 **Task workspaces** (2.45): `config.json` `workspace: {mode, retain}`.
 `mode` is `per_task` (its own directory, removed when the run ends unless
 `retain`), `per_conversation` (shared by every task of one conversation,
