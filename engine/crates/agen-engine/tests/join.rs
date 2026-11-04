@@ -58,6 +58,12 @@ impl TaskStarter for JoinChildren {
     async fn is_held(&self, _task_id: &str) -> Result<bool, String> {
         Ok(false)
     }
+    async fn acquire_lock(&self, _task_id: &str, _name: &str, _ttl: Duration) -> Result<i64, String> {
+        Ok(1)
+    }
+    async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn start(agent: &str) -> FakeResponse {

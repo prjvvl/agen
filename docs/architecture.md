@@ -197,8 +197,22 @@ from taking them one at a time), granted for as long as its lease and
 refreshed when the lease is extended, released when it ends
 (`task_locks` is what a task declared, `locks` what is currently
 granted, one task per namespace and name); a task waiting on one reports
-`wait_reason: "locks"`. The built-in `acquire_lock`/`release_lock` tools
-for locks named mid-run are not yet implemented. A task may be in state
+`wait_reason: "locks"`. The built-in `acquire_lock(name, ttl_seconds)`/
+`release_lock(name)` tools (1.5) grant or drop a lock named mid-run on
+top of a task's declared ones, through the same `locks` table and the
+same uniqueness rule, so two runs can never hold the same resource
+whether its lock was declared or named on the fly; released locks (by
+`release_lock`, or when the task ends) can be re-acquired by another
+task at once. Every grant — declared or mid-run — carries a fencing
+token, name -> fence in `_meta` `agen/locks`: a separate, durable
+counter (`lock_fences`) that advances only on a genuine handover to a
+different task, never a re-grant or lease extension to the same one,
+and keeps climbing across a release/re-acquire cycle rather than
+resetting (it lives apart from `locks`, which taskFinished deletes
+unconditionally) — this is the one thing an expired lease alone can't
+give a tool server outside the Hub's own control: it can remember the
+highest token it has seen for a resource and reject a write tagged with
+a stale one. A task may be in state
 `waiting` (3.3): it holds no instance or lease and is not autoscaler load,
 and carries `wait_for` (`"<kind>:<ref>"`, e.g. `"child:<task id>"`)
 describing what it is waiting for — unlike `wait_reason`, which says why a
@@ -969,7 +983,9 @@ Agent → Session → Conversation → Run → Span.
   calling run's current trust, already lowered by any taint, so a tool
   server can decide for itself whether a sensitive action fits the
   caller), `agen/workspace` (2.45, part — the run's workspace directory,
-  empty when the bundle sets no `workspace`) and the `traceparent`.
+  empty when the bundle sets no `workspace`), `agen/locks` (1.5, part —
+  every lock the run currently holds, name -> fencing token, omitted when
+  it holds none) and the `traceparent`.
 
 **Task workspaces** (2.45): `config.json` `workspace: {mode, retain}`.
 `mode` is `per_task` (its own directory, removed when the run ends unless

@@ -133,6 +133,15 @@ pub trait TaskStarter: Send + Sync {
     /// model again while held; a deadline (if any) is the Hub's job to
     /// act on, not the engine's, so this is just a bool.
     async fn is_held(&self, task_id: &str) -> Result<bool, String>;
+    /// Grants a named lock to the current task mid-run (1.5, part: the
+    /// `acquire_lock` built-in), for a resource not already covered by
+    /// its declared locks. Returns the lock's fencing token; an error if
+    /// another task currently holds it.
+    async fn acquire_lock(&self, task_id: &str, name: &str, ttl: Duration) -> Result<i64, String>;
+    /// Drops a lock the current task holds (1.5, part: the `release_lock`
+    /// built-in), whether declared up front or acquired mid-run. A no-op
+    /// if it doesn't currently hold one by that name.
+    async fn release_lock(&self, task_id: &str, name: &str) -> Result<(), String>;
 }
 
 /// What waiting for a task found.
@@ -368,6 +377,52 @@ impl TaskStarter for ManagerResolver {
             ));
         }
         Ok(v.get("held").and_then(Value::as_bool).unwrap_or(false))
+    }
+
+    async fn acquire_lock(&self, task_id: &str, name: &str, ttl: Duration) -> Result<i64, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/AcquireLock", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "name": name, "ttlSeconds": ttl.as_secs().clamp(1, 86400)}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "acquire lock {name} for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        // protojson renders int64 as a JSON string (to avoid precision loss
+        // in JS), not a number: accept either (the same int64/protojson
+        // pitfall UnfinishedChildren hit, checked for here from the start).
+        Ok(v.get("fence")
+            .and_then(|f| f.as_i64().or_else(|| f.as_str()?.parse().ok()))
+            .unwrap_or(0))
+    }
+
+    async fn release_lock(&self, task_id: &str, name: &str) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/ReleaseLock", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "name": name}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        if !resp.status().is_success() {
+            let v: Value = resp.json().await.unwrap_or(Value::Null);
+            return Err(format!(
+                "release lock {name} for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(())
     }
 }
 

@@ -56,6 +56,13 @@ service NestService {
   // now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
   // only, no lease fencing.
   rpc IsHeld(NestIsHeldRequest) returns (NestIsHeldResponse);
+  // Grants a named lock to a task this Nest currently leases (1.5, part:
+  // the acquire_lock built-in). FailedPrecondition (AlreadyExists at the
+  // store layer) if another task currently holds it.
+  rpc AcquireLock(NestAcquireLockRequest) returns (NestAcquireLockResponse);
+  // Drops a lock a task this Nest currently leases holds (1.5, part: the
+  // release_lock built-in). A no-op if it doesn't hold one by that name.
+  rpc ReleaseLock(NestReleaseLockRequest) returns (NestReleaseLockResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -249,6 +256,23 @@ message NestIsHeldRequest {
 message NestIsHeldResponse {
   bool held = 1;
 }
+
+message NestAcquireLockRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  string name = 3;
+  int32 ttl_seconds = 4;
+}
+message NestAcquireLockResponse {
+  int64 fence = 1;
+}
+
+message NestReleaseLockRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  string name = 3;
+}
+message NestReleaseLockResponse {}
 
 message CreateApprovalRequest {
   Approval approval = 1;

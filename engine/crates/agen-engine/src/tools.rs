@@ -2,7 +2,7 @@
 //! tools) or the engine itself (e.g. `load_skill`).
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -84,6 +84,12 @@ pub struct ToolContext {
     /// This run's workspace directory (2.45), already created; empty
     /// when the bundle sets no `workspace`.
     pub workspace_dir: String,
+    /// Locks this run currently holds (1.5, part), name -> fence: its own
+    /// declared locks plus any acquired mid-run, for `_meta` `agen/locks`.
+    /// Shared with the run's `Live` state (not a snapshot): `acquire_lock`/
+    /// `release_lock` update it directly so a later call in the same run
+    /// sees the change without a new round trip to re-derive it.
+    pub lock_fences: Arc<Mutex<BTreeMap<String, i64>>>,
 }
 
 #[async_trait]

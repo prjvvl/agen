@@ -58,6 +58,12 @@ impl TaskStarter for ScriptedInbox {
     async fn is_held(&self, _task_id: &str) -> Result<bool, String> {
         Ok(false)
     }
+    async fn acquire_lock(&self, _task_id: &str, _name: &str, _ttl: Duration) -> Result<i64, String> {
+        Ok(1)
+    }
+    async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn say(text: &str) -> FakeResponse {
@@ -224,6 +230,12 @@ async fn a_drain_error_does_not_fail_the_turn() {
         }
         async fn is_held(&self, _task_id: &str) -> Result<bool, String> {
             Ok(false)
+        }
+        async fn acquire_lock(&self, _task_id: &str, _name: &str, _ttl: Duration) -> Result<i64, String> {
+            Ok(1)
+        }
+        async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
+            Ok(())
         }
     }
     let d = tempfile::tempdir().unwrap();

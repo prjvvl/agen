@@ -2302,8 +2302,15 @@ type Task struct {
 	// Unset: held indefinitely, until ResumeTask. Set: the scheduler clears
 	// the hold itself once this passes (lazily for a queued task, actively
 	// woken for a waiting one).
-	HeldUntil     *timestamppb.Timestamp `protobuf:"bytes,43,opt,name=held_until,json=heldUntil,proto3" json:"held_until,omitempty"`
-	HoldReason    string                 `protobuf:"bytes,44,opt,name=hold_reason,json=holdReason,proto3" json:"hold_reason,omitempty"`
+	HeldUntil  *timestamppb.Timestamp `protobuf:"bytes,43,opt,name=held_until,json=heldUntil,proto3" json:"held_until,omitempty"`
+	HoldReason string                 `protobuf:"bytes,44,opt,name=hold_reason,json=holdReason,proto3" json:"hold_reason,omitempty"`
+	// This task's own declared locks' current fencing tokens (1.5, part),
+	// name -> fence, as of the moment it was leased. A declared lock's
+	// fence never changes for the rest of this task's lease, so this is
+	// set once here rather than fetched again later. Locks acquired mid-run
+	// (acquire_lock) are not included; their own fence comes back from
+	// that call directly.
+	LockFences    map[string]int64 `protobuf:"bytes,45,rep,name=lock_fences,json=lockFences,proto3" json:"lock_fences,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2644,6 +2651,13 @@ func (x *Task) GetHoldReason() string {
 		return x.HoldReason
 	}
 	return ""
+}
+
+func (x *Task) GetLockFences() map[string]int64 {
+	if x != nil {
+		return x.LockFences
+	}
+	return nil
 }
 
 // A task's self-reported progress (3.4, part), from the built-in
@@ -4477,7 +4491,7 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"generation\x12\x12\n" +
 	"\x04kind\x18\a \x01(\tR\x04kind\x12'\n" +
 	"\x0fmax_concurrency\x18\b \x01(\x05R\x0emaxConcurrency\x120\n" +
-	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x9a\r\n" +
+	"\x14max_delegation_depth\x18\t \x01(\x05R\x12maxDelegationDepth\"\x99\x0e\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1e\n" +
@@ -4534,10 +4548,15 @@ const file_agen_v1_resources_proto_rawDesc = "" +
 	"\n" +
 	"held_until\x18+ \x01(\v2\x1a.google.protobuf.TimestampR\theldUntil\x12\x1f\n" +
 	"\vhold_reason\x18, \x01(\tR\n" +
-	"holdReason\x1a9\n" +
+	"holdReason\x12>\n" +
+	"\vlock_fences\x18- \x03(\v2\x1d.agen.v1.Task.LockFencesEntryR\n" +
+	"lockFences\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"~\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
+	"\x0fLockFencesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"~\n" +
 	"\fTaskProgress\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x12\x14\n" +
@@ -4775,7 +4794,7 @@ func file_agen_v1_resources_proto_rawDescGZIP() []byte {
 }
 
 var file_agen_v1_resources_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_agen_v1_resources_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_agen_v1_resources_proto_goTypes = []any{
 	(DeploymentKind)(0),           // 0: agen.v1.DeploymentKind
 	(TriggerEventState)(0),        // 1: agen.v1.TriggerEventState
@@ -4825,92 +4844,94 @@ var file_agen_v1_resources_proto_goTypes = []any{
 	nil,                           // 45: agen.v1.Placement.LabelsEntry
 	nil,                           // 46: agen.v1.Nest.LabelsEntry
 	nil,                           // 47: agen.v1.Task.LabelsEntry
-	nil,                           // 48: agen.v1.Event.LabelsEntry
-	nil,                           // 49: agen.v1.Feedback.LabelsEntry
-	nil,                           // 50: agen.v1.Run.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 51: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 52: google.protobuf.Struct
-	(*structpb.Value)(nil),        // 53: google.protobuf.Value
+	nil,                           // 48: agen.v1.Task.LockFencesEntry
+	nil,                           // 49: agen.v1.Event.LabelsEntry
+	nil,                           // 50: agen.v1.Feedback.LabelsEntry
+	nil,                           // 51: agen.v1.Run.LabelsEntry
+	(*timestamppb.Timestamp)(nil), // 52: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),       // 53: google.protobuf.Struct
+	(*structpb.Value)(nil),        // 54: google.protobuf.Value
 }
 var file_agen_v1_resources_proto_depIdxs = []int32{
 	41, // 0: agen.v1.Definition.files:type_name -> agen.v1.Definition.FilesEntry
-	51, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
+	52, // 1: agen.v1.Definition.created_at:type_name -> google.protobuf.Timestamp
 	42, // 2: agen.v1.Budget.label_usd_per_day:type_name -> agen.v1.Budget.LabelUsdPerDayEntry
 	14, // 3: agen.v1.Trigger.auth:type_name -> agen.v1.WebhookAuth
 	15, // 4: agen.v1.Trigger.idempotency_key:type_name -> agen.v1.KeySource
 	15, // 5: agen.v1.Trigger.conversation_key:type_name -> agen.v1.KeySource
 	43, // 6: agen.v1.Trigger.labels:type_name -> agen.v1.Trigger.LabelsEntry
-	51, // 7: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
-	51, // 8: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
+	52, // 7: agen.v1.Trigger.next_due_at:type_name -> google.protobuf.Timestamp
+	52, // 8: agen.v1.Trigger.last_due_at:type_name -> google.protobuf.Timestamp
 	13, // 9: agen.v1.Trigger.on:type_name -> agen.v1.EventMatch
 	44, // 10: agen.v1.EventMatch.labels:type_name -> agen.v1.EventMatch.LabelsEntry
 	1,  // 11: agen.v1.TriggerEvent.state:type_name -> agen.v1.TriggerEventState
-	51, // 12: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
-	51, // 13: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
+	52, // 12: agen.v1.TriggerEvent.due_at:type_name -> google.protobuf.Timestamp
+	52, // 13: agen.v1.TriggerEvent.recorded_at:type_name -> google.protobuf.Timestamp
 	45, // 14: agen.v1.Placement.labels:type_name -> agen.v1.Placement.LabelsEntry
 	0,  // 15: agen.v1.Deployment.kind:type_name -> agen.v1.DeploymentKind
 	8,  // 16: agen.v1.Deployment.scale:type_name -> agen.v1.ScalePolicy
 	9,  // 17: agen.v1.Deployment.budget:type_name -> agen.v1.Budget
 	17, // 18: agen.v1.Deployment.placement:type_name -> agen.v1.Placement
-	51, // 19: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
-	51, // 20: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
+	52, // 19: agen.v1.Deployment.created_at:type_name -> google.protobuf.Timestamp
+	52, // 20: agen.v1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
 	10, // 21: agen.v1.Deployment.limits:type_name -> agen.v1.Limits
 	12, // 22: agen.v1.Deployment.triggers:type_name -> agen.v1.Trigger
 	19, // 23: agen.v1.Deployment.provider_hold:type_name -> agen.v1.ProviderHold
 	11, // 24: agen.v1.Deployment.conversations:type_name -> agen.v1.ConversationPolicy
-	51, // 25: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
-	51, // 26: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
+	52, // 25: agen.v1.ProviderHold.held_at:type_name -> google.protobuf.Timestamp
+	52, // 26: agen.v1.ProviderHold.retry_at:type_name -> google.protobuf.Timestamp
 	2,  // 27: agen.v1.Instance.state:type_name -> agen.v1.InstanceState
-	51, // 28: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
-	51, // 29: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
+	52, // 28: agen.v1.Instance.started_at:type_name -> google.protobuf.Timestamp
+	52, // 29: agen.v1.Instance.last_seen:type_name -> google.protobuf.Timestamp
 	21, // 30: agen.v1.Instance.tool_servers:type_name -> agen.v1.ToolServer
 	46, // 31: agen.v1.Nest.labels:type_name -> agen.v1.Nest.LabelsEntry
 	3,  // 32: agen.v1.Nest.state:type_name -> agen.v1.NestState
-	51, // 33: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
+	52, // 33: agen.v1.Nest.last_heartbeat:type_name -> google.protobuf.Timestamp
 	4,  // 34: agen.v1.Task.state:type_name -> agen.v1.TaskState
-	51, // 35: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	51, // 36: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
-	51, // 37: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
+	52, // 35: agen.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	52, // 36: agen.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
+	52, // 37: agen.v1.Task.lease_expires_at:type_name -> google.protobuf.Timestamp
 	47, // 38: agen.v1.Task.labels:type_name -> agen.v1.Task.LabelsEntry
-	51, // 39: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
+	52, // 39: agen.v1.Task.not_before:type_name -> google.protobuf.Timestamp
 	31, // 40: agen.v1.Task.outcome:type_name -> agen.v1.Outcome
 	27, // 41: agen.v1.Task.overrides:type_name -> agen.v1.TaskOverrides
-	51, // 42: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
+	52, // 42: agen.v1.Task.not_after:type_name -> google.protobuf.Timestamp
 	25, // 43: agen.v1.Task.progress:type_name -> agen.v1.TaskProgress
-	51, // 44: agen.v1.Task.held_until:type_name -> google.protobuf.Timestamp
-	51, // 45: agen.v1.InboxEntry.created_at:type_name -> google.protobuf.Timestamp
-	28, // 46: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
-	29, // 47: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
-	48, // 48: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
-	52, // 49: agen.v1.Event.data:type_name -> google.protobuf.Struct
-	51, // 50: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
-	53, // 51: agen.v1.Outcome.data:type_name -> google.protobuf.Value
-	52, // 52: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
-	5,  // 53: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
-	51, // 54: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
-	51, // 55: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
-	51, // 56: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
-	51, // 57: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
-	51, // 58: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
-	52, // 59: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
-	51, // 60: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
-	51, // 61: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
-	51, // 62: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
-	49, // 63: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
-	51, // 64: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
-	51, // 65: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
-	51, // 66: agen.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
-	33, // 67: agen.v1.Run.usage:type_name -> agen.v1.Usage
-	51, // 68: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	51, // 69: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
-	50, // 70: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
-	33, // 71: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
-	31, // 72: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
-	73, // [73:73] is the sub-list for method output_type
-	73, // [73:73] is the sub-list for method input_type
-	73, // [73:73] is the sub-list for extension type_name
-	73, // [73:73] is the sub-list for extension extendee
-	0,  // [0:73] is the sub-list for field type_name
+	52, // 44: agen.v1.Task.held_until:type_name -> google.protobuf.Timestamp
+	48, // 45: agen.v1.Task.lock_fences:type_name -> agen.v1.Task.LockFencesEntry
+	52, // 46: agen.v1.InboxEntry.created_at:type_name -> google.protobuf.Timestamp
+	28, // 47: agen.v1.TaskOverrides.permissions:type_name -> agen.v1.OverrideRule
+	29, // 48: agen.v1.TaskOverrides.budget:type_name -> agen.v1.RunBudget
+	49, // 49: agen.v1.Event.labels:type_name -> agen.v1.Event.LabelsEntry
+	53, // 50: agen.v1.Event.data:type_name -> google.protobuf.Struct
+	52, // 51: agen.v1.Event.at:type_name -> google.protobuf.Timestamp
+	54, // 52: agen.v1.Outcome.data:type_name -> google.protobuf.Value
+	53, // 53: agen.v1.Approval.arguments:type_name -> google.protobuf.Struct
+	5,  // 54: agen.v1.Approval.state:type_name -> agen.v1.ApprovalState
+	52, // 55: agen.v1.Approval.created_at:type_name -> google.protobuf.Timestamp
+	52, // 56: agen.v1.Approval.expires_at:type_name -> google.protobuf.Timestamp
+	52, // 57: agen.v1.Approval.decided_at:type_name -> google.protobuf.Timestamp
+	52, // 58: agen.v1.Span.start:type_name -> google.protobuf.Timestamp
+	52, // 59: agen.v1.Span.end:type_name -> google.protobuf.Timestamp
+	53, // 60: agen.v1.Span.attributes:type_name -> google.protobuf.Struct
+	52, // 61: agen.v1.LogLine.time:type_name -> google.protobuf.Timestamp
+	52, // 62: agen.v1.ApiToken.created_at:type_name -> google.protobuf.Timestamp
+	52, // 63: agen.v1.ApiToken.expires_at:type_name -> google.protobuf.Timestamp
+	50, // 64: agen.v1.Feedback.labels:type_name -> agen.v1.Feedback.LabelsEntry
+	52, // 65: agen.v1.Feedback.created_at:type_name -> google.protobuf.Timestamp
+	52, // 66: agen.v1.MemoryBlock.updated_at:type_name -> google.protobuf.Timestamp
+	52, // 67: agen.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
+	33, // 68: agen.v1.Run.usage:type_name -> agen.v1.Usage
+	52, // 69: agen.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	52, // 70: agen.v1.Run.ended_at:type_name -> google.protobuf.Timestamp
+	51, // 71: agen.v1.Run.labels:type_name -> agen.v1.Run.LabelsEntry
+	33, // 72: agen.v1.Run.tree_usage:type_name -> agen.v1.Usage
+	31, // 73: agen.v1.Run.outcome:type_name -> agen.v1.Outcome
+	74, // [74:74] is the sub-list for method output_type
+	74, // [74:74] is the sub-list for method input_type
+	74, // [74:74] is the sub-list for extension type_name
+	74, // [74:74] is the sub-list for extension extendee
+	0,  // [0:74] is the sub-list for field type_name
 }
 
 func init() { file_agen_v1_resources_proto_init() }
@@ -4924,7 +4945,7 @@ func file_agen_v1_resources_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agen_v1_resources_proto_rawDesc), len(file_agen_v1_resources_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   45,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

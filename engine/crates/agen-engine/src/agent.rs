@@ -237,6 +237,12 @@ pub struct RunOptions {
     /// *current* trust, already lowered by any taint the caller picked up).
     /// Never raised during the run, only lowered by taint.
     pub trust: Trust,
+    /// This task's own declared locks' fencing tokens (1.5, part), name ->
+    /// fence, as of the moment it was leased — fixed for the life of the
+    /// run, since a declared lock's fence never changes while this task
+    /// still holds it. A lock acquired mid-run (`acquire_lock`) is added
+    /// to the live copy the run keeps, not here.
+    pub lock_fences: BTreeMap<String, i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -389,6 +395,14 @@ impl AgentBuilder {
             self.tools
                 .push(Arc::new(crate::signals::QueryAgent::new(self.task_starter.clone())));
         }
+        if !self.tools.iter().any(|t| t.spec().name == crate::locks::ACQUIRE_LOCK) {
+            self.tools
+                .push(Arc::new(crate::locks::AcquireLock::new(self.task_starter.clone())));
+        }
+        if !self.tools.iter().any(|t| t.spec().name == crate::locks::RELEASE_LOCK) {
+            self.tools
+                .push(Arc::new(crate::locks::ReleaseLock::new(self.task_starter.clone())));
+        }
         let mut wire: std::collections::BTreeMap<String, String> = Default::default();
         for t in self.tools {
             let name = t.spec().name;
@@ -459,10 +473,22 @@ struct Live {
     /// This run's workspace directory (2.45), already created; empty
     /// when the bundle sets no `workspace`.
     workspace_dir: String,
+    /// Locks this run currently holds (1.5, part), name -> fence: starts
+    /// from the task's own declared locks and grows/shrinks as
+    /// `acquire_lock`/`release_lock` are called mid-run. Shared (not
+    /// snapshotted) with every `ToolContext` built for this run, so
+    /// those two tools can update it directly.
+    lock_fences: Arc<Mutex<BTreeMap<String, i64>>>,
 }
 
 impl Live {
-    fn new(rec: RunRecord, epoch: i64, trust: Trust, workspace_dir: String) -> Self {
+    fn new(
+        rec: RunRecord,
+        epoch: i64,
+        trust: Trust,
+        workspace_dir: String,
+        lock_fences: BTreeMap<String, i64>,
+    ) -> Self {
         Self {
             rec,
             epoch,
@@ -475,6 +501,7 @@ impl Live {
             stuck_nudged: false,
             current_trust: Mutex::new(trust),
             workspace_dir,
+            lock_fences: Arc::new(Mutex::new(lock_fences)),
         }
     }
 
@@ -492,6 +519,14 @@ impl Live {
         }
         *t = Trust::Untrusted;
         true
+    }
+
+    /// A shared handle to this run's currently held locks, name -> fence
+    /// (1.5, part): cloning it shares the same underlying lock, so
+    /// `acquire_lock`/`release_lock` can update it directly from inside a
+    /// `ToolContext` built earlier in the run.
+    fn lock_fences(&self) -> Arc<Mutex<BTreeMap<String, i64>>> {
+        self.lock_fences.clone()
     }
 
     /// Time the run has worked, excluding approval waits.
@@ -831,8 +866,9 @@ impl Agent {
             .checkpoint(&run_id, epoch, &conversation_id, Some(&first), None)
             .await?;
         let workspace_dir = self.workspace_dir_for(&rec, &opts.conversation_key).await;
+        let lock_fences = opts.lock_fences.clone();
         self.drive(
-            Live::new(rec, epoch, opts.trust, workspace_dir),
+            Live::new(rec, epoch, opts.trust, workspace_dir, lock_fences),
             &parent,
             "agen.run",
             opts,
@@ -886,8 +922,9 @@ impl Agent {
             parent.span_id = old.span_id;
         }
         let workspace_dir = self.workspace_dir_for(&rec, &opts.conversation_key).await;
+        let lock_fences = opts.lock_fences.clone();
         self.drive(
-            Live::new(rec, epoch, opts.trust, workspace_dir),
+            Live::new(rec, epoch, opts.trust, workspace_dir, lock_fences),
             &parent,
             "agen.run.resume",
             &opts,
@@ -2325,6 +2362,7 @@ impl Agent {
             depth: opts.depth,
             trust: live.trust(),
             workspace_dir: live.workspace_dir.clone(),
+            lock_fences: live.lock_fences(),
         };
         if !tool.side_effect() {
             let r = self.invoke(tool.as_ref(), call, tctx).await;

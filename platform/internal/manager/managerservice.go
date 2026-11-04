@@ -364,6 +364,54 @@ func (s *managerService) IsHeld(ctx context.Context, req *connect.Request[agenv1
 	}
 }
 
+func (s *managerService) AcquireLock(ctx context.Context, req *connect.Request[agenv1.AcquireLockRequest]) (*connect.Response[agenv1.AcquireLockResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().AcquireLock(ctx, connect.NewRequest(&agenv1.NestAcquireLockRequest{
+			NestId: s.m.nestID, TaskId: req.Msg.TaskId, Name: req.Msg.Name, TtlSeconds: req.Msg.TtlSeconds}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.AcquireLockResponse{Fence: r.Msg.Fence}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) ReleaseLock(ctx context.Context, req *connect.Request[agenv1.ReleaseLockRequest]) (*connect.Response[agenv1.ReleaseLockResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		_, err := s.m.hub().ReleaseLock(ctx, connect.NewRequest(&agenv1.NestReleaseLockRequest{
+			NestId: s.m.nestID, TaskId: req.Msg.TaskId, Name: req.Msg.Name}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.ReleaseLockResponse{}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	select {
 	case <-ctx.Done():

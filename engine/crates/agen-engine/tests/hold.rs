@@ -66,6 +66,12 @@ impl TaskStarter for HeldSwitch {
         }
         Ok(self.held.load(Ordering::SeqCst))
     }
+    async fn acquire_lock(&self, _task_id: &str, _name: &str, _ttl: Duration) -> Result<i64, String> {
+        Ok(1)
+    }
+    async fn release_lock(&self, _task_id: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn say(text: &str) -> FakeResponse {

@@ -2,6 +2,7 @@ pub mod agent;
 pub mod artifacts;
 pub mod bundle;
 pub mod delegate;
+pub mod locks;
 pub mod managed;
 pub mod mcp;
 pub mod memory;

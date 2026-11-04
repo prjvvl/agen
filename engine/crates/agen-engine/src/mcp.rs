@@ -464,6 +464,14 @@ fn call_meta(ctx: &ToolContext) -> serde_json::Map<String, Value> {
     if !ctx.labels.is_empty() {
         m.insert("agen/labels".into(), serde_json::json!(ctx.labels));
     }
+    // 1.5, part: every lock this run currently holds, with its fencing
+    // token, so a tool server that owns the actual resource can reject a
+    // write tagged with a token lower than the highest it has seen.
+    let fences = ctx.lock_fences.lock().unwrap();
+    if !fences.is_empty() {
+        m.insert("agen/locks".into(), serde_json::json!(*fences));
+    }
+    drop(fences);
     m
 }
 

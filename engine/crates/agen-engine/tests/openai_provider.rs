@@ -184,10 +184,12 @@ async fn agent_runs_tool_loop_through_bundle_configured_provider() {
     assert_eq!(
         names,
         [
+            "acquire_lock",
             "finish",
             "math_add",
             "query_agent",
             "read_artifact",
+            "release_lock",
             "report_progress",
             "save_artifact",
             "signal_agent"

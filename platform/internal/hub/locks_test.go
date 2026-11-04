@@ -55,3 +55,49 @@ func TestSubmitTaskLocks(t *testing.T) {
 		t.Fatalf("b should now lease: %v %v", pl2, err)
 	}
 }
+
+// AcquireLock grants a fencing token for a lock named mid-run (1.5, part),
+// refuses a second task while it's held, and ReleaseLock frees it for
+// another task to take at a fence that keeps advancing rather than
+// resetting. Neither needs a lease on the task it names (low-stakes, like
+// ReportProgress/IsHeld): the engine has no lease id to send.
+// features: tasks.run
+func TestNestAcquireLockAndReleaseLock(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	idB, b := e.enroll(t, "nest-b", 4, nil)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "a"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "other"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r1, err := b.AcquireLock(ctx, connect.NewRequest(&agenv1.NestAcquireLockRequest{NestId: idB, TaskId: a.Msg.Task.Id, Name: "x", TtlSeconds: 60}))
+	if err != nil || r1.Msg.Fence != 1 {
+		t.Fatalf("first grant: %v %v", r1, err)
+	}
+	if _, err := b.AcquireLock(ctx, connect.NewRequest(&agenv1.NestAcquireLockRequest{NestId: idB, TaskId: other.Msg.Task.Id, Name: "x", TtlSeconds: 60})); code(err) != connect.CodeAlreadyExists {
+		t.Fatalf("a second holder should be refused: %v", err)
+	}
+	if _, err := b.AcquireLock(ctx, connect.NewRequest(&agenv1.NestAcquireLockRequest{NestId: idB, TaskId: a.Msg.Task.Id, Name: "x", TtlSeconds: 0})); code(err) != connect.CodeInvalidArgument {
+		t.Fatalf("ttl_seconds=0 should be rejected: %v", err)
+	}
+	if _, err := b.ReleaseLock(ctx, connect.NewRequest(&agenv1.NestReleaseLockRequest{NestId: idB, TaskId: a.Msg.Task.Id, Name: "x"})); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := b.AcquireLock(ctx, connect.NewRequest(&agenv1.NestAcquireLockRequest{NestId: idB, TaskId: other.Msg.Task.Id, Name: "x", TtlSeconds: 60}))
+	if err != nil || r2.Msg.Fence != 2 {
+		t.Fatalf("fence after a release should advance to 2, not reset: %v %v", r2, err)
+	}
+	// Releasing a lock nobody holds (or not this task's) is a no-op.
+	if _, err := b.ReleaseLock(ctx, connect.NewRequest(&agenv1.NestReleaseLockRequest{NestId: idB, TaskId: a.Msg.Task.Id, Name: "no-such-lock"})); err != nil {
+		t.Fatal(err)
+	}
+}

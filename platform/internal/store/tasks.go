@@ -79,6 +79,12 @@ type Task struct {
 	// it is leased (the deployment's own `locks` config, plus any named on
 	// submission), released when it ends.
 	Locks []string
+	// LockFences (1.5, part): this task's own declared locks' current
+	// fencing tokens, name -> fence. Not persisted on the task row (fence
+	// values live on the `locks` table itself); populated only by
+	// LeaseTasks, at the moment of granting, since a declared lock's
+	// fence never changes for the rest of this task's lease.
+	LockFences map[string]int64
 	// WaitFor (3.3, part): "<kind>:<ref>" the task is waiting for while
 	// State is "waiting" (suspended: no instance, no lease, not
 	// autoscaler load). "" otherwise.
@@ -668,12 +674,13 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 				return err
 			}
 			if len(t.Locks) > 0 {
-				if _, err := tx.ExecContext(ctx,
-					"INSERT INTO locks (namespace, name, task_id, expires_ms) SELECT namespace, name, $1, $2 FROM task_locks WHERE namespace = $3 AND task_id = $1 "+
-						"ON CONFLICT (namespace, name) DO UPDATE SET task_id = excluded.task_id, expires_ms = excluded.expires_ms "+
-						"WHERE locks.task_id = excluded.task_id OR locks.expires_ms <= $4",
-					id, now+leaseMs, ns, now); err != nil {
-					return err
+				t.LockFences = map[string]int64{}
+				for _, name := range t.Locks {
+					fence, err := grantLock(ctx, tx, ns, name, id, now+leaseMs, now)
+					if err != nil {
+						return err
+					}
+					t.LockFences[name] = fence
 				}
 			}
 			out = append(out, t)
@@ -681,6 +688,106 @@ func (s *Store) LeaseTasks(ctx context.Context, nestID, ns, deployment string, m
 		return nil
 	})
 	return out, err
+}
+
+// grantLock grants lock (ns, name) to taskID until expiresMs, inside an
+// existing transaction. Returns its fencing token, kept in `lock_fences` —
+// a separate, never-deleted table from `locks` (who currently holds one,
+// until when), so a lock's grant history survives a release instead of
+// resetting: a fence only advances on a genuine handover to a different
+// task, never a re-grant or lease extension to the same one, and it must
+// keep climbing even across a release/re-acquire cycle, or a stale,
+// delayed write from the earlier holder could collide with a legitimate
+// later one. ErrConflict if another task currently holds it and its
+// grant hasn't expired.
+func grantLock(ctx context.Context, tx *sql.Tx, ns, name, taskID string, expiresMs, now int64) (int64, error) {
+	var curTask string
+	var curExpires int64
+	err := tx.QueryRowContext(ctx, "SELECT task_id, expires_ms FROM locks WHERE namespace = $1 AND name = $2", ns, name).Scan(&curTask, &curExpires)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		fence, err := bumpFence(ctx, tx, ns, name)
+		if err != nil {
+			return 0, err
+		}
+		_, err = tx.ExecContext(ctx, "INSERT INTO locks (namespace, name, task_id, expires_ms) VALUES ($1, $2, $3, $4)", ns, name, taskID, expiresMs)
+		return fence, err
+	case err != nil:
+		return 0, err
+	case curTask == taskID:
+		if _, err := tx.ExecContext(ctx, "UPDATE locks SET expires_ms = $1 WHERE namespace = $2 AND name = $3", expiresMs, ns, name); err != nil {
+			return 0, err
+		}
+		return currentFence(ctx, tx, ns, name)
+	case curExpires <= now:
+		fence, err := bumpFence(ctx, tx, ns, name)
+		if err != nil {
+			return 0, err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE locks SET task_id = $1, expires_ms = $2 WHERE namespace = $3 AND name = $4", taskID, expiresMs, ns, name)
+		return fence, err
+	default:
+		return 0, ErrConflict
+	}
+}
+
+// bumpFence advances (ns, name)'s durable fencing token by one (first
+// grant ever: 1) and returns the new value.
+func bumpFence(ctx context.Context, tx *sql.Tx, ns, name string) (int64, error) {
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO lock_fences (namespace, name, fence) VALUES ($1, $2, 1) "+
+			"ON CONFLICT (namespace, name) DO UPDATE SET fence = lock_fences.fence + 1",
+		ns, name); err != nil {
+		return 0, err
+	}
+	return currentFence(ctx, tx, ns, name)
+}
+
+func currentFence(ctx context.Context, tx *sql.Tx, ns, name string) (int64, error) {
+	var fence int64
+	err := tx.QueryRowContext(ctx, "SELECT fence FROM lock_fences WHERE namespace = $1 AND name = $2", ns, name).Scan(&fence)
+	return fence, err
+}
+
+// AcquireLock grants a named lock to a task mid-run (1.5, part: the
+// acquire_lock built-in), reusing the same `locks`/`lock_fences` tables a
+// task's declared locks are granted into at lease time — so the same
+// uniqueness rule (`locks` is one task per namespace+name) keeps two runs
+// from ever holding the same resource whether its lock was declared or
+// named on the fly. Returns the lock's fencing token (see grantLock);
+// ErrConflict if another task currently holds it.
+func (s *Store) AcquireLock(ctx context.Context, taskID, name string, ttlMs int64) (int64, error) {
+	var fence int64
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		var ns string
+		if err := tx.QueryRowContext(ctx, "SELECT namespace FROM tasks WHERE id = $1", taskID).Scan(&ns); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrFenced
+			}
+			return err
+		}
+		now := NowMs()
+		var err error
+		fence, err = grantLock(ctx, tx, ns, name, taskID, now+ttlMs, now)
+		return err
+	})
+	return fence, err
+}
+
+// ReleaseLock drops a lock a task holds (1.5, part: the release_lock
+// built-in) before the task ends, whether it was declared up front or
+// acquired mid-run — releasing one the task doesn't currently hold is a
+// harmless no-op, same as taskFinished's own unconditional release.
+func (s *Store) ReleaseLock(ctx context.Context, taskID, name string) error {
+	var ns string
+	if err := s.db.QueryRowContext(ctx, "SELECT namespace FROM tasks WHERE id = $1", taskID).Scan(&ns); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, "DELETE FROM locks WHERE namespace = $1 AND name = $2 AND task_id = $3", ns, name, taskID)
+	return err
 }
 
 // ExtendLease extends a lease the caller still holds, and the expiry of any

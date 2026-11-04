@@ -348,6 +348,9 @@ struct TaskIn {
     /// "operator", "trusted" or "untrusted"; "" (an older caller) means
     /// trusted.
     trust: String,
+    /// This task's own declared locks' fencing tokens (1.5, part), name ->
+    /// fence, as of the moment it was leased.
+    lock_fences: std::collections::BTreeMap<String, i64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -589,6 +592,7 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         cancel,
         overrides: req.task.overrides,
         trust: agen_engine::bundle::Trust::parse(&req.task.trust),
+        lock_fences: req.task.lock_fences,
         ..Default::default()
     };
     // Run detached from the request: if the caller disconnects, the run

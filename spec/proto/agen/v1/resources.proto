@@ -478,6 +478,13 @@ message Task {
   // woken for a waiting one).
   google.protobuf.Timestamp held_until = 43;
   string hold_reason = 44;
+  // This task's own declared locks' current fencing tokens (1.5, part),
+  // name -> fence, as of the moment it was leased. A declared lock's
+  // fence never changes for the rest of this task's lease, so this is
+  // set once here rather than fetched again later. Locks acquired mid-run
+  // (acquire_lock) are not included; their own fence comes back from
+  // that call directly.
+  map<string, int64> lock_fences = 45;
 }
 
 // A task's self-reported progress (3.4, part), from the built-in

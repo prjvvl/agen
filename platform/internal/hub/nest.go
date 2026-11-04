@@ -667,6 +667,48 @@ func (n *NestAPI) IsHeld(ctx context.Context, req *connect.Request[agenv1.NestIs
 	return connect.NewResponse(&agenv1.NestIsHeldResponse{Held: held}), nil
 }
 
+// AcquireLock grants a named lock to a task this Nest currently leases
+// (1.5, part: the acquire_lock built-in), for a resource not already
+// covered by its declared locks. Low-stakes like ReportProgress:
+// requireNest only, no lease fencing — the engine does not carry its own
+// lease id, and the correctness bar this exists for (a holder whose lease
+// expired can't write) is the fencing token itself, checked by whatever
+// external system actually owns the resource, not by this call.
+func (n *NestAPI) AcquireLock(ctx context.Context, req *connect.Request[agenv1.NestAcquireLockRequest]) (*connect.Response[agenv1.NestAcquireLockResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" || m.Name == "" {
+		return nil, invalid("task_id and name are required")
+	}
+	ttlMs := int64(m.TtlSeconds) * 1000
+	if m.TtlSeconds <= 0 || m.TtlSeconds > 86400 {
+		return nil, invalid("ttl_seconds must be 1-86400")
+	}
+	fence, err := n.hub.Store.AcquireLock(ctx, m.TaskId, m.Name, ttlMs)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestAcquireLockResponse{Fence: fence}), nil
+}
+
+// ReleaseLock drops a lock a task this Nest currently leases holds (1.5,
+// part: the release_lock built-in). Low-stakes like AcquireLock.
+func (n *NestAPI) ReleaseLock(ctx context.Context, req *connect.Request[agenv1.NestReleaseLockRequest]) (*connect.Response[agenv1.NestReleaseLockResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" || m.Name == "" {
+		return nil, invalid("task_id and name are required")
+	}
+	if err := n.hub.Store.ReleaseLock(ctx, m.TaskId, m.Name); err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestReleaseLockResponse{}), nil
+}
+
 // maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
 // an HTTP connection to the Hub for the whole wait.
 const maxNestTaskWait = 60 * time.Second

@@ -78,6 +78,9 @@ type HostTask struct {
 	Overrides *store.TaskOverrides `json:"overrides,omitempty"`
 	// Trust: "operator", "trusted" or "untrusted" (3.7).
 	Trust string `json:"trust,omitempty"`
+	// LockFences (1.5, part): this task's own declared locks' fencing
+	// tokens, name -> fence, as of the moment it was leased.
+	LockFences map[string]int64 `json:"lockFences,omitempty"`
 }
 
 // storeOverrides converts a task's API overrides to the plain JSON shape

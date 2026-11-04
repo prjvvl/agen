@@ -70,6 +70,10 @@ const (
 	NestServiceUnfinishedChildrenProcedure = "/agen.v1.NestService/UnfinishedChildren"
 	// NestServiceIsHeldProcedure is the fully-qualified name of the NestService's IsHeld RPC.
 	NestServiceIsHeldProcedure = "/agen.v1.NestService/IsHeld"
+	// NestServiceAcquireLockProcedure is the fully-qualified name of the NestService's AcquireLock RPC.
+	NestServiceAcquireLockProcedure = "/agen.v1.NestService/AcquireLock"
+	// NestServiceReleaseLockProcedure is the fully-qualified name of the NestService's ReleaseLock RPC.
+	NestServiceReleaseLockProcedure = "/agen.v1.NestService/ReleaseLock"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -145,6 +149,13 @@ type NestServiceClient interface {
 	// now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
 	// only, no lease fencing.
 	IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error)
+	// Grants a named lock to a task this Nest currently leases (1.5, part:
+	// the acquire_lock built-in). FailedPrecondition (AlreadyExists at the
+	// store layer) if another task currently holds it.
+	AcquireLock(context.Context, *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error)
+	// Drops a lock a task this Nest currently leases holds (1.5, part: the
+	// release_lock built-in). A no-op if it doesn't hold one by that name.
+	ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -268,6 +279,18 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("IsHeld")),
 			connect.WithClientOptions(opts...),
 		),
+		acquireLock: connect.NewClient[v1.NestAcquireLockRequest, v1.NestAcquireLockResponse](
+			httpClient,
+			baseURL+NestServiceAcquireLockProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("AcquireLock")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseLock: connect.NewClient[v1.NestReleaseLockRequest, v1.NestReleaseLockResponse](
+			httpClient,
+			baseURL+NestServiceReleaseLockProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("ReleaseLock")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -342,6 +365,8 @@ type nestServiceClient struct {
 	drainInbox         *connect.Client[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse]
 	unfinishedChildren *connect.Client[v1.NestUnfinishedChildrenRequest, v1.NestUnfinishedChildrenResponse]
 	isHeld             *connect.Client[v1.NestIsHeldRequest, v1.NestIsHeldResponse]
+	acquireLock        *connect.Client[v1.NestAcquireLockRequest, v1.NestAcquireLockResponse]
+	releaseLock        *connect.Client[v1.NestReleaseLockRequest, v1.NestReleaseLockResponse]
 	createApproval     *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
 	getApproval        *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
 	reportActivity     *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
@@ -426,6 +451,16 @@ func (c *nestServiceClient) UnfinishedChildren(ctx context.Context, req *connect
 // IsHeld calls agen.v1.NestService.IsHeld.
 func (c *nestServiceClient) IsHeld(ctx context.Context, req *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error) {
 	return c.isHeld.CallUnary(ctx, req)
+}
+
+// AcquireLock calls agen.v1.NestService.AcquireLock.
+func (c *nestServiceClient) AcquireLock(ctx context.Context, req *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error) {
+	return c.acquireLock.CallUnary(ctx, req)
+}
+
+// ReleaseLock calls agen.v1.NestService.ReleaseLock.
+func (c *nestServiceClient) ReleaseLock(ctx context.Context, req *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error) {
+	return c.releaseLock.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -521,6 +556,13 @@ type NestServiceHandler interface {
 	// now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
 	// only, no lease fencing.
 	IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error)
+	// Grants a named lock to a task this Nest currently leases (1.5, part:
+	// the acquire_lock built-in). FailedPrecondition (AlreadyExists at the
+	// store layer) if another task currently holds it.
+	AcquireLock(context.Context, *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error)
+	// Drops a lock a task this Nest currently leases holds (1.5, part: the
+	// release_lock built-in). A no-op if it doesn't hold one by that name.
+	ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -640,6 +682,18 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nestServiceMethods.ByName("IsHeld")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nestServiceAcquireLockHandler := connect.NewUnaryHandler(
+		NestServiceAcquireLockProcedure,
+		svc.AcquireLock,
+		connect.WithSchema(nestServiceMethods.ByName("AcquireLock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceReleaseLockHandler := connect.NewUnaryHandler(
+		NestServiceReleaseLockProcedure,
+		svc.ReleaseLock,
+		connect.WithSchema(nestServiceMethods.ByName("ReleaseLock")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
 		NestServiceCreateApprovalProcedure,
 		svc.CreateApproval,
@@ -726,6 +780,10 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
 		case NestServiceIsHeldProcedure:
 			nestServiceIsHeldHandler.ServeHTTP(w, r)
+		case NestServiceAcquireLockProcedure:
+			nestServiceAcquireLockHandler.ServeHTTP(w, r)
+		case NestServiceReleaseLockProcedure:
+			nestServiceReleaseLockHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -811,6 +869,14 @@ func (UnimplementedNestServiceHandler) UnfinishedChildren(context.Context, *conn
 
 func (UnimplementedNestServiceHandler) IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.IsHeld is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) AcquireLock(context.Context, *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.AcquireLock is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReleaseLock is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

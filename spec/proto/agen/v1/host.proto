@@ -61,6 +61,15 @@ service ManagerService {
   // hold), checked by the engine's turn loop (suspends with wait_for
   // "resume" instead of asking the model while held).
   rpc IsHeld(IsHeldRequest) returns (IsHeldResponse);
+  // Grants a named lock to the calling task mid-run (1.5, part: the
+  // acquire_lock built-in), for a resource not already covered by its
+  // declared locks. failed_precondition if another task currently holds
+  // it. Returns the lock's fencing token.
+  rpc AcquireLock(AcquireLockRequest) returns (AcquireLockResponse);
+  // Drops a lock the calling task holds (1.5, part: the release_lock
+  // built-in) before the task ends, whether declared up front or
+  // acquired mid-run. Releasing one it doesn't hold is a no-op.
+  rpc ReleaseLock(ReleaseLockRequest) returns (ReleaseLockResponse);
 }
 
 message StartTaskRequest {
@@ -130,6 +139,21 @@ message IsHeldRequest {
 message IsHeldResponse {
   bool held = 1;
 }
+
+message AcquireLockRequest {
+  string task_id = 1;
+  string name = 2;
+  int32 ttl_seconds = 3;
+}
+message AcquireLockResponse {
+  int64 fence = 1;
+}
+
+message ReleaseLockRequest {
+  string task_id = 1;
+  string name = 2;
+}
+message ReleaseLockResponse {}
 
 message RequestApprovalRequest {
   string instance_id = 1;

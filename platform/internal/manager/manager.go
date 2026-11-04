@@ -997,7 +997,7 @@ func (m *Manager) runTask(ctx context.Context, in *instance, t *agenv1.Task) {
 	}()
 	res, err := in.host.RunTask(runCtx, HostTask{ID: t.Id, Input: t.Input, ParentRunID: t.ParentRunId, RootRunID: t.RootRunId, Traceparent: t.Traceparent,
 		Depth: int(t.Depth), ConversationKey: t.ConversationKey, Labels: t.Labels, Attempts: int(t.Attempts),
-		ModelTier: t.ModelTier, BudgetPressure: t.BudgetPressure, Overrides: storeOverrides(t.Overrides), Trust: t.Trust})
+		ModelTier: t.ModelTier, BudgetPressure: t.BudgetPressure, Overrides: storeOverrides(t.Overrides), Trust: t.Trust, LockFences: t.LockFences})
 	stopRun()
 	var he *HostError
 	switch {

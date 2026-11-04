@@ -185,9 +185,11 @@ async fn denied_tools_are_hidden() {
     assert_eq!(
         names,
         [
+            "acquire_lock",
             "finish",
             "query_agent",
             "read_artifact",
+            "release_lock",
             "report_progress",
             "safe",
             "save_artifact",

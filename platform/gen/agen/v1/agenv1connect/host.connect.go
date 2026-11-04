@@ -73,6 +73,12 @@ const (
 	ManagerServiceUnfinishedChildrenProcedure = "/agen.v1.ManagerService/UnfinishedChildren"
 	// ManagerServiceIsHeldProcedure is the fully-qualified name of the ManagerService's IsHeld RPC.
 	ManagerServiceIsHeldProcedure = "/agen.v1.ManagerService/IsHeld"
+	// ManagerServiceAcquireLockProcedure is the fully-qualified name of the ManagerService's
+	// AcquireLock RPC.
+	ManagerServiceAcquireLockProcedure = "/agen.v1.ManagerService/AcquireLock"
+	// ManagerServiceReleaseLockProcedure is the fully-qualified name of the ManagerService's
+	// ReleaseLock RPC.
+	ManagerServiceReleaseLockProcedure = "/agen.v1.ManagerService/ReleaseLock"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -268,6 +274,15 @@ type ManagerServiceClient interface {
 	// hold), checked by the engine's turn loop (suspends with wait_for
 	// "resume" instead of asking the model while held).
 	IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error)
+	// Grants a named lock to the calling task mid-run (1.5, part: the
+	// acquire_lock built-in), for a resource not already covered by its
+	// declared locks. failed_precondition if another task currently holds
+	// it. Returns the lock's fencing token.
+	AcquireLock(context.Context, *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error)
+	// Drops a lock the calling task holds (1.5, part: the release_lock
+	// built-in) before the task ends, whether declared up front or
+	// acquired mid-run. Releasing one it doesn't hold is a no-op.
+	ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -347,6 +362,18 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("IsHeld")),
 			connect.WithClientOptions(opts...),
 		),
+		acquireLock: connect.NewClient[v1.AcquireLockRequest, v1.AcquireLockResponse](
+			httpClient,
+			baseURL+ManagerServiceAcquireLockProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("AcquireLock")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseLock: connect.NewClient[v1.ReleaseLockRequest, v1.ReleaseLockResponse](
+			httpClient,
+			baseURL+ManagerServiceReleaseLockProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("ReleaseLock")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -363,6 +390,8 @@ type managerServiceClient struct {
 	drainInbox         *connect.Client[v1.DrainInboxRequest, v1.DrainInboxResponse]
 	unfinishedChildren *connect.Client[v1.UnfinishedChildrenRequest, v1.UnfinishedChildrenResponse]
 	isHeld             *connect.Client[v1.IsHeldRequest, v1.IsHeldResponse]
+	acquireLock        *connect.Client[v1.AcquireLockRequest, v1.AcquireLockResponse]
+	releaseLock        *connect.Client[v1.ReleaseLockRequest, v1.ReleaseLockResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -420,6 +449,16 @@ func (c *managerServiceClient) IsHeld(ctx context.Context, req *connect.Request[
 	return c.isHeld.CallUnary(ctx, req)
 }
 
+// AcquireLock calls agen.v1.ManagerService.AcquireLock.
+func (c *managerServiceClient) AcquireLock(ctx context.Context, req *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error) {
+	return c.acquireLock.CallUnary(ctx, req)
+}
+
+// ReleaseLock calls agen.v1.ManagerService.ReleaseLock.
+func (c *managerServiceClient) ReleaseLock(ctx context.Context, req *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error) {
+	return c.releaseLock.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -461,6 +500,15 @@ type ManagerServiceHandler interface {
 	// hold), checked by the engine's turn loop (suspends with wait_for
 	// "resume" instead of asking the model while held).
 	IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error)
+	// Grants a named lock to the calling task mid-run (1.5, part: the
+	// acquire_lock built-in), for a resource not already covered by its
+	// declared locks. failed_precondition if another task currently holds
+	// it. Returns the lock's fencing token.
+	AcquireLock(context.Context, *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error)
+	// Drops a lock the calling task holds (1.5, part: the release_lock
+	// built-in) before the task ends, whether declared up front or
+	// acquired mid-run. Releasing one it doesn't hold is a no-op.
+	ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -536,6 +584,18 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("IsHeld")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceAcquireLockHandler := connect.NewUnaryHandler(
+		ManagerServiceAcquireLockProcedure,
+		svc.AcquireLock,
+		connect.WithSchema(managerServiceMethods.ByName("AcquireLock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceReleaseLockHandler := connect.NewUnaryHandler(
+		ManagerServiceReleaseLockProcedure,
+		svc.ReleaseLock,
+		connect.WithSchema(managerServiceMethods.ByName("ReleaseLock")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -560,6 +620,10 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
 		case ManagerServiceIsHeldProcedure:
 			managerServiceIsHeldHandler.ServeHTTP(w, r)
+		case ManagerServiceAcquireLockProcedure:
+			managerServiceAcquireLockHandler.ServeHTTP(w, r)
+		case ManagerServiceReleaseLockProcedure:
+			managerServiceReleaseLockHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -611,4 +675,12 @@ func (UnimplementedManagerServiceHandler) UnfinishedChildren(context.Context, *c
 
 func (UnimplementedManagerServiceHandler) IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.IsHeld is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) AcquireLock(context.Context, *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.AcquireLock is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.ReleaseLock is not implemented"))
 }
