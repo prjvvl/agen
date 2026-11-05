@@ -330,7 +330,12 @@ func TestDistributedCluster(t *testing.T) {
 	}
 	k.deployOn("writer", files(t, map[string]string{"x-agen/fake-script.json": `{"cycle":true,"responses":[{"text":"Draft ready."}]}`}), 1, alive[0])
 	k.deployOn("boss", files(t, map[string]string{
-		"x-agen/config.json":      `{"kind":"pool","scale":{"min":0,"max":1},"delegates":[{"name":"writer"}],` + allow + `}`,
+		// via:"a2a" opts out of call_agent's unified child-task path (3.2b),
+		// which needs the Hub throughout to create the child task; this
+		// scenario is specifically about A2A delegation surviving a full
+		// Hub outage (see TestDirectA2ADelegationSurvivesHubOutage), which
+		// the plain synchronous A2A call this opts into actually exercises.
+		"x-agen/config.json":      `{"kind":"pool","scale":{"min":0,"max":1},"delegates":[{"name":"writer","via":"a2a"}],` + allow + `}`,
 		"x-agen/fake-script.json": `{"perRun":true,"responses":[{"toolCalls":[{"name":"call_agent","arguments":{"agent":"writer","message":"draft"}}]},{"text":"Boss done."}]}`,
 	}), 1, alive[1])
 	waitFor(t, "boss and writer", 120*time.Second, func() bool { return len(k.instances("boss")) == 1 && len(k.instances("writer")) == 1 })
