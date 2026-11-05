@@ -435,12 +435,16 @@ impl TaskStarter for ManagerResolver {
     }
 
     async fn tree_budget_exceeded(&self, task_id: &str) -> Result<bool, String> {
+        // A short timeout: this runs every turn alongside is_held and
+        // unfinished_children (10s each), and all three fail open (a warned
+        // Err, never a stuck turn) — so a slow/unreachable Hub should cost
+        // this check little, not stack a third full 10s on top of theirs.
         let resp = self
             .http
             .post(format!("{}/agen.v1.ManagerService/TreeBudgetExceeded", self.url))
             .bearer_auth(&self.token)
             .json(&json!({"taskId": task_id}))
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(3))
             .send()
             .await
             .map_err(|e| format!("manager unreachable: {e}"))?;
