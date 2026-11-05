@@ -135,6 +135,7 @@ func TestSchedulerPlacesWatchesAndReschedulesLostNest(t *testing.T) {
 	if epoch, err := sched.Step(ctx); err != nil || epoch == 0 {
 		t.Fatalf("step: %d %v", epoch, err)
 	}
+	sched.Wait()
 	all, _ := e.store.AllAssignments(ctx)
 	total := map[string]int{}
 	for _, x := range all {
@@ -152,6 +153,7 @@ func TestSchedulerPlacesWatchesAndReschedulesLostNest(t *testing.T) {
 	}
 	// Stable: another step changes nothing.
 	sched.Step(ctx)
+	sched.Wait()
 	again, _ := e.store.AllAssignments(ctx)
 	if len(again) != len(all) {
 		t.Fatalf("unstable placement: %v -> %v", all, again)
@@ -164,6 +166,7 @@ func TestSchedulerPlacesWatchesAndReschedulesLostNest(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched.Step(ctx)
+	sched.Wait()
 	store.NowMs = func() int64 { return time.Now().UnixMilli() }
 	nb, _ := e.store.GetNest(ctx, idB)
 	if nb.State != "lost" {
@@ -178,6 +181,7 @@ func TestSchedulerPlacesWatchesAndReschedulesLostNest(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched.Step(ctx)
+	sched.Wait()
 	all, _ = e.store.AllAssignments(ctx)
 	if len(all) != 2 {
 		t.Fatalf("after return: %v", all)
