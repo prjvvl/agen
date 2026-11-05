@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/prjvvl/agen/platform/internal/store"
@@ -39,7 +40,16 @@ type Scheduler struct {
 	Retention time.Duration
 	pruned    time.Time
 	lastSweep time.Time
+	// bg tracks goroutines Step spawns and outlives its own return (task-end
+	// hooks, notification delivery, warning recording). Wait blocks until
+	// they finish, so a caller that is about to touch state they read (such
+	// as store.NowMs in tests) doesn't race with them.
+	bg sync.WaitGroup
 }
+
+// Wait blocks until every goroutine spawned by a Step call so far has
+// finished.
+func (s *Scheduler) Wait() { s.bg.Wait() }
 
 // Runs whose instance is gone are ended after orphanGrace (an instance
 // reports itself within seconds of starting), checked every orphanSweepEvery.
@@ -93,7 +103,9 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 		return epoch, err
 	}
 	for _, id := range failed {
+		s.bg.Add(1)
 		go func() {
+			defer s.bg.Done()
 			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			defer cancel()
 			s.Hub.afterTaskEnded(c, id)
@@ -104,7 +116,9 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 		return epoch, err
 	}
 	for _, id := range expired {
+		s.bg.Add(1)
 		go func() {
+			defer s.bg.Done()
 			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			defer cancel()
 			s.Hub.afterTaskEnded(c, id)
@@ -120,10 +134,12 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 		s.eventsPruned = time.Now()
 		s.Hub.pruneEvents(ctx)
 	}
-	go s.Hub.deliverTargets(context.WithoutCancel(ctx))
+	s.bg.Add(1)
+	go func() { defer s.bg.Done(); s.Hub.deliverTargets(context.WithoutCancel(ctx)) }()
 	if time.Since(s.warned) > warningEvery {
 		s.warned = time.Now()
-		go s.Hub.recordWarnings(context.WithoutCancel(ctx))
+		s.bg.Add(1)
+		go func() { defer s.bg.Done(); s.Hub.recordWarnings(context.WithoutCancel(ctx)) }()
 	}
 	lost, err := st.MarkLostNests(ctx, store.NowMs()-s.LostAfter.Milliseconds())
 	if err != nil {

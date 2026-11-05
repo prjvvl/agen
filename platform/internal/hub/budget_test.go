@@ -28,6 +28,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 	}
 	idA, a := e.enroll(t, "a", 4, nil)
 	sched := e.scheduler()
+	defer sched.Wait()
 	now := time.Now()
 	for i, q := range []string{
 		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','hello','default','hello','{}',$1,$1)",
@@ -42,6 +43,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 	}
 	c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "work"}))
 	sched.Step(ctx)
+	sched.Wait()
 	d, _ := c.GetDeployment(ctx, connect.NewRequest(&agenv1.GetDeploymentRequest{Ref: ref("", "hello")}))
 	if d.Msg.Deployment.Desired != 1 || d.Msg.Deployment.BudgetExhausted || d.Msg.Deployment.SpentUsdToday != 0.6 {
 		t.Fatalf("under budget: %v", d.Msg.Deployment)
@@ -51,6 +53,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched.Step(ctx)
+	sched.Wait()
 	d, _ = c.GetDeployment(ctx, connect.NewRequest(&agenv1.GetDeploymentRequest{Ref: ref("", "hello")}))
 	if d.Msg.Deployment.Desired != 0 || !d.Msg.Deployment.BudgetExhausted {
 		t.Fatalf("over budget: %v", d.Msg.Deployment)

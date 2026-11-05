@@ -62,6 +62,7 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	first := created.Truncate(time.Minute).Add(time.Minute) // first window after creation
 	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
 	sched := e.scheduler()
+	defer sched.Wait()
 
 	// The first window fires once, however often the leader looks.
 	at(first.Add(5 * time.Second))
@@ -70,6 +71,7 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	sched.Wait()
 	tasks, _ := c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{Deployment: "hello"}))
 	if len(tasks.Msg.Tasks) != 1 || tasks.Msg.Tasks[0].Source != "cron:tick" || tasks.Msg.Tasks[0].Input != "tick!" {
 		t.Fatalf("tasks after first window: %v", tasks.Msg.Tasks)
@@ -82,6 +84,7 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	// run); the current window (5s late) fires on time.
 	at(first.Add(10*time.Minute + 5*time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	if ev := events(t, c, "hello"); ev["tick:missed"] != 9 || ev["tick:fired"] != 2 {
 		t.Fatalf("after outage: %v", ev)
 	}
@@ -102,7 +105,9 @@ func TestCronTriggersFireOnceAndRecordMissedWindows(t *testing.T) {
 	h1 := time.UnixMilli(hourly.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Hour).Add(time.Hour)
 	at(h1.Add(3*time.Hour + 10*time.Minute))
 	sched.Step(ctx)
+	sched.Wait()
 	sched.Step(ctx)
+	sched.Wait()
 	ev := events(t, c, "hourly")
 	if ev["late:missed"] != 4 || ev["late:fired"] != 0 || ev["catch:missed"] != 3 || ev["catch:fired"] != 1 {
 		t.Fatalf("catch_up: %v", ev)
@@ -133,16 +138,19 @@ func TestCronJitterDelaysFiring(t *testing.T) {
 	offset := jitterOffset("default", "jit", "tick", first, 10*time.Second)
 	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
 	sched := e.scheduler()
+	defer sched.Wait()
 
 	// Before the jittered instant: not fired, not missed either.
 	at(first.Add(offset - time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	if ev := events(t, c, "jit"); len(ev) != 0 {
 		t.Fatalf("before the jittered instant: %v", ev)
 	}
 	// At and after it: fires.
 	at(first.Add(offset + time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	if ev := events(t, c, "jit"); ev["tick:fired"] != 1 || len(ev) != 1 {
 		t.Fatalf("after the jittered instant: %v", ev)
 	}
@@ -166,13 +174,17 @@ func TestCronOverlapPolicies(t *testing.T) {
 	first := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Minute).Add(time.Minute)
 	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
 	sched := e.scheduler()
+	defer sched.Wait()
 
 	at(first.Add(5 * time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	at(first.Add(65 * time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	at(first.Add(125 * time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	ev := events(t, c, "ov")
 	if ev["solo:fired"] != 1 || ev["solo:skipped"] != 2 {
 		t.Fatalf("skip: %v", ev)
@@ -199,13 +211,17 @@ func TestCronMinStartSpacing(t *testing.T) {
 	first := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Minute).Add(time.Minute)
 	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
 	sched := e.scheduler()
+	defer sched.Wait()
 
 	at(first.Add(5 * time.Second)) // window 1: fires, nothing fired before it
 	sched.Step(ctx)
+	sched.Wait()
 	at(first.Add(65 * time.Second)) // window 2, 1m after window 1: too soon
 	sched.Step(ctx)
+	sched.Wait()
 	at(first.Add(125 * time.Second)) // window 3, 2m after window 1: spaced enough
 	sched.Step(ctx)
+	sched.Wait()
 	if ev := events(t, c, "sp"); ev["tick:fired"] != 2 || ev["tick:skipped"] != 1 {
 		t.Fatalf("min_start_spacing: %v", ev)
 	}
@@ -229,12 +245,14 @@ func TestCronCatchUpWindow(t *testing.T) {
 	h1 := time.UnixMilli(d.Msg.Deployment.CreatedAt.AsTime().UnixMilli()).Truncate(time.Hour).Add(time.Hour)
 	at := func(tm time.Time) { store.NowMs = func() int64 { return tm.UnixMilli() } }
 	sched := e.scheduler()
+	defer sched.Wait()
 
 	// The leader comes back 10 minutes after the 4th missed window: beyond
 	// "tight"'s 5m catch-up window (all 4 missed), within "loose"'s 15m
 	// (the latest redelivered, the older 3 missed).
 	at(h1.Add(3*time.Hour + 10*time.Minute))
 	sched.Step(ctx)
+	sched.Wait()
 	ev := events(t, c, "cw")
 	if ev["tight:missed"] != 4 || ev["tight:fired"] != 0 {
 		t.Fatalf("tight catch_up_window: %v", ev)
@@ -297,7 +315,9 @@ func TestCronAndWebhookTrust(t *testing.T) {
 	first := created.Truncate(time.Minute).Add(time.Minute)
 	defer func(old func() int64) { store.NowMs = old }(store.NowMs)
 	store.NowMs = func() int64 { return first.Add(5 * time.Second).UnixMilli() }
-	e.scheduler().Step(ctx)
+	hookSched := e.scheduler()
+	hookSched.Step(ctx)
+	hookSched.Wait()
 	tasks, err := c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{Deployment: "hello", Limit: 100}))
 	if err != nil {
 		t.Fatal(err)
@@ -400,17 +420,20 @@ func TestTriggersStartWhenAddedAndRmDropsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched := e.scheduler()
+	defer sched.Wait()
 	at(base.Add(30 * time.Minute))
 	if _, err := c.UpdateDeployment(ctx, connect.NewRequest(&agenv1.UpdateDeploymentRequest{Ref: ref("", "hello"),
 		Triggers: []*agenv1.Trigger{{Type: "cron", Name: "tick", Schedule: "* * * * *"}, {Type: "webhook", Name: "hook"}}})); err != nil {
 		t.Fatal(err)
 	}
 	sched.Step(ctx)
+	sched.Wait()
 	if ev := events(t, c, "hello"); len(ev) != 0 {
 		t.Fatalf("back-filled windows from before the trigger existed: %v", ev)
 	}
 	at(base.Add(31*time.Minute - 5*time.Second))
 	sched.Step(ctx)
+	sched.Wait()
 	if ev := events(t, c, "hello"); ev["tick:fired"] != 1 || ev["tick:missed"] != 0 {
 		t.Fatalf("first window after adding: %v", ev)
 	}
@@ -534,6 +557,7 @@ func TestRandomTriggerFiresEachPlannedTimeOnceAndRecordsThem(t *testing.T) {
 		t.Fatalf("planned %d times, want 3: %v", len(planned), planned)
 	}
 	sched := e.scheduler()
+	defer sched.Wait()
 	// Late in today's own calendar date (not tomorrow's: fireRandom reads
 	// "yesterday" and "today" off now's own date), after every planned
 	// time the "00:00-23:59" window could produce.
@@ -573,6 +597,7 @@ func TestRandomTriggerSkipsExcludedDays(t *testing.T) {
 	today := [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[day.Weekday()]
 	trig := &agenv1.Trigger{Type: "random", Name: "weekday-only", Count: 1, Window: "00:00-23:59", Days: []string{today}, ActiveSinceMs: since}
 	sched := e.scheduler()
+	defer sched.Wait()
 	now := time.Date(day.Year(), day.Month(), day.Day(), 23, 59, 59, 0, time.UTC)
 	if err := sched.fireRandom(ctx, d, trig, now); err != nil {
 		t.Fatal(err)
