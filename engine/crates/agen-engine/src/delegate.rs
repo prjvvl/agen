@@ -343,12 +343,16 @@ impl TaskStarter for ManagerResolver {
     }
 
     async fn unfinished_children(&self, task_id: &str) -> Result<i64, String> {
+        // Short timeout (see tree_budget_exceeded below): this, is_held and
+        // tree_budget_exceeded all run every turn and all fail open, so a
+        // slow/unreachable Hub should cost each of them little rather than
+        // the three stacking into one long stall per turn.
         let resp = self
             .http
             .post(format!("{}/agen.v1.ManagerService/UnfinishedChildren", self.url))
             .bearer_auth(&self.token)
             .json(&json!({"taskId": task_id}))
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(3))
             .send()
             .await
             .map_err(|e| format!("manager unreachable: {e}"))?;
@@ -368,12 +372,13 @@ impl TaskStarter for ManagerResolver {
     }
 
     async fn is_held(&self, task_id: &str) -> Result<bool, String> {
+        // Short timeout: see unfinished_children above.
         let resp = self
             .http
             .post(format!("{}/agen.v1.ManagerService/IsHeld", self.url))
             .bearer_auth(&self.token)
             .json(&json!({"taskId": task_id}))
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(3))
             .send()
             .await
             .map_err(|e| format!("manager unreachable: {e}"))?;
@@ -435,10 +440,7 @@ impl TaskStarter for ManagerResolver {
     }
 
     async fn tree_budget_exceeded(&self, task_id: &str) -> Result<bool, String> {
-        // A short timeout: this runs every turn alongside is_held and
-        // unfinished_children (10s each), and all three fail open (a warned
-        // Err, never a stuck turn) — so a slow/unreachable Hub should cost
-        // this check little, not stack a third full 10s on top of theirs.
+        // Short timeout: see unfinished_children above.
         let resp = self
             .http
             .post(format!("{}/agen.v1.ManagerService/TreeBudgetExceeded", self.url))
