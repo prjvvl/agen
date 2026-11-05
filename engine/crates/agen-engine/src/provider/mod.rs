@@ -92,6 +92,11 @@ pub struct ModelRequest {
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// The subset of input_tokens served from the provider's prompt cache
+    /// (2.21; OpenRouter reports it). 0 when the provider doesn't report
+    /// it, or there was no hit.
+    #[serde(default)]
+    pub cached_input_tokens: u64,
     /// Reported by the provider when known.
     #[serde(default)]
     pub cost_usd: f64,
@@ -101,10 +106,20 @@ impl Usage {
     pub fn add(&mut self, other: Usage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
+        self.cached_input_tokens += other.cached_input_tokens;
         self.cost_usd += other.cost_usd;
     }
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens + self.output_tokens
+    }
+    /// Tokens counted against budget.maxTokensPerRun (2.21): cached input
+    /// is charged at `weight` instead of its full cost (a cache hit is far
+    /// cheaper than a fresh prompt token), everything else at its full
+    /// cost.
+    pub fn budget_tokens(&self, weight: f64) -> u64 {
+        let fresh_input = self.input_tokens.saturating_sub(self.cached_input_tokens);
+        let weighted_cached = (self.cached_input_tokens as f64 * weight).round() as u64;
+        fresh_input + weighted_cached + self.output_tokens
     }
 }
 
@@ -165,13 +180,59 @@ pub type DeltaSink<'a> = &'a (dyn Fn(&str) + Send + Sync);
 pub trait ModelProvider: Send + Sync {
     fn name(&self) -> &str;
     async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError>;
+    /// The model's context window in tokens, when the provider says.
+    async fn context_window(&self, _model: &str) -> Option<u64> {
+        None
+    }
+    /// The interactions recorded so far (3.6, part: `agen replay`) — only
+    /// a provider that actually records one (`RecordingProvider`, wired in
+    /// for a deployment with `recordInteractions` on) returns `Some`.
+    fn recorded_cassette(&self) -> Option<replay::Cassette> {
+        None
+    }
 }
 
 /// A sink that ignores deltas.
 pub fn no_deltas(_: &str) {}
 
-/// Build the provider named in a bundle's `harness.json`.
+// Lets a type-erased provider be wrapped by another (3.6, part: agen
+// replay wraps the real provider in a RecordingProvider when the bundle
+// asks for it) without `from_harness` needing to know every provider's
+// own concrete type.
+#[async_trait]
+impl<T: ModelProvider + ?Sized> ModelProvider for std::sync::Arc<T> {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+    async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError> {
+        (**self).complete(req, on_delta).await
+    }
+    async fn context_window(&self, model: &str) -> Option<u64> {
+        (**self).context_window(model).await
+    }
+    fn recorded_cassette(&self) -> Option<replay::Cassette> {
+        (**self).recorded_cassette()
+    }
+}
+
+/// Build the provider named in a bundle's `harness.json`, wrapped in a
+/// `RecordingProvider` when the bundle's own config.json set
+/// `recordInteractions` (3.6, part: `agen replay`) — never for the
+/// "replay" provider itself, which would just record a redundant copy of
+/// what it is already replaying ("fake" is recorded like any other
+/// provider: useful for a test deployment, and harmless either way).
 pub fn from_harness(
+    bundle: &crate::bundle::Bundle,
+    secrets: &crate::secrets::Secrets,
+) -> Result<std::sync::Arc<dyn ModelProvider>, ProviderError> {
+    let p = from_harness_unrecorded(bundle, secrets)?;
+    if bundle.config.record_interactions && bundle.harness.provider != "replay" {
+        return Ok(std::sync::Arc::new(replay::RecordingProvider::new(p)));
+    }
+    Ok(p)
+}
+
+fn from_harness_unrecorded(
     bundle: &crate::bundle::Bundle,
     secrets: &crate::secrets::Secrets,
 ) -> Result<std::sync::Arc<dyn ModelProvider>, ProviderError> {

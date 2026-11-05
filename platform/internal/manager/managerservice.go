@@ -180,7 +180,7 @@ func (s *managerService) StartTask(ctx context.Context, req *connect.Request[age
 	}
 	sub := &agenv1.SubmitChildTaskRequest{NestId: s.m.nestID, InstanceId: id, Ref: &agenv1.DeploymentRef{Namespace: ns, Name: req.Msg.GetRef().GetName()},
 		Input: req.Msg.Input, ParentRunId: req.Msg.RunId, Traceparent: req.Msg.Traceparent, IdempotencyKey: req.Msg.IdempotencyKey,
-		ReplyConversationKey: req.Msg.ReplyConversationKey}
+		ReplyConversationKey: req.Msg.ReplyConversationKey, Overrides: req.Msg.Overrides, ModelTier: req.Msg.ModelTier, Trust: req.Msg.Trust}
 	for attempt := 0; ; attempt++ {
 		c, cancel := context.WithTimeout(ctx, 10*time.Second)
 		r, err := s.m.hub().SubmitChildTask(c, connect.NewRequest(sub))
@@ -190,6 +190,242 @@ func (s *managerService) StartTask(ctx context.Context, req *connect.Request[age
 			s.m.cfg.Log.Info("task started for a run", "task", r.Msg.Task.Id, "target", ns+"/"+sub.Ref.Name, "instance", id)
 			return connect.NewResponse(&agenv1.StartTaskResponse{Task: r.Msg.Task}), nil
 		case attempt < 15 && (connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown):
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+// WaitTask waits for a task the calling instance started (via StartTask) to
+// finish, up to wait_seconds (3.3, part: call_agent's inline wait before it
+// suspends instead of erroring). A short Hub outage is waited out, bounded
+// by the caller's own context deadline.
+func (s *managerService) WaitTask(ctx context.Context, req *connect.Request[agenv1.WaitTaskRequest]) (*connect.Response[agenv1.WaitTaskResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().WaitTask(ctx, connect.NewRequest(&agenv1.NestWaitTaskRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId, WaitSeconds: req.Msg.WaitSeconds}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.WaitTaskResponse{Task: r.Msg.Task}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) ReportProgress(ctx context.Context, req *connect.Request[agenv1.ReportProgressRequest]) (*connect.Response[agenv1.ReportProgressResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		_, err := s.m.hub().ReportProgress(ctx, connect.NewRequest(&agenv1.NestReportProgressRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId, Progress: req.Msg.Progress}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.ReportProgressResponse{}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) QueryChildTask(ctx context.Context, req *connect.Request[agenv1.QueryChildTaskRequest]) (*connect.Response[agenv1.QueryTaskResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().QueryChildTask(ctx, connect.NewRequest(&agenv1.NestQueryChildTaskRequest{NestId: s.m.nestID, CallerTaskId: req.Msg.CallerTaskId, TaskId: req.Msg.TaskId}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(r.Msg), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) SignalChildTask(ctx context.Context, req *connect.Request[agenv1.SignalChildTaskRequest]) (*connect.Response[agenv1.SignalChildTaskResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		_, err := s.m.hub().SignalChildTask(ctx, connect.NewRequest(&agenv1.NestSignalChildTaskRequest{NestId: s.m.nestID, CallerTaskId: req.Msg.CallerTaskId, TaskId: req.Msg.TaskId, Message: req.Msg.Message}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.SignalChildTaskResponse{}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) DrainInbox(ctx context.Context, req *connect.Request[agenv1.DrainInboxRequest]) (*connect.Response[agenv1.DrainInboxResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().DrainInbox(ctx, connect.NewRequest(&agenv1.NestDrainInboxRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.DrainInboxResponse{Entries: r.Msg.Entries}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) UnfinishedChildren(ctx context.Context, req *connect.Request[agenv1.UnfinishedChildrenRequest]) (*connect.Response[agenv1.UnfinishedChildrenResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().UnfinishedChildren(ctx, connect.NewRequest(&agenv1.NestUnfinishedChildrenRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.UnfinishedChildrenResponse{Count: r.Msg.Count}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) IsHeld(ctx context.Context, req *connect.Request[agenv1.IsHeldRequest]) (*connect.Response[agenv1.IsHeldResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().IsHeld(ctx, connect.NewRequest(&agenv1.NestIsHeldRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.IsHeldResponse{Held: r.Msg.Held}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) TreeBudgetExceeded(ctx context.Context, req *connect.Request[agenv1.TreeBudgetExceededRequest]) (*connect.Response[agenv1.TreeBudgetExceededResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().TreeBudgetExceeded(ctx, connect.NewRequest(&agenv1.NestTreeBudgetExceededRequest{NestId: s.m.nestID, TaskId: req.Msg.TaskId}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.TreeBudgetExceededResponse{Exceeded: r.Msg.Exceeded}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) AcquireLock(ctx context.Context, req *connect.Request[agenv1.AcquireLockRequest]) (*connect.Response[agenv1.AcquireLockResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		r, err := s.m.hub().AcquireLock(ctx, connect.NewRequest(&agenv1.NestAcquireLockRequest{
+			NestId: s.m.nestID, TaskId: req.Msg.TaskId, Name: req.Msg.Name, TtlSeconds: req.Msg.TtlSeconds}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.AcquireLockResponse{Fence: r.Msg.Fence}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
+			if !sleepCtx(ctx, 2*time.Second) {
+				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+			}
+		default:
+			return nil, err
+		}
+	}
+}
+
+func (s *managerService) ReleaseLock(ctx context.Context, req *connect.Request[agenv1.ReleaseLockRequest]) (*connect.Response[agenv1.ReleaseLockResponse], error) {
+	id, _ := ctx.Value(instanceIDKey{}).(string)
+	s.m.mu.Lock()
+	in := s.m.instances[id]
+	s.m.mu.Unlock()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("instance is no longer running"))
+	}
+	for {
+		_, err := s.m.hub().ReleaseLock(ctx, connect.NewRequest(&agenv1.NestReleaseLockRequest{
+			NestId: s.m.nestID, TaskId: req.Msg.TaskId, Name: req.Msg.Name}))
+		switch {
+		case err == nil:
+			return connect.NewResponse(&agenv1.ReleaseLockResponse{}), nil
+		case connect.CodeOf(err) == connect.CodeUnavailable || connect.CodeOf(err) == connect.CodeDeadlineExceeded || connect.CodeOf(err) == connect.CodeUnknown:
 			if !sleepCtx(ctx, 2*time.Second) {
 				return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
 			}

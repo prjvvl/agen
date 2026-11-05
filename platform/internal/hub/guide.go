@@ -92,7 +92,7 @@ func (h *Hub) GetBundleGuide(context.Context, *connect.Request[agenv1.GetBundleG
 
 func (h *Hub) WhoAmI(ctx context.Context, _ *connect.Request[agenv1.WhoAmIRequest]) (*connect.Response[agenv1.WhoAmIResponse], error) {
 	p := PrincipalFrom(ctx)
-	out := &agenv1.WhoAmIResponse{Id: p.ID, Name: p.Name, Namespaces: p.Namespaces}
+	out := &agenv1.WhoAmIResponse{Id: p.ID, Name: p.Name, Namespaces: p.Namespaces, Trust: p.Trust}
 	for s := range p.Scopes {
 		out.Scopes = append(out.Scopes, s)
 	}
@@ -133,6 +133,122 @@ func checkTier(t string) error {
 	return invalid(fmt.Sprintf("model_tier %q: use low, medium, high, xhigh or max", t))
 }
 
+func checkPriority(p string) error {
+	switch p {
+	case "", "urgent", "high", "normal", "background":
+		return nil
+	}
+	return invalid(fmt.Sprintf("priority %q: use urgent, high, normal or background", p))
+}
+
+func checkTrust(t string) error {
+	switch t {
+	case "", "operator", "trusted", "untrusted":
+		return nil
+	}
+	return invalid(fmt.Sprintf("trust %q: use operator, trusted or untrusted", t))
+}
+
+// checkOnParentEnd validates Task.on_parent_end (3.4, part): the
+// parent-close policy applied to a task's own children when it ends.
+func checkOnParentEnd(v string) error {
+	switch v {
+	case "", "cancel", "abandon":
+		return nil
+	}
+	return invalid(fmt.Sprintf("on_parent_end %q: use cancel or abandon", v))
+}
+
+// checkDelivery validates SubmitTaskRequest.delivery (3.9, part): a
+// per-task override of the deployment's own conversations.queueMode, for
+// this submission only.
+func checkDelivery(v string) error {
+	switch v {
+	case "", "followup", "collect", "steer", "interrupt":
+		return nil
+	}
+	return invalid(fmt.Sprintf("delivery %q: use followup, collect, steer or interrupt", v))
+}
+
+// checkConversationPolicy validates a deployment's conversations policy
+// (3.9, part): queue_mode and debounce (collect only).
+func checkConversationPolicy(p *agenv1.ConversationPolicy) error {
+	if p == nil {
+		return nil
+	}
+	switch p.QueueMode {
+	case "", "followup", "collect", "steer", "interrupt":
+	default:
+		return invalid(fmt.Sprintf("conversations.queueMode %q: use followup, collect, steer or interrupt", p.QueueMode))
+	}
+	if p.Debounce != "" {
+		if _, err := time.ParseDuration(p.Debounce); err != nil {
+			return invalid(fmt.Sprintf("conversations.debounce %q: %s", p.Debounce, err))
+		}
+	}
+	return nil
+}
+
+// checkBudget validates a deployment's budget policy (3.5, part):
+// label_usd_per_day's keys are "key=value", each validated the same way a
+// real task label would be (store.CheckLabels), so a budget rule can
+// never target a label shape the system would not actually assign.
+func checkBudget(b *agenv1.Budget) error {
+	if b == nil {
+		return nil
+	}
+	for kv := range b.LabelUsdPerDay {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok || key == "" {
+			return invalid(fmt.Sprintf("budget.labelUsdPerDay %q: use \"key=value\"", kv))
+		}
+		if err := store.CheckLabels(map[string]string{key: val}); err != nil {
+			return invalid(fmt.Sprintf("budget.labelUsdPerDay %q: %s", kv, err))
+		}
+	}
+	return nil
+}
+
+// trustRank orders trust for narrowing: higher is more trusted. "" (unset)
+// is trusted.
+func trustRank(t string) int {
+	switch t {
+	case "operator":
+		return 2
+	case "untrusted":
+		return 0
+	default:
+		return 1
+	}
+}
+
+// narrowTrust returns the lower (less trusted) of a and b.
+func narrowTrust(a, b string) string {
+	if trustRank(a) <= trustRank(b) {
+		return a
+	}
+	return b
+}
+
+// checkLocks validates a task's declared locks (3.11, part): at most 16,
+// each a non-empty name of at most 128 characters, no duplicates.
+func checkLocks(locks []string) error {
+	if len(locks) > 16 {
+		return invalid("at most 16 locks per task")
+	}
+	seen := map[string]bool{}
+	for _, name := range locks {
+		if name == "" || len(name) > 128 {
+			return invalid("a lock name must be 1-128 characters")
+		}
+		if seen[name] {
+			return invalid(fmt.Sprintf("lock %q named twice", name))
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
 // bundleFiles merges binary and text bundle files; a path may be given once.
 func bundleFiles(bin map[string][]byte, text map[string]string) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(bin)+len(text))
@@ -170,6 +286,9 @@ func (h *Hub) bundleWarnings(ctx context.Context, ns string, b *bundle.Bundle) [
 		w = append(w, `x-agen/harness.json: provider "fake" is scripted and never calls a model`)
 	case "replay":
 		w = append(w, `x-agen/harness.json: provider "replay" replays a recorded cassette and never calls a model`)
+	}
+	if b.RecordInteractions {
+		w = append(w, "x-agen/config.json: recordInteractions is on — every run saves its full prompts and tool-call payloads as a cassette (agen replay)")
 	}
 	known := func(name string) bool {
 		for _, s := range b.ToolServers {

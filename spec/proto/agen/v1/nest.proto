@@ -23,6 +23,51 @@ service NestService {
   // Give a leased task back to the queue early (the instance could not take
   // it, or is gone).
   rpc ReleaseTask(ReleaseTaskRequest) returns (ReleaseTaskResponse);
+  // An instance's call_agent gave up its lease to wait for a child task it
+  // started (3.3): the task moves to TASK_STATE_WAITING, carrying wait_for.
+  // It is requeued when a matching run_inbox row arrives.
+  rpc SuspendTask(SuspendTaskRequest) returns (SuspendTaskResponse);
+  // Waits for a task (typically one started by SubmitChildTask) to reach a
+  // terminal state, up to wait_seconds (3.3: call_agent's inline wait before
+  // it suspends instead of erroring).
+  rpc WaitTask(NestWaitTaskRequest) returns (NestWaitTaskResponse);
+  // Reports progress on a task this Nest currently leases (3.4, part).
+  // Low-stakes by design: unlike CompleteTask/SuspendTask there is no lease
+  // fencing (the engine does not carry its own lease id), so a stale or
+  // duplicate instance reporting progress after being fenced off is a
+  // harmless cosmetic race, not a correctness issue.
+  rpc ReportProgress(NestReportProgressRequest) returns (NestReportProgressResponse);
+  // Progress, activity and outcome of one of the calling task's own
+  // descendants (3.4, part: the query_agent built-in). PermissionDenied if
+  // task_id is not a descendant of caller_task_id.
+  rpc QueryChildTask(NestQueryChildTaskRequest) returns (QueryTaskResponse);
+  // Signals one of the calling task's own descendants (3.4, part: the
+  // signal_agent built-in); same descendant check as QueryChildTask.
+  rpc SignalChildTask(NestSignalChildTaskRequest) returns (NestSignalChildTaskResponse);
+  // Claims a task this Nest currently leases' own unconsumed run_inbox
+  // entries other than "child" rows (3.4/3.9, part). Low-stakes like
+  // ReportProgress: requireNest only, no lease fencing.
+  rpc DrainInbox(NestDrainInboxRequest) returns (NestDrainInboxResponse);
+  // Counts a task this Nest currently leases' own unfinished joined
+  // children (3.4, part: "join"). Low-stakes like ReportProgress:
+  // requireNest only, no lease fencing.
+  rpc UnfinishedChildren(NestUnfinishedChildrenRequest) returns (NestUnfinishedChildrenResponse);
+  // Whether a task this Nest currently leases is effectively held right
+  // now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
+  // only, no lease fencing.
+  rpc IsHeld(NestIsHeldRequest) returns (NestIsHeldResponse);
+  // Grants a named lock to a task this Nest currently leases (1.5, part:
+  // the acquire_lock built-in). FailedPrecondition (AlreadyExists at the
+  // store layer) if another task currently holds it.
+  rpc AcquireLock(NestAcquireLockRequest) returns (NestAcquireLockResponse);
+  // Drops a lock a task this Nest currently leases holds (1.5, part: the
+  // release_lock built-in). A no-op if it doesn't hold one by that name.
+  rpc ReleaseLock(NestReleaseLockRequest) returns (NestReleaseLockResponse);
+  // Whether a task this Nest currently leases' tree has, right now,
+  // spent at least as much as its root's own declared budget (3.5,
+  // part: the live check). Low-stakes like IsHeld: requireNest only, no
+  // lease fencing.
+  rpc TreeBudgetExceeded(NestTreeBudgetExceededRequest) returns (NestTreeBudgetExceededResponse);
   // Instance asked a human; returns the approval to wait on.
   rpc CreateApproval(CreateApprovalRequest) returns (CreateApprovalResponse);
   rpc GetApproval(GetApprovalRequest) returns (GetApprovalResponse);
@@ -140,7 +185,8 @@ message CompleteTaskRequest {
   string instance_id = 7;
   // Must match the current lease or the call fails with FAILED_PRECONDITION
   // and the result is discarded.
-  string lease_id = 8;
+  string lease_id = 8;  // How the task's run ended.
+  Outcome outcome = 9;
 }
 message CompleteTaskResponse {}
 
@@ -152,6 +198,94 @@ message ReleaseTaskRequest {
   bool not_started = 4;
 }
 message ReleaseTaskResponse {}
+
+message SuspendTaskRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  // Must match the current lease, like CompleteTask's.
+  string lease_id = 3;
+  string wait_for = 4;
+}
+message SuspendTaskResponse {}
+
+message NestWaitTaskRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  int32 wait_seconds = 3;
+}
+message NestWaitTaskResponse {
+  Task task = 1;
+}
+
+message NestReportProgressRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  TaskProgress progress = 3;
+}
+message NestReportProgressResponse {}
+
+message NestQueryChildTaskRequest {
+  string nest_id = 1;
+  string caller_task_id = 2;
+  string task_id = 3;
+}
+
+message NestSignalChildTaskRequest {
+  string nest_id = 1;
+  string caller_task_id = 2;
+  string task_id = 3;
+  string message = 4;
+}
+message NestSignalChildTaskResponse {}
+
+message NestDrainInboxRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestDrainInboxResponse {
+  repeated InboxEntry entries = 1;
+}
+
+message NestUnfinishedChildrenRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestUnfinishedChildrenResponse {
+  int64 count = 1;
+}
+
+message NestIsHeldRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestIsHeldResponse {
+  bool held = 1;
+}
+
+message NestAcquireLockRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  string name = 3;
+  int32 ttl_seconds = 4;
+}
+message NestAcquireLockResponse {
+  int64 fence = 1;
+}
+
+message NestReleaseLockRequest {
+  string nest_id = 1;
+  string task_id = 2;
+  string name = 3;
+}
+message NestReleaseLockResponse {}
+
+message NestTreeBudgetExceededRequest {
+  string nest_id = 1;
+  string task_id = 2;
+}
+message NestTreeBudgetExceededResponse {
+  bool exceeded = 1;
+}
 
 message CreateApprovalRequest {
   Approval approval = 1;
@@ -199,6 +333,14 @@ message SubmitChildTaskRequest {
   // When set, the child's result is submitted as a task to the parent's
   // deployment with this conversation key once the child ends.
   string reply_conversation_key = 11;
+  // The child's overrides (combined with the parent's by the Hub).
+  TaskOverrides overrides = 12;
+  string model_tier = 13;
+  // The caller's trust right now (3.7); the child inherits it as is.
+  string trust = 14;
+  // Temporal's parent-close policy for this child's own children (3.4,
+  // part): "cancel" (default, also empty) or "abandon". See Task.on_parent_end.
+  string on_parent_end = 15;
 }
 message SubmitChildTaskResponse {
   Task task = 1;

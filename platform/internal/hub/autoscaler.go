@@ -57,9 +57,9 @@ func (s *Scheduler) Autoscale(ctx context.Context, epoch int64) error {
 				return 0 // daily budget used up: nothing new runs today
 			}
 			if starved[[2]string{cur.Namespace, cur.Name}] && load == 0 && now-cur.LastActivityMs >= PressureIdle.Milliseconds() {
-				return DesiredFor(cur, 0, math.MaxInt64) // as if idle for good
+				return DesiredFor(cur, 0, 0, math.MaxInt64) // as if idle for good
 			}
-			return DesiredFor(cur, load, now)
+			return DesiredFor(cur, load, q.HighPriority, now)
 		}
 		if next := desiredFor(d); next == d.Desired {
 			continue
@@ -167,7 +167,7 @@ func (h *Hub) scaleUpForDemand(ctx context.Context, ns, name string) error {
 }
 
 // DesiredFor computes a deployment's desired instances for a load at nowMs.
-func DesiredFor(d store.Deployment, load int, nowMs int64) int {
+func DesiredFor(d store.Deployment, load, highPriority int, nowMs int64) int {
 	if d.Paused {
 		return 0
 	}
@@ -181,6 +181,14 @@ func DesiredFor(d store.Deployment, load int, nowMs int64) int {
 		target = 1
 	}
 	want := clamp((load+target-1)/target, lo, hi)
+	// scale.reserve (2.46, part): with any urgent/high priority load at
+	// all, keep that many instances plus reserve more free, so one
+	// arriving later finds an instance idle rather than waiting on a
+	// scale-up — still capped by max, never a floor the queue depth
+	// itself didn't already ask for when nothing high-priority is around.
+	if highPriority > 0 && sp.Reserve > 0 {
+		want = clamp(max(want, highPriority+int(sp.Reserve)), lo, hi)
+	}
 	cur := clamp(d.Desired, lo, hi)
 	if want >= cur {
 		return want

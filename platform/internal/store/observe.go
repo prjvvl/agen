@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 )
 
 // Read models over the engine's run-data tables (written by agen-host through
@@ -35,9 +37,11 @@ type RunRow struct {
 	Labels      map[string]string
 	// Step is the number of model turns taken.
 	Step int64
+	// Outcome: how the run ended (JSON); "" while it runs.
+	Outcome string
 }
 
-const runCols = "id, session_id, conversation_id, namespace, deployment, definition_digest, parent_run_id, root_run_id, status, input, output, error, input_tokens, output_tokens, cost_usd, trace_id, started_ms, COALESCE(ended_ms, 0), task_id, requested_by, labels, step"
+const runCols = "id, session_id, conversation_id, namespace, deployment, definition_digest, parent_run_id, root_run_id, status, input, output, error, input_tokens, output_tokens, cost_usd, trace_id, started_ms, COALESCE(ended_ms, 0), task_id, requested_by, labels, step, outcome"
 
 func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]RunRow, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -51,7 +55,7 @@ func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]RunRow,
 		var labels string
 		if err := rows.Scan(&r.ID, &r.SessionID, &r.ConversationID, &r.Namespace, &r.Deployment, &r.DefinitionDigest, &r.ParentRunID,
 			&r.RootRunID, &r.Status, &r.Input, &r.Output, &r.Error, &r.InputTokens, &r.OutputTokens, &r.CostUSD, &r.TraceID,
-			&r.StartedMs, &r.EndedMs, &r.TaskID, &r.RequestedBy, &labels, &r.Step); err != nil {
+			&r.StartedMs, &r.EndedMs, &r.TaskID, &r.RequestedBy, &labels, &r.Step, &r.Outcome); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(labels), &r.Labels); err != nil {
@@ -158,4 +162,59 @@ func (s *Store) Usage(ctx context.Context, ns, deployment string, sinceMs int64)
 		"SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cost_usd), 0) FROM runs WHERE namespace = $1 AND deployment = $2 AND started_ms >= $3",
 		ns, deployment, sinceMs).Scan(&inputTokens, &outputTokens, &costUSD)
 	return
+}
+
+// TreeUsage sums model usage of every run of every task of the tree
+// rooted at rootTaskID (3.5, part: tree budgets), joining through each
+// run's task_id since a run itself carries no root_task_id of its own.
+func (s *Store) TreeUsage(ctx context.Context, rootTaskID string) (inputTokens, outputTokens int64, costUSD float64, err error) {
+	err = s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(SUM(r.input_tokens), 0), COALESCE(SUM(r.output_tokens), 0), COALESCE(SUM(r.cost_usd), 0) "+
+			"FROM runs r JOIN tasks t ON t.id = r.task_id WHERE t.root_task_id = $1",
+		rootTaskID).Scan(&inputTokens, &outputTokens, &costUSD)
+	return
+}
+
+// LabelSpentToday sums model spend of a deployment's runs since sinceMs
+// whose task carries labelKey=labelVal (3.5, part: label budgets).
+// Labels are JSON on the task, so (like ListEvents's own label filter)
+// this filters in Go after a bounded SQL fetch, not with a cross-dialect
+// JSON query.
+func (s *Store) LabelSpentToday(ctx context.Context, ns, deployment, labelKey, labelVal string, sinceMs int64) (float64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT t.labels, r.cost_usd FROM runs r JOIN tasks t ON t.id = r.task_id WHERE r.namespace = $1 AND r.deployment = $2 AND r.started_ms >= $3",
+		ns, deployment, sinceMs)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var total float64
+	for rows.Next() {
+		var labelsJSON string
+		var cost float64
+		if err := rows.Scan(&labelsJSON, &cost); err != nil {
+			return 0, err
+		}
+		var labels map[string]string
+		if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+			continue
+		}
+		if labels[labelKey] == labelVal {
+			total += cost
+		}
+	}
+	return total, rows.Err()
+}
+
+// GetCassette returns a run's recorded interactions (3.6, part: agen
+// replay), written directly by the engine (Store.save_cassette on the
+// Rust side) for a run of a deployment with recordInteractions on.
+// ErrNotFound: the run never recorded one (recordInteractions was off,
+// or it predates this feature).
+func (s *Store) GetCassette(ctx context.Context, runID string) (data string, createdMs int64, err error) {
+	err = s.db.QueryRowContext(ctx, "SELECT data, created_ms FROM cassettes WHERE run_id = $1", runID).Scan(&data, &createdMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, ErrNotFound
+	}
+	return data, createdMs, err
 }

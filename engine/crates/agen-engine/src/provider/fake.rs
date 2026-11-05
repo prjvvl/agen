@@ -50,6 +50,10 @@ pub struct FakeResponse {
     pub expect_model: Option<String>,
     /// Assert these request extras (each key equal to the given value).
     pub expect_extra: Option<serde_json::Map<String, Value>>,
+    /// Report this finish reason (default: "stop", or "tool_calls").
+    pub finish_reason: Option<String>,
+    /// Assert the request's output limit.
+    pub expect_max_output: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +74,7 @@ pub struct FakeProvider {
     cycle: bool,
     per_run: bool,
     next: AtomicUsize,
+    requests: std::sync::Mutex<Vec<ModelRequest>>,
 }
 
 impl FakeProvider {
@@ -79,6 +84,7 @@ impl FakeProvider {
             cycle: false,
             per_run: false,
             next: AtomicUsize::new(0),
+            requests: Default::default(),
         }
     }
 
@@ -100,12 +106,18 @@ impl FakeProvider {
             cycle: s.cycle,
             per_run: s.per_run,
             next: AtomicUsize::new(0),
+            requests: Default::default(),
         })
     }
 
     /// Number of completions served so far.
     pub fn calls(&self) -> usize {
         self.next.load(Ordering::SeqCst)
+    }
+
+    /// The requests served so far, in order.
+    pub fn requests(&self) -> Vec<ModelRequest> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
@@ -122,13 +134,14 @@ impl ModelProvider for FakeProvider {
 
     async fn complete(&self, req: &ModelRequest, on_delta: DeltaSink<'_>) -> Result<ModelResponse, ProviderError> {
         let n = self.next.fetch_add(1, Ordering::SeqCst);
+        self.requests.lock().unwrap().push(req.clone());
         let n = if self.per_run {
             // Turn index within this run: assistant messages after the last
-            // user message.
+            // user message (the engine's own "[agen]" notes do not count).
             req.messages
                 .iter()
                 .rev()
-                .take_while(|m| m.role != Role::User)
+                .take_while(|m| m.role != Role::User || m.content.starts_with("[agen] "))
                 .filter(|m| m.role == Role::Assistant)
                 .count()
         } else {
@@ -149,6 +162,14 @@ impl ModelProvider for FakeProvider {
                 return Err(ProviderError::Script(format!(
                     "response {idx}: expected model {m:?}, got {:?}",
                     req.model
+                )));
+            }
+        }
+        if let Some(n) = r.expect_max_output {
+            if req.max_output_tokens != Some(n) {
+                return Err(ProviderError::Script(format!(
+                    "response {idx}: expected output limit {n}, got {:?}",
+                    req.max_output_tokens
                 )));
             }
         }
@@ -197,14 +218,15 @@ impl ModelProvider for FakeProvider {
             Usage {
                 input_tokens: input,
                 output_tokens: estimate_tokens(&r.text).max(1),
+                cached_input_tokens: 0,
                 cost_usd: 0.0,
             }
         });
         Ok(ModelResponse {
-            finish_reason: if r.tool_calls.is_empty() {
-                "stop".into()
-            } else {
-                "tool_calls".into()
+            finish_reason: match (&r.finish_reason, r.tool_calls.is_empty()) {
+                (Some(f), _) => f.clone(),
+                (None, true) => "stop".into(),
+                (None, false) => "tool_calls".into(),
             },
             text: r.text.clone(),
             tool_calls,

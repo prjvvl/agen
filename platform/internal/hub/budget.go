@@ -3,6 +3,8 @@ package hub
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -39,6 +41,50 @@ func (h *Hub) spentToday(ctx context.Context, d store.Deployment) (float64, bool
 // carry budget_pressure (routing models drop to their budget tier).
 const BudgetPressure = 0.8
 
+// exhaustedLabels returns the "key=value" strings of d's label_usd_per_day
+// rules whose spend today has reached their limit (3.5, part: label
+// budgets). Unlike the deployment-wide daily budget, which holds the
+// whole deployment at zero instances once exhausted, an exhausted label
+// only excludes candidates carrying that label from LeaseTasks — the
+// rest of the deployment's queue keeps going. Nil, no error: no rules
+// configured, nothing to check.
+func (h *Hub) exhaustedLabels(ctx context.Context, d store.Deployment) (map[string]bool, error) {
+	rules := PolicyOf(d).Budget.LabelUsdPerDay
+	if len(rules) == 0 {
+		return nil, nil
+	}
+	since := dayStartMs()
+	out := map[string]bool{}
+	for kv, max := range rules {
+		if max <= 0 {
+			continue
+		}
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		spent, err := h.Store.LabelSpentToday(ctx, d.Namespace, d.Name, key, val, since)
+		if err != nil {
+			return nil, err
+		}
+		if spent >= max {
+			out[kv] = true
+		}
+	}
+	return out, nil
+}
+
+// labelsExhausted reports whether t carries any label matching an
+// exhausted rule from exhaustedLabels.
+func labelsExhausted(t store.Task, exhausted map[string]bool) bool {
+	for k, v := range t.Labels {
+		if exhausted[k+"="+v] {
+			return true
+		}
+	}
+	return false
+}
+
 func budgetError(d store.Deployment, spent float64) error {
 	next := time.UnixMilli(dayStartMs()).UTC().Add(24 * time.Hour)
 	return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("%s/%s used its daily budget ($%.4f of $%.4f); new work resumes at %s",
@@ -54,5 +100,207 @@ func (h *Hub) withBudget(ctx context.Context, d store.Deployment, pd *agenv1.Dep
 		pd.ProviderHold = providerHoldProto(hold)
 	}
 	h.stampCronTimes(ctx, d, pd)
+	h.stampRandomTimes(ctx, d, pd)
 	return pd
+}
+
+// narrowForTreeBudget narrows combined's budget by the tree's remaining
+// budget (3.5, part): a tree budget is the root task's own
+// overrides.budget (maxTokens/maxUsd), not a separate field — a child's
+// effective budget is the smaller of its own request and the tree's
+// remainder (the root's limit minus every run of the tree's usage so
+// far, TreeUsage). No root budget: no narrowing, combined is returned
+// unchanged (nil stays nil).
+//
+// This is computed once, at the child's own submission, not re-checked
+// against the tree's usage again for the rest of that child's run: a
+// sibling spending heavily later is not retroactively applied to a run
+// already in progress, only to the NEXT child submitted after it. A
+// remainder that is already used up floors at a small positive value
+// (1 token / $0.0001) rather than 0, since the engine's own existing
+// budget_exceeded check treats a 0 limit as "unset, no limit" — a floor
+// still lets the child's own very first turn run (0 tokens used is not
+// yet over a 1-token limit), then ends it with a report on its second
+// check, the same "overshoot of at most one model call" the daily
+// deployment budget already documents.
+// labelBudgetMetrics is GetMetrics' per-label rollup (3.5, part): today's
+// spend against every configured budget.labelUsdPerDay rule of a
+// deployment, regardless of GetMetrics' own window — a label budget
+// resets daily, not by the call's window/buckets. Nil, same as
+// exhaustedLabels, when the deployment has no such rules.
+func (h *Hub) labelBudgetMetrics(ctx context.Context, ns, name string) []*agenv1.LabelBudgetMetric {
+	d, err := h.Store.GetDeployment(ctx, ns, name)
+	if err != nil {
+		return nil
+	}
+	rules := PolicyOf(d).Budget.LabelUsdPerDay
+	if len(rules) == 0 {
+		return nil
+	}
+	since := dayStartMs()
+	kvs := make([]string, 0, len(rules))
+	for kv := range rules {
+		kvs = append(kvs, kv)
+	}
+	sort.Strings(kvs)
+	out := make([]*agenv1.LabelBudgetMetric, 0, len(kvs))
+	for _, kv := range kvs {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		spent, err := h.Store.LabelSpentToday(ctx, ns, name, key, val, since)
+		if err != nil {
+			continue
+		}
+		out = append(out, &agenv1.LabelBudgetMetric{Label: kv, SpentUsd: spent, LimitUsd: rules[kv]})
+	}
+	return out
+}
+
+// treeBudgetThresholds emits budget.threshold events (scope "tree") at
+// 50/80/100% of a root task's own overrides.budget, the same limit
+// narrowForTreeBudget narrows every child's effective budget against.
+// Dedupe key is per root task (not per day: a tree's budget, unlike the
+// deployment's, does not reset daily), so each crossing fires once for
+// the tree's whole lifetime regardless of which task in it ends.
+func (h *Hub) treeBudgetThresholds(ctx context.Context, t store.Task) {
+	if t.RootTaskID == "" {
+		return
+	}
+	root, err := h.Store.GetTask(ctx, t.RootTaskID)
+	if err != nil {
+		return
+	}
+	rootOv, _ := store.ParseOverrides(root.Overrides)
+	if rootOv == nil || rootOv.Budget == nil || (rootOv.Budget.MaxUsd <= 0 && rootOv.Budget.MaxTokens <= 0) {
+		return
+	}
+	inTok, outTok, usd, err := h.Store.TreeUsage(ctx, t.RootTaskID)
+	if err != nil {
+		return
+	}
+	limit, spent, unit := rootOv.Budget.MaxUsd, usd, "usd"
+	if limit <= 0 {
+		limit, spent, unit = float64(rootOv.Budget.MaxTokens), float64(inTok+outTok), "tokens"
+	}
+	for _, pct := range []int{50, 80, 100} {
+		if spent < limit*float64(pct)/100 {
+			break
+		}
+		severity := map[int]string{50: "info", 80: "warning", 100: "critical"}[pct]
+		_, _ = h.Store.AppendEventOnce(ctx, store.Event{Namespace: t.Namespace, Type: "budget.threshold", Deployment: root.Deployment,
+			TaskID: t.RootTaskID, Severity: severity,
+			Data:      map[string]any{"percent": pct, "scope": "tree", "rootTaskId": t.RootTaskID, "unit": unit, "spent": spent, "limit": limit},
+			DedupeKey: fmt.Sprintf("budget:tree:%s:%d", t.RootTaskID, pct)})
+	}
+}
+
+// labelBudgetThresholds emits budget.threshold events (scope "label") at
+// 50/80/100% of each configured label_usd_per_day rule, the same spend
+// exhaustedLabels checks against. Dedupe key is per label and UTC day,
+// same cadence as the deployment-wide budget's own thresholds.
+func (h *Hub) labelBudgetThresholds(ctx context.Context, d store.Deployment, t store.Task) {
+	rules := PolicyOf(d).Budget.LabelUsdPerDay
+	if len(rules) == 0 {
+		return
+	}
+	day := time.UnixMilli(dayStartMs()).UTC().Format(time.DateOnly)
+	for kv, max := range rules {
+		if max <= 0 {
+			continue
+		}
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok || t.Labels[key] != val {
+			continue
+		}
+		spent, err := h.Store.LabelSpentToday(ctx, d.Namespace, d.Name, key, val, dayStartMs())
+		if err != nil {
+			continue
+		}
+		for _, pct := range []int{50, 80, 100} {
+			if spent < max*float64(pct)/100 {
+				break
+			}
+			severity := map[int]string{50: "info", 80: "warning", 100: "critical"}[pct]
+			_, _ = h.Store.AppendEventOnce(ctx, store.Event{Namespace: d.Namespace, Type: "budget.threshold", Deployment: d.Name, Severity: severity,
+				Data:      map[string]any{"percent": pct, "scope": "label", "label": kv, "spentUsd": spent, "limitUsd": max, "day": day},
+				DedupeKey: fmt.Sprintf("budget:label:%s/%s:%s:%s:%d", d.Namespace, d.Name, kv, day, pct)})
+		}
+	}
+}
+
+// rootTreeBudget reads a tree's own declared budget (the root task's
+// overrides.budget) and its current cumulative usage, shared by
+// narrowForTreeBudget (a new child's submission-time remainder) and
+// treeBudgetExceeded (3.5, part: the live per-turn check, 2026-11-05).
+// hasLimit is false when the root never set a tree budget at all.
+func (h *Hub) rootTreeBudget(ctx context.Context, rootTaskID string) (maxTokens int64, maxUsd float64, usedTokens int64, usedUsd float64, hasLimit bool, err error) {
+	root, err := h.Store.GetTask(ctx, rootTaskID)
+	if err != nil {
+		return 0, 0, 0, 0, false, err
+	}
+	rootOv, _ := store.ParseOverrides(root.Overrides)
+	if rootOv == nil || rootOv.Budget == nil || (rootOv.Budget.MaxTokens <= 0 && rootOv.Budget.MaxUsd <= 0) {
+		return 0, 0, 0, 0, false, nil
+	}
+	inTok, outTok, usd, err := h.Store.TreeUsage(ctx, rootTaskID)
+	if err != nil {
+		return 0, 0, 0, 0, false, err
+	}
+	return rootOv.Budget.MaxTokens, rootOv.Budget.MaxUsd, inTok + outTok, usd, true, nil
+}
+
+func (h *Hub) narrowForTreeBudget(ctx context.Context, rootTaskID string, combined *store.TaskOverrides) *store.TaskOverrides {
+	maxTokens, maxUsd, tokens, usd, hasLimit, err := h.rootTreeBudget(ctx, rootTaskID)
+	if err != nil || !hasLimit {
+		return combined
+	}
+	if combined == nil {
+		combined = &store.TaskOverrides{}
+	}
+	if combined.Budget == nil {
+		combined.Budget = &store.RunBudget{}
+	}
+	if maxTokens > 0 {
+		remainder := maxTokens - tokens
+		if remainder < 1 {
+			remainder = 1
+		}
+		if combined.Budget.MaxTokens <= 0 || remainder < combined.Budget.MaxTokens {
+			combined.Budget.MaxTokens = remainder
+		}
+	}
+	if maxUsd > 0 {
+		remainder := maxUsd - usd
+		if remainder < 0.0001 {
+			remainder = 0.0001
+		}
+		if combined.Budget.MaxUsd <= 0 || remainder < combined.Budget.MaxUsd {
+			combined.Budget.MaxUsd = remainder
+		}
+	}
+	return combined
+}
+
+// treeBudgetExceeded reports whether task's tree has, right now, spent at
+// least as much as the root task's own declared budget (3.5, part: the
+// live check narrowForTreeBudget alone can't give — a sibling's spend
+// while another is still running never shrinks that other sibling's own,
+// already-fixed budget). Checked by the engine's own turn loop (the same
+// per-turn round trip is_held/unfinished_children already use), ending
+// the run the exact same way its existing per-run budget_exceeded check
+// already does: a graceful partial finish with a report, never a hard
+// stop or a suspend. false (never an error) when the task has no root
+// task id yet, or its tree never declared a budget at all.
+func (h *Hub) treeBudgetExceeded(ctx context.Context, taskID string) (bool, error) {
+	t, err := h.Store.GetTask(ctx, taskID)
+	if err != nil || t.RootTaskID == "" {
+		return false, err
+	}
+	maxTokens, maxUsd, tokens, usd, hasLimit, err := h.rootTreeBudget(ctx, t.RootTaskID)
+	if err != nil || !hasLimit {
+		return false, err
+	}
+	return (maxTokens > 0 && tokens >= maxTokens) || (maxUsd > 0 && usd >= maxUsd), nil
 }

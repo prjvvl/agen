@@ -16,6 +16,7 @@ The words Agen uses, from the agent outwards.
 | **Instance** | One `agen-host` process (or pod) running one deployment. Instances scale to zero when idle and wake on demand. |
 | **Task** | A durable request to a deployment: input, state (`queued`, `leased`, `running`, `succeeded`, `failed`, `cancelled`), result. Tasks come from the API/CLI, triggers and delegation. A task runs at most once; if its instance dies, the next attempt resumes the same run. |
 | **Run** | One execution of the agent loop for a task or an A2A call, with its usage, cost and trace. |
+| **Outcome** | How a run ended beyond its state: `done`, `partial`, `needs_input`, `rejected`, `failed` or `cancelled`, with a reason, the agent's report and optional structured data. Agents set it with the built-in `finish` tool. See [How a run ends](guides/agents.md#how-a-run-ends). |
 | **Session** | The memory container that runs belong to. A run without a conversation key gets a fresh session; a singleton has one session. |
 | **Conversation** | The message history inside a session. Runs in the same conversation see earlier turns. Tasks with the same **conversation key** (or A2A messages with the same `contextId`) continue one conversation. See [Memory](guides/memory.md). |
 | **Labels** | Free-form `key=value` pairs on a task, copied to its runs, traces, tool calls and delegated tasks, for grouping work by project, workspace or tenant. |

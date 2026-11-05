@@ -2,11 +2,12 @@
 //! tools) or the engine itself (e.g. `load_skill`).
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::bundle::Trust;
 use crate::provider::ToolSpec;
 use crate::secrets::Secrets;
 
@@ -18,6 +19,12 @@ pub struct ToolError {
     /// Side-effecting calls with this error are reported as `effect_unknown`
     /// and never recorded as completed.
     pub outcome_unknown: bool,
+    /// Set instead of a normal error (3.3) when the tool is asking the
+    /// whole run to pause here rather than fail: what it is waiting for
+    /// ("<kind>:<ref>"). No tool message is written for this call; it is
+    /// retried from scratch (never from a cached result) the next time the
+    /// run is driven, which is expected to be after that happens.
+    pub suspend: Option<String>,
 }
 
 impl ToolError {
@@ -25,6 +32,7 @@ impl ToolError {
         Self {
             message: message.into(),
             outcome_unknown: false,
+            suspend: None,
         }
     }
 
@@ -32,6 +40,18 @@ impl ToolError {
         Self {
             message: message.into(),
             outcome_unknown: true,
+            suspend: None,
+        }
+    }
+
+    /// Asks the run to suspend here instead of treating this as a failure
+    /// (3.3): `wait_for` is `"<kind>:<ref>"`, e.g. `"child:<task id>"`.
+    pub fn suspend(wait_for: impl Into<String>) -> Self {
+        let wait_for = wait_for.into();
+        Self {
+            message: format!("suspended: waiting for {wait_for}"),
+            outcome_unknown: false,
+            suspend: Some(wait_for),
         }
     }
 }
@@ -58,6 +78,18 @@ pub struct ToolContext {
     pub root_run_id: String,
     /// Delegation depth of this run (0 for a run nobody delegated).
     pub depth: u32,
+    /// The run's trust right now (already lowered by any taint picked up
+    /// earlier in the run); a child task started from here inherits it.
+    pub trust: Trust,
+    /// This run's workspace directory (2.45), already created; empty
+    /// when the bundle sets no `workspace`.
+    pub workspace_dir: String,
+    /// Locks this run currently holds (1.5, part), name -> fence: its own
+    /// declared locks plus any acquired mid-run, for `_meta` `agen/locks`.
+    /// Shared with the run's `Live` state (not a snapshot): `acquire_lock`/
+    /// `release_lock` update it directly so a later call in the same run
+    /// sees the change without a new round trip to re-derive it.
+    pub lock_fences: Arc<Mutex<BTreeMap<String, i64>>>,
 }
 
 #[async_trait]
@@ -71,6 +103,12 @@ pub trait Tool: Send + Sync {
     /// A key that makes repeating this call safe (e.g. an order client id).
     fn idempotency_key(&self, _args: &Value) -> Option<String> {
         None
+    }
+    /// True if the result may contain content from outside the agent's
+    /// control (a page, a search result, an email); a run that calls it
+    /// drops to untrusted for the rest of the run.
+    fn untrusted_output(&self) -> bool {
+        false
     }
     async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError>;
 }

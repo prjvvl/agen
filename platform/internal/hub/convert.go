@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -74,20 +76,23 @@ func kindString(k agenv1.DeploymentKind) string {
 
 // Policy is a deployment's decoded policy.
 type Policy struct {
-	Scale     *agenv1.ScalePolicy
-	Budget    *agenv1.Budget
-	Limits    *agenv1.Limits
-	Placement *agenv1.Placement
-	Triggers  []*agenv1.Trigger
+	Scale         *agenv1.ScalePolicy
+	Budget        *agenv1.Budget
+	Limits        *agenv1.Limits
+	Placement     *agenv1.Placement
+	Triggers      []*agenv1.Trigger
+	Conversations *agenv1.ConversationPolicy
 }
 
 // PolicyOf decodes the stored policy of a deployment.
 func PolicyOf(d store.Deployment) Policy {
-	p := Policy{Scale: &agenv1.ScalePolicy{}, Budget: &agenv1.Budget{}, Limits: &agenv1.Limits{}, Placement: &agenv1.Placement{}}
+	p := Policy{Scale: &agenv1.ScalePolicy{}, Budget: &agenv1.Budget{}, Limits: &agenv1.Limits{}, Placement: &agenv1.Placement{},
+		Conversations: &agenv1.ConversationPolicy{}}
 	fromJSON(d.Scale, p.Scale)
 	fromJSON(d.Budget, p.Budget)
 	fromJSON(d.Limits, p.Limits)
 	fromJSON(d.Placement, p.Placement)
+	fromJSON(d.Conversations, p.Conversations)
 	p.Triggers = triggersFrom(d.Triggers)
 	return p
 }
@@ -102,17 +107,21 @@ func policyFromBundle(b *bundle.Bundle) Policy {
 			IdleTimeoutSeconds:     int32(b.Scale.IdleSeconds()),
 			MaxConcurrency:         int32(b.Scale.MaxConcurrency),
 		},
-		Budget:    &agenv1.Budget{},
-		Limits:    &agenv1.Limits{},
-		Placement: &agenv1.Placement{},
+		Budget:        &agenv1.Budget{},
+		Limits:        &agenv1.Limits{},
+		Placement:     &agenv1.Placement{},
+		Conversations: &agenv1.ConversationPolicy{},
 	}
+	fromJSON(b.Conversations, p.Conversations)
 	var budget struct {
-		MaxTokensPerRun int64   `json:"maxTokensPerRun"`
-		MaxUsdPerRun    float64 `json:"maxUsdPerRun"`
-		MaxUsdPerDay    float64 `json:"maxUsdPerDay"`
+		MaxTokensPerRun int64              `json:"maxTokensPerRun"`
+		MaxUsdPerRun    float64            `json:"maxUsdPerRun"`
+		MaxUsdPerDay    float64            `json:"maxUsdPerDay"`
+		LabelUsdPerDay  map[string]float64 `json:"labelUsdPerDay"`
 	}
 	_ = json.Unmarshal(b.Budget, &budget)
-	p.Budget = &agenv1.Budget{MaxTokensPerRun: budget.MaxTokensPerRun, MaxUsdPerRun: budget.MaxUsdPerRun, MaxUsdPerDay: budget.MaxUsdPerDay}
+	p.Budget = &agenv1.Budget{MaxTokensPerRun: budget.MaxTokensPerRun, MaxUsdPerRun: budget.MaxUsdPerRun, MaxUsdPerDay: budget.MaxUsdPerDay,
+		LabelUsdPerDay: budget.LabelUsdPerDay}
 	var limits struct {
 		MaxDelegationDepth  *int32 `json:"maxDelegationDepth"`
 		MaxFanOut           *int32 `json:"maxFanOut"`
@@ -162,6 +171,7 @@ func mergeLimits(base, override *agenv1.Limits) *agenv1.Limits {
 func (p Policy) apply(d *store.Deployment) {
 	d.Scale, d.Budget, d.Limits, d.Placement = toJSON(p.Scale), toJSON(p.Budget), toJSON(p.Limits), toJSON(p.Placement)
 	d.Triggers = triggersJSON(p.Triggers)
+	d.Conversations = toJSON(p.Conversations)
 }
 
 func ms(t int64) *timestamppb.Timestamp {
@@ -183,6 +193,7 @@ func deploymentProto(d store.Deployment, ready int) *agenv1.Deployment {
 		Limits:           p.Limits,
 		Placement:        p.Placement,
 		Triggers:         p.Triggers,
+		Conversations:    p.Conversations,
 		Paused:           d.Paused,
 		Desired:          int32(d.Desired),
 		Ready:            int32(ready),
@@ -235,6 +246,7 @@ var taskStates = map[string]agenv1.TaskState{
 	"queued": agenv1.TaskState_TASK_STATE_QUEUED, "leased": agenv1.TaskState_TASK_STATE_LEASED,
 	"running": agenv1.TaskState_TASK_STATE_RUNNING, "succeeded": agenv1.TaskState_TASK_STATE_SUCCEEDED,
 	"failed": agenv1.TaskState_TASK_STATE_FAILED, "cancelled": agenv1.TaskState_TASK_STATE_CANCELLED,
+	"waiting": agenv1.TaskState_TASK_STATE_WAITING,
 }
 
 func taskStateName(s agenv1.TaskState) string {
@@ -254,15 +266,101 @@ func TaskProto(t store.Task) *agenv1.Task {
 		CreatedAt: ms(t.CreatedMs), UpdatedAt: ms(t.UpdatedMs), LeaseExpiresAt: ms(t.LeaseExpiresMs), LeaseId: t.LeaseID,
 		ParentTaskId: t.ParentTaskID, ParentRunId: t.ParentRunID, RootRunId: t.RootRunID, Depth: int32(t.Depth), Traceparent: t.Traceparent,
 		ConversationKey: t.ConversationKey, Labels: t.Labels, ModelTier: t.ModelTier,
-		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey,
+		ReplyDeployment: t.ReplyDeployment, ReplyConversationKey: t.ReplyConversationKey, ScheduleKey: t.ScheduleKey, Priority: t.Priority, Trust: t.Trust, Locks: t.Locks,
+		WaitFor: t.WaitFor, OnParentEnd: t.OnParentEnd, RootTaskId: t.RootTaskID, Progress: taskProgressProto(t.Progress),
+		Held: t.Held, HoldReason: t.HoldReason, LockFences: t.LockFences,
 	}
 	if t.NotBeforeMs > 0 {
 		out.NotBefore = ms(t.NotBeforeMs)
 	}
+	if t.NotAfterMs > 0 {
+		out.NotAfter = ms(t.NotAfterMs)
+	}
+	if t.HeldUntilMs > 0 {
+		out.HeldUntil = ms(t.HeldUntilMs)
+	}
+	out.Outcome = outcomeProto(t.Outcome, t.State, t.Output, t.Error)
+	out.Overrides = overridesProto(t.Overrides)
 	if tp := t.Traceparent; len(tp) > 35 {
 		out.TraceId = tp[3:35]
 	}
 	return out
+}
+
+// overridesProto converts a task's stored overrides (JSON) to the API
+// message; nil for none or on a parse error (an old row, or "" ).
+func overridesProto(stored string) *agenv1.TaskOverrides {
+	o, err := store.ParseOverrides(stored)
+	if err != nil || o == nil {
+		return nil
+	}
+	out := &agenv1.TaskOverrides{Tools: o.Tools, Skills: o.Skills, SystemAddendum: o.SystemAddendum}
+	for _, r := range o.Permissions {
+		out.Permissions = append(out.Permissions, &agenv1.OverrideRule{Tool: r.Tool, Action: r.Action})
+	}
+	if o.Budget != nil {
+		out.Budget = &agenv1.RunBudget{MaxTokens: o.Budget.MaxTokens, MaxUsd: o.Budget.MaxUsd, MaxTurns: o.Budget.MaxTurns, MaxDuration: o.Budget.MaxDuration}
+	}
+	return out
+}
+
+// taskProgressProto converts a task's stored progress (JSON, written by
+// NestAPI.ReportProgress) to the API message; nil for none or on a parse
+// error.
+func taskProgressProto(stored string) *agenv1.TaskProgress {
+	if stored == "" {
+		return nil
+	}
+	var p struct {
+		Step      string   `json:"step"`
+		Done      bool     `json:"done"`
+		Total     int32    `json:"total"`
+		Note      string   `json:"note"`
+		Artifacts []string `json:"artifacts"`
+	}
+	if err := json.Unmarshal([]byte(stored), &p); err != nil {
+		return nil
+	}
+	return &agenv1.TaskProgress{Step: p.Step, Done: p.Done, Total: p.Total, Note: p.Note, Artifacts: p.Artifacts}
+}
+
+// overridesFromProto is the inverse of overridesProto, for a request's
+// overrides. nil in, nil out.
+func overridesFromProto(o *agenv1.TaskOverrides) *store.TaskOverrides {
+	if o == nil {
+		return nil
+	}
+	out := &store.TaskOverrides{Tools: o.Tools, Skills: o.Skills, SystemAddendum: o.SystemAddendum}
+	for _, r := range o.Permissions {
+		out.Permissions = append(out.Permissions, store.OverrideRule{Tool: r.Tool, Action: r.Action})
+	}
+	if b := o.Budget; b != nil {
+		out.Budget = &store.RunBudget{MaxTokens: b.MaxTokens, MaxUsd: b.MaxUsd, MaxTurns: b.MaxTurns, MaxDuration: b.MaxDuration}
+	}
+	return out
+}
+
+// validateOverrides checks an override request: rule actions are deny or
+// ask (never allow — overrides can only narrow), and a budget's
+// max_duration, if set, parses.
+func validateOverrides(o *agenv1.TaskOverrides) error {
+	if o == nil {
+		return nil
+	}
+	for _, r := range o.GetPermissions() {
+		if r.Action != "deny" && r.Action != "ask" {
+			return fmt.Errorf("overrides.permissions: action must be deny or ask (an override can only narrow), got %q", r.Action)
+		}
+		if r.Tool == "" {
+			return fmt.Errorf("overrides.permissions: tool is required")
+		}
+	}
+	if d := o.GetBudget().GetMaxDuration(); d != "" {
+		if _, err := time.ParseDuration(d); err != nil {
+			return fmt.Errorf("overrides.budget.maxDuration: %v", err)
+		}
+	}
+	return nil
 }
 
 var approvalStates = map[string]agenv1.ApprovalState{
@@ -306,7 +404,41 @@ func runProto(r store.RunRow) *agenv1.Run {
 	return &agenv1.Run{Id: r.ID, SessionId: r.SessionID, ConversationId: r.ConversationID, Namespace: r.Namespace, Deployment: r.Deployment,
 		Status: r.Status, Input: r.Input, Output: r.Output, Usage: &agenv1.Usage{InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUsd: r.CostUSD},
 		TraceId: r.TraceID, StartedAt: ms(r.StartedMs), EndedAt: ms(r.EndedMs), ParentRunId: r.ParentRunID, RootRunId: r.RootRunID,
-		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels, Error: r.Error, Steps: r.Step}
+		DefinitionDigest: r.DefinitionDigest, TaskId: r.TaskID, Labels: r.Labels, Error: r.Error, Steps: r.Step,
+		Outcome: outcomeProto(r.Outcome, r.Status, r.Output, r.Error)}
+}
+
+// outcomeProto is the stored outcome (JSON), or for work that ended without
+// one (ended by the Hub, or by an older engine) the outcome its state
+// implies. Unfinished work has none.
+func outcomeProto(stored, state, output, errMsg string) *agenv1.Outcome {
+	if stored != "" {
+		o := &agenv1.Outcome{}
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal([]byte(stored), o); err == nil {
+			return o
+		}
+	}
+	switch state {
+	case "succeeded":
+		return &agenv1.Outcome{Status: "done", Summary: output}
+	case "failed":
+		return &agenv1.Outcome{Status: "failed", Reason: "error", Summary: errMsg}
+	case "cancelled":
+		return &agenv1.Outcome{Status: "cancelled", Reason: "cancelled"}
+	}
+	return nil
+}
+
+// OutcomeJSON is the stored form of an outcome ("" for none).
+func OutcomeJSON(o *agenv1.Outcome) string {
+	if o == nil || o.Status == "" {
+		return ""
+	}
+	b, err := protojson.Marshal(o)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func spanProto(s store.SpanRow) *agenv1.Span {

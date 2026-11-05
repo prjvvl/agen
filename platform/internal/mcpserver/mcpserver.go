@@ -21,8 +21,14 @@ import (
 	"github.com/prjvvl/agen/platform/internal/version"
 )
 
-// ProtocolVersion is the MCP revision this server implements.
-const ProtocolVersion = "2025-06-18"
+// ProtocolVersion is the latest MCP revision this server implements.
+// SupportedVersions are the revisions whose initialize/tools shape this
+// server's methods (initialize, ping, tools/list, tools/call) still match;
+// a client asking for one of them gets that version back instead of the
+// latest, as the spec's negotiation expects.
+const ProtocolVersion = "2025-11-25"
+
+var supportedVersions = map[string]bool{"2025-03-26": true, "2025-06-18": true, ProtocolVersion: true}
 
 type server struct {
 	api   http.Handler
@@ -118,13 +124,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// negotiatedVersion is the client's requested protocolVersion (from
+// initialize params) when this server still supports it, else its own
+// latest — the fallback a client that asked for something newer than this
+// server knows should itself fall back to.
+func negotiatedVersion(params json.RawMessage) string {
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if json.Unmarshal(params, &p) == nil && supportedVersions[p.ProtocolVersion] {
+		return p.ProtocolVersion
+	}
+	return ProtocolVersion
+}
+
 // handle answers one message; nil for notifications.
 func (s *server) handle(r *http.Request, req rpcRequest) any {
 	notification := len(req.ID) == 0
 	switch req.Method {
 	case "initialize":
 		return response(req.ID, map[string]any{
-			"protocolVersion": ProtocolVersion,
+			"protocolVersion": negotiatedVersion(req.Params),
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": "agen", "version": version.Version},
 			"instructions": "Agen fleet control: deploy, scale and inspect agent deployments, run tasks and decide approvals. " +

@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -29,7 +30,35 @@ const (
 	modelErrMinCalls  = 5
 	modelErrShare     = 0.3
 	defaultMaxTurns   = 16
+	outputCutMin      = 3 // answers cut at the output limit within modelErrWindow
 )
+
+// alertTimes are a deployment's warning thresholds (config.json alerts).
+type alertTimes struct{ quietRun, waitingApproval, queueWaiting int64 }
+
+// alertsByDigest caches alertTimes per definition.
+var alertsByDigest sync.Map
+
+func (h *Hub) alerts(ctx context.Context, digest string) alertTimes {
+	if v, ok := alertsByDigest.Load(digest); ok {
+		return v.(alertTimes)
+	}
+	a := alertTimes{quietAfter.Milliseconds(), approvalWaitAfter.Milliseconds(), queueWaitAfter.Milliseconds()}
+	if def, err := h.Store.GetDefinition(ctx, digest); err == nil {
+		var cfg struct {
+			Alerts map[string]string `json:"alerts"`
+		}
+		if json.Unmarshal(def.Files["x-agen/config.json"], &cfg) == nil {
+			for k, dst := range map[string]*int64{"quietRun": &a.quietRun, "waitingApproval": &a.waitingApproval, "queueWaiting": &a.queueWaiting} {
+				if d, err := time.ParseDuration(cfg.Alerts[k]); err == nil && d > 0 {
+					*dst = d.Milliseconds()
+				}
+			}
+		}
+	}
+	alertsByDigest.Store(digest, a)
+	return a
+}
 
 // maxTurnsByDigest caches agent.md maxTurns per definition.
 var maxTurnsByDigest sync.Map
@@ -145,7 +174,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 		case approvals[r.ID].ID != "":
 			ap := approvals[r.ID]
 			a.Activity, a.ApprovalId, since = "approval", ap.ID, ap.CreatedMs
-			if now-ap.CreatedMs > approvalWaitAfter.Milliseconds() {
+			if now-ap.CreatedMs > h.alerts(ctx, r.DefinitionDigest).waitingApproval {
 				warn("waiting_approval", "warning", r.Namespace, r.Deployment, r.ID,
 					fmt.Sprintf("waiting %s for approval %s", human(now-ap.CreatedMs), ap.ID))
 			}
@@ -176,7 +205,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 				warn("near_run_budget", "warning", r.Namespace, r.Deployment, r.ID, fmt.Sprintf("$%.4f of $%.4f", r.CostUSD, max))
 			}
 		}
-		if (a.Activity == "idle" || a.Activity == "model" || a.Activity == "tool") && now-last > quietAfter.Milliseconds() {
+		if (a.Activity == "idle" || a.Activity == "model" || a.Activity == "tool") && now-last > h.alerts(ctx, r.DefinitionDigest).quietRun {
 			warn("quiet_run", "warning", r.Namespace, r.Deployment, r.ID,
 				fmt.Sprintf("no step finished for %s (%s)", human(now-last), a.Activity))
 		}
@@ -202,7 +231,11 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 		}
 		out.Queues = append(out.Queues, &agenv1.QueueStatus{Ref: &agenv1.DeploymentRef{Namespace: q.Namespace, Name: q.Deployment},
 			Queued: int32(q.Queued), Scheduled: int32(q.Scheduled), OldestQueuedAt: ms(q.OldestQueuedMs)})
-		if q.Queued > 0 && q.OldestQueuedMs > 0 && now-q.OldestQueuedMs > queueWaitAfter.Milliseconds() {
+		wait := queueWaitAfter.Milliseconds()
+		if d, ok := depOf(q.Namespace, q.Deployment); ok {
+			wait = h.alerts(ctx, d.DefinitionDigest).queueWaiting
+		}
+		if q.Queued > 0 && q.OldestQueuedMs > 0 && now-q.OldestQueuedMs > wait {
 			warn("queue_waiting", "warning", q.Namespace, q.Deployment, "",
 				fmt.Sprintf("%d tasks waiting, the oldest for %s", q.Queued, human(now-q.OldestQueuedMs)))
 		}
@@ -221,7 +254,7 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	type tally struct{ calls, failed int }
+	type tally struct{ calls, failed, cut int }
 	errs := map[[2]string]*tally{}
 	for _, c := range calls {
 		k := [2]string{c.Namespace, c.Deployment}
@@ -231,6 +264,9 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 		errs[k].calls++
 		if c.Status == "error" {
 			errs[k].failed++
+		}
+		if _, ok := c.Attributes["agen.output.retried_with"]; ok {
+			errs[k].cut++
 		}
 	}
 	keys := make([][2]string, 0, len(errs))
@@ -242,6 +278,9 @@ func (h *Hub) GetActivity(ctx context.Context, req *connect.Request[agenv1.GetAc
 		t := errs[k]
 		if t.calls >= modelErrMinCalls && float64(t.failed) >= modelErrShare*float64(t.calls) {
 			warn("model_errors", "critical", k[0], k[1], "", fmt.Sprintf("%d of %d model calls failed in the last %s", t.failed, t.calls, human(modelErrWindow.Milliseconds())))
+		}
+		if t.cut >= outputCutMin {
+			warn("output_cut", "warning", k[0], k[1], "", fmt.Sprintf("%d answers stopped at the output limit in the last %s and were asked again; raise maxOutputTokens", t.cut, human(modelErrWindow.Milliseconds())))
 		}
 	}
 

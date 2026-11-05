@@ -15,7 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
-import { Deployment, MetricsBucket } from "./api";
+import { Deployment, MetricsBucket, Outcome } from "./api";
 import { ago, clock } from "./format";
 
 export type Tone = "ok" | "warn" | "err" | "info" | "muted";
@@ -57,12 +57,52 @@ export function runStatus(status?: string): StatusSpec {
   }
 }
 
-export function taskStatus(state: string, pendingApproval?: string, notBefore?: string): StatusSpec {
+const reasons: Record<string, string> = {
+  max_turns: "turn limit",
+  budget: "budget",
+  duration: "time limit",
+  stuck: "stuck",
+  cancelled: "cancelled",
+  interrupted: "interrupted",
+};
+
+/** What a finished run's outcome adds to its state (null when nothing:
+ * done, or a failure or cancel the state already shows). */
+export function outcomeStatus(o?: Outcome): StatusSpec | null {
+  switch (o?.status) {
+    case "partial":
+      return { tone: "warn", label: o.reason ? `partial · ${reasons[o.reason] ?? o.reason}` : "partial", icon: AlertTriangle };
+    case "needs_input":
+      return { tone: "warn", label: o.inputFrom === "human" ? "needs input from a person" : "needs input", icon: CirclePause };
+    case "rejected":
+      return { tone: "muted", label: "rejected", icon: Ban };
+    default:
+      return null;
+  }
+}
+
+const waitLabels: Record<string, string> = {
+  paused: "queued · deployment stopped",
+  budget: "queued · daily budget used up",
+  provider_held: "queued · provider account held",
+  conversation_busy: "queued · behind its conversation",
+  caller_running: "queued · waiting for the caller's run",
+  asleep: "queued · waking an instance",
+  capacity: "queued · no Nest has room",
+  starting: "queued · instance starting",
+  busy: "queued · every instance busy",
+};
+
+export function taskStatus(state: string, pendingApproval?: string, notBefore?: string, waitReason?: string): StatusSpec {
   const s = state.replace("TASK_STATE_", "").toLowerCase();
   if (pendingApproval) return runStatus("waiting_approval");
   if (s === "queued" && notBefore && Date.parse(notBefore) > Date.now()) return { tone: "muted", label: "scheduled", icon: Clock };
   switch (s) {
     case "queued":
+      if (waitReason && waitLabels[waitReason]) {
+        const stuck = ["paused", "budget", "provider_held", "capacity"].includes(waitReason);
+        return { tone: stuck ? "warn" : "muted", label: waitLabels[waitReason], icon: Clock };
+      }
       return { tone: "muted", label: "queued", icon: Clock };
     case "leased":
       return { tone: "info", label: "starting", icon: Loader2, active: true };

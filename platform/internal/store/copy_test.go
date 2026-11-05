@@ -49,7 +49,7 @@ func TestCopyToMovesEverythingDurable(t *testing.T) {
 	must(t, err)
 	task, err := src.SubmitTask(ctx, Task{Namespace: "default", Deployment: "hello", Input: "hi", SubmittedBy: "admin"})
 	must(t, err)
-	_, secret, err := src.CreateAPIToken(ctx, "ops", []string{"operator"}, nil, 0, false)
+	_, secret, err := src.CreateAPIToken(ctx, "ops", []string{"operator"}, nil, 0, false, "")
 	must(t, err)
 	_, err = src.CreateApproval(ctx, Approval{Namespace: "default", Deployment: "hello", RunID: "r1", Tool: "pay", Arguments: []byte(`{}`), RequestedBy: "admin"}, 60_000)
 	must(t, err)
@@ -87,6 +87,12 @@ func TestCopyToMovesEverythingDurable(t *testing.T) {
 				if rep[tbl] != want {
 					t.Errorf("%s: copied %d, want %d", tbl, rep[tbl], want)
 				}
+			}
+			// The event log comes along, and new events continue after it.
+			srcSeq, _ := src.LastEventSeq(ctx)
+			dstSeq, _ := dst.LastEventSeq(ctx)
+			if rep["events"] == 0 || srcSeq == 0 || dstSeq != srcSeq {
+				t.Errorf("events: copied %d, seq %d -> %d", rep["events"], srcSeq, dstSeq)
 			}
 			// Everything reads back through the normal APIs.
 			d, err := dst.GetDeployment(ctx, "default", "hello")

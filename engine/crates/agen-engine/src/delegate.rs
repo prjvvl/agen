@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::bundle::{Delegate, Limits};
+use crate::bundle::{Delegate, Limits, Trust};
 use crate::provider::ToolSpec;
 use crate::store::Store;
 use crate::tools::{Tool, ToolContext, ToolError};
@@ -98,6 +98,72 @@ impl Resolver for ManagerResolver {
 pub trait TaskStarter: Send + Sync {
     /// Returns the new task's id.
     async fn start(&self, req: StartRequest<'_>) -> Result<String, String>;
+    /// Waits up to `wait` for a task (typically one `start` returned) to
+    /// reach a terminal state (3.3, part: `call_agent`'s unified delegation
+    /// path, before it suspends instead of blocking indefinitely).
+    async fn wait(&self, task_id: &str, wait: Duration) -> Result<WaitOutcome, String>;
+    /// Reports progress on the current task (3.4, part: the `report_progress`
+    /// built-in), not one it started.
+    async fn report_progress(&self, task_id: &str, progress: Value) -> Result<(), String>;
+    /// Progress, activity and outcome of one of the current task's own
+    /// descendants (3.4, part: the `query_agent` built-in). The JSON shape
+    /// of `QueryTaskResponse`.
+    async fn query_descendant(&self, caller_task_id: &str, task_id: &str) -> Result<Value, String>;
+    /// Signals one of the current task's own descendants (3.4, part: the
+    /// `signal_agent` built-in).
+    async fn signal_descendant(&self, caller_task_id: &str, task_id: &str, message: &str) -> Result<(), String>;
+    /// Claims the current task's unconsumed run_inbox entries other than
+    /// "child" rows (3.4/3.9, part: draining a suspended run's inbox into
+    /// one it is resuming is `call_agent`'s own re-check of the child's
+    /// status, not this). Each claimed entry is a JSON object
+    /// `{"kind", "ref", "payload"}`; claiming is atomic on the Hub side, so
+    /// a retried call after a transport error never redelivers one already
+    /// claimed.
+    async fn drain_inbox(&self, task_id: &str) -> Result<Vec<Value>, String>;
+    /// Counts the current task's own direct, unfinished *joined* children
+    /// (3.4, part: "join" — a child started by `start_agent` without
+    /// `detach: true`). Used by `finish` (refuses to end `done` while this
+    /// is positive) and by the engine's own turn loop (suspends with
+    /// `wait_for: "children"` instead of calling the model again while
+    /// this is positive).
+    async fn unfinished_children(&self, task_id: &str) -> Result<i64, String>;
+    /// Whether the current task is effectively held right now (3.4, part:
+    /// hold, from `PauseTask`). Checked by the engine's own turn loop,
+    /// which suspends with `wait_for: "resume"` instead of calling the
+    /// model again while held; a deadline (if any) is the Hub's job to
+    /// act on, not the engine's, so this is just a bool.
+    async fn is_held(&self, task_id: &str) -> Result<bool, String>;
+    /// Grants a named lock to the current task mid-run (1.5, part: the
+    /// `acquire_lock` built-in), for a resource not already covered by
+    /// its declared locks. Returns the lock's fencing token; an error if
+    /// another task currently holds it.
+    async fn acquire_lock(&self, task_id: &str, name: &str, ttl: Duration) -> Result<i64, String>;
+    /// Drops a lock the current task holds (1.5, part: the `release_lock`
+    /// built-in), whether declared up front or acquired mid-run. A no-op
+    /// if it doesn't currently hold one by that name.
+    async fn release_lock(&self, task_id: &str, name: &str) -> Result<(), String>;
+    /// Whether the current task's tree has, right now, spent at least as
+    /// much as the root task's own declared budget (3.5, part: the live
+    /// check — a sibling's spend while another is still running never
+    /// shrinks that other sibling's own, already-fixed budget, which a
+    /// submission-time-only narrowing can't catch on its own). Checked
+    /// by the engine's own turn loop, ending the run the exact same way
+    /// its existing per-run budget check already does: a graceful
+    /// partial finish, never a hard stop or a suspend.
+    async fn tree_budget_exceeded(&self, task_id: &str) -> Result<bool, String>;
+}
+
+/// What waiting for a task found.
+pub enum WaitOutcome {
+    /// It reached a terminal state.
+    Done {
+        success: bool,
+        output: String,
+        error: String,
+        outcome: Option<Value>,
+    },
+    /// Still not done when the wait elapsed.
+    Pending,
 }
 
 /// One async delegation.
@@ -109,6 +175,12 @@ pub struct StartRequest<'a> {
     pub traceparent: &'a str,
     pub reply_conversation_key: &'a str,
     pub idempotency_key: &'a str,
+    /// Narrows what the child may do (only for delegates with `overrides: true`).
+    pub overrides: Option<&'a crate::overrides::TaskOverrides>,
+    pub model_tier: &'a str,
+    /// The caller's trust right now; the child inherits it as is (a child
+    /// never has higher trust than its caller's current state).
+    pub trust: Trust,
 }
 
 #[async_trait]
@@ -125,6 +197,9 @@ impl TaskStarter for ManagerResolver {
                 "traceparent": req.traceparent,
                 "replyConversationKey": req.reply_conversation_key,
                 "idempotencyKey": req.idempotency_key,
+                "overrides": req.overrides,
+                "modelTier": req.model_tier,
+                "trust": req.trust.as_str(),
             }))
             .timeout(Duration::from_secs(60))
             .send()
@@ -144,6 +219,246 @@ impl TaskStarter for ManagerResolver {
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| "manager answered without a task".into())
+    }
+
+    async fn wait(&self, task_id: &str, wait: Duration) -> Result<WaitOutcome, String> {
+        let wait_secs = wait.as_secs().clamp(1, i32::MAX as u64);
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/WaitTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "waitSeconds": wait_secs}))
+            .timeout(wait + Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "wait for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        let task = v.get("task").cloned().unwrap_or(Value::Null);
+        match task.get("state").and_then(Value::as_str).unwrap_or("") {
+            "TASK_STATE_SUCCEEDED" | "TASK_STATE_FAILED" | "TASK_STATE_CANCELLED" => Ok(WaitOutcome::Done {
+                success: task.get("state").and_then(Value::as_str) == Some("TASK_STATE_SUCCEEDED"),
+                output: task
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                error: task
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                outcome: task.get("outcome").cloned().filter(|v| !v.is_null()),
+            }),
+            _ => Ok(WaitOutcome::Pending),
+        }
+    }
+
+    async fn report_progress(&self, task_id: &str, progress: Value) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/ReportProgress", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "progress": progress}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        if !resp.status().is_success() {
+            let v: Value = resp.json().await.unwrap_or(Value::Null);
+            return Err(format!(
+                "report progress for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(())
+    }
+
+    async fn query_descendant(&self, caller_task_id: &str, task_id: &str) -> Result<Value, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/QueryChildTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"callerTaskId": caller_task_id, "taskId": task_id}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "query task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v)
+    }
+
+    async fn signal_descendant(&self, caller_task_id: &str, task_id: &str, message: &str) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/SignalChildTask", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"callerTaskId": caller_task_id, "taskId": task_id, "message": message}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        if !resp.status().is_success() {
+            let v: Value = resp.json().await.unwrap_or(Value::Null);
+            return Err(format!(
+                "signal task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(())
+    }
+
+    async fn drain_inbox(&self, task_id: &str) -> Result<Vec<Value>, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/DrainInbox", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "drain inbox for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
+    }
+
+    async fn unfinished_children(&self, task_id: &str) -> Result<i64, String> {
+        // Short timeout (see tree_budget_exceeded below): this, is_held and
+        // tree_budget_exceeded all run every turn and all fail open, so a
+        // slow/unreachable Hub should cost each of them little rather than
+        // the three stacking into one long stall per turn.
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/UnfinishedChildren", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "unfinished children of task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        // protojson renders int64 as a JSON string (to avoid precision
+        // loss in JS), not a number: accept either.
+        Ok(v.get("count")
+            .and_then(|c| c.as_i64().or_else(|| c.as_str()?.parse().ok()))
+            .unwrap_or(0))
+    }
+
+    async fn is_held(&self, task_id: &str) -> Result<bool, String> {
+        // Short timeout: see unfinished_children above.
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/IsHeld", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "is held for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v.get("held").and_then(Value::as_bool).unwrap_or(false))
+    }
+
+    async fn acquire_lock(&self, task_id: &str, name: &str, ttl: Duration) -> Result<i64, String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/AcquireLock", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "name": name, "ttlSeconds": ttl.as_secs().clamp(1, 86400)}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "acquire lock {name} for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        // protojson renders int64 as a JSON string (to avoid precision loss
+        // in JS), not a number: accept either (the same int64/protojson
+        // pitfall UnfinishedChildren hit, checked for here from the start).
+        Ok(v.get("fence")
+            .and_then(|f| f.as_i64().or_else(|| f.as_str()?.parse().ok()))
+            .unwrap_or(0))
+    }
+
+    async fn release_lock(&self, task_id: &str, name: &str) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/ReleaseLock", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id, "name": name}))
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        if !resp.status().is_success() {
+            let v: Value = resp.json().await.unwrap_or(Value::Null);
+            return Err(format!(
+                "release lock {name} for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(())
+    }
+
+    async fn tree_budget_exceeded(&self, task_id: &str) -> Result<bool, String> {
+        // Short timeout: see unfinished_children above.
+        let resp = self
+            .http
+            .post(format!("{}/agen.v1.ManagerService/TreeBudgetExceeded", self.url))
+            .bearer_auth(&self.token)
+            .json(&json!({"taskId": task_id}))
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|e| format!("manager unreachable: {e}"))?;
+        let ok = resp.status().is_success();
+        let v: Value = resp.json().await.unwrap_or(Value::Null);
+        if !ok {
+            return Err(format!(
+                "tree budget check for task {task_id}: {}",
+                v.get("message").and_then(Value::as_str).unwrap_or("failed")
+            ));
+        }
+        Ok(v.get("exceeded").and_then(Value::as_bool).unwrap_or(false))
     }
 }
 
@@ -191,18 +506,50 @@ impl Tool for StartAgent {
             .filter(|d| d.url.is_none())
             .map(|d| d.name.as_str())
             .collect();
+        let with_overrides: Vec<&str> = self
+            .delegates
+            .iter()
+            .filter(|d| d.url.is_none() && d.overrides)
+            .map(|d| d.name.as_str())
+            .collect();
+        let overrides_note = if with_overrides.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " For {}, you may also narrow the brief with tools, skills, budget and modelTier.",
+                with_overrides.join(", ")
+            )
+        };
         ToolSpec {
             name: START_AGENT.into(),
-            description:
-                "Start another agent on a task without waiting for it (for long work). The tool returns at once; \
-                 the agent's answer arrives later in this conversation as a new message that begins with \
-                 \"[Result of the task you started on ...]\". After starting, finish your current turn; do not poll."
-                    .into(),
+            description: format!(
+                "Start another agent on a task without waiting for it (for long work). The tool returns at once. \
+                 By default the task joins this one: you cannot finish done while it (or any other you started \
+                 this way) is still running — check on it with query_agent, or wait for it to wake you. Pass \
+                 detach: true for the old behaviour instead: its answer arrives later in this conversation as a \
+                 new message that begins with \"[Result of the task you started on ...]\", and finishing does not \
+                 wait for it. Either way, after starting, finish your current turn; do not poll.{overrides_note}"
+            ),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "agent": {"type": "string", "enum": names},
-                    "message": {"type": "string", "description": "What the agent should do"}
+                    "message": {"type": "string", "description": "What the agent should do"},
+                    "detach": {"type": "boolean", "description": "true: its result comes back as a new message in this conversation instead of joining this task (default false)"},
+                    "tools": {"type": "array", "items": {"type": "string"}, "description": "Only let it call these of its tools (narrows; only for delegates that accept overrides)"},
+                    "skills": {"type": "array", "items": {"type": "string"}, "description": "Skills of its bundle to preload"},
+                    "budget": {
+                        "type": "object",
+                        "description": "Run limits, at most its own",
+                        "properties": {
+                            "maxTokens": {"type": "integer"},
+                            "maxUsd": {"type": "number"},
+                            "maxTurns": {"type": "integer"},
+                            "maxDuration": {"type": "string", "description": "e.g. \"20m\""}
+                        },
+                        "additionalProperties": false
+                    },
+                    "modelTier": {"type": "string", "description": "Cost tier for a routing model"}
                 },
                 "required": ["agent", "message"],
                 "additionalProperties": false
@@ -224,6 +571,13 @@ impl Tool for StartAgent {
             .iter()
             .find(|d| d.name == agent && d.url.is_none())
             .ok_or_else(|| ToolError::new(format!("unknown agent {agent:?}")))?;
+        let overrides = crate::overrides::TaskOverrides::from_call_args(&args).map_err(ToolError::new)?;
+        if overrides.is_some() && !d.overrides {
+            return Err(ToolError::new(format!(
+                "{agent} does not accept overrides (its delegate entry needs \"overrides\": true)"
+            )));
+        }
+        let model_tier = args.get("modelTier").and_then(Value::as_str).unwrap_or_default();
         let max = self.limits.delegation_depth();
         if max > 0 && ctx.depth + 1 > max {
             return Err(ToolError::new(format!(
@@ -259,8 +613,14 @@ impl Tool for StartAgent {
                 return Err(ToolError::new(msg));
             }
         }
-        // The result needs a conversation to come back to.
-        let reply_key = if ctx.conversation_key.is_empty() {
+        // detach: true keeps the old behaviour (a reply task back into this
+        // conversation). Without it (the default, 3.4's "join"), the child
+        // has no reply_conversation_key: it is this task's own, tracked by
+        // its parent_task_id, not the conversation.
+        let detach = args.get("detach").and_then(Value::as_bool).unwrap_or(false);
+        let reply_key = if !detach {
+            String::new()
+        } else if ctx.conversation_key.is_empty() {
             self.store
                 .ensure_conversation_key(&ctx.conversation_id)
                 .await
@@ -279,12 +639,21 @@ impl Tool for StartAgent {
                 traceparent: &ctx.traceparent,
                 reply_conversation_key: &reply_key,
                 idempotency_key: &format!("start:{call_key}"),
+                overrides: overrides.as_ref(),
+                model_tier,
+                trust: ctx.trust,
             })
             .await
             .map_err(ToolError::new)?;
+        if detach {
+            return Ok(format!(
+                "Started task {id} on {agent}. Its result will arrive in this conversation as a new message when it finishes; \
+                 finish your current turn now."
+            ));
+        }
         Ok(format!(
-            "Started task {id} on {agent}. Its result will arrive in this conversation as a new message when it finishes; \
-             finish your current turn now."
+            "Started task {id} on {agent} (joined: you cannot finish done until it ends; check on it with query_agent). \
+             Finish your current turn now."
         ))
     }
 }
@@ -294,6 +663,11 @@ pub struct CallAgent {
     delegates: Vec<Delegate>,
     default_namespace: String,
     resolver: Option<Arc<dyn Resolver>>,
+    /// Starts a delegate as a child task and waits on it (3.2b/3.3: the
+    /// unified path every platform delegate uses unless it opts into plain
+    /// A2A). None in standalone/embedded mode, where every delegate must be
+    /// `url` or resolved A2A.
+    starter: Option<Arc<dyn TaskStarter>>,
     limits: Limits,
     store: Arc<Store>,
     http: reqwest::Client,
@@ -305,6 +679,7 @@ impl CallAgent {
         delegates: Vec<Delegate>,
         default_namespace: &str,
         resolver: Option<Arc<dyn Resolver>>,
+        starter: Option<Arc<dyn TaskStarter>>,
         limits: Limits,
         store: Arc<Store>,
     ) -> Self {
@@ -312,12 +687,65 @@ impl CallAgent {
             delegates,
             default_namespace: default_namespace.to_string(),
             resolver,
+            starter,
             limits,
             store,
             http: reqwest::Client::new(),
             // A Gateway lets a call wait up to 10 min for a free instance and
             // run for up to 1 h.
             timeout: Duration::from_secs(75 * 60),
+        }
+    }
+
+    /// `call_agent`'s unified path (3.2b/3.3) for a platform delegate: start
+    /// it as a child task and wait on it, same as `start_agent` would, but
+    /// inline — up to `limits.inlineWait` before suspending the whole run
+    /// instead of blocking it (the caller resumes once the child is done,
+    /// re-running this exact call, which by then finds it done at once).
+    async fn call_unified(
+        &self,
+        starter: &Arc<dyn TaskStarter>,
+        d: &Delegate,
+        message: &str,
+        ctx: &ToolContext,
+        call_key: &str,
+    ) -> Result<String, ToolError> {
+        let ns = d.namespace.clone().unwrap_or_else(|| self.default_namespace.clone());
+        let task_id = starter
+            .start(StartRequest {
+                namespace: &ns,
+                name: &d.name,
+                input: message,
+                run_id: &ctx.run_id,
+                traceparent: &ctx.traceparent,
+                // No reply task: the answer comes back as this call's
+                // result when the caller's run resumes, not as a new
+                // message in the conversation.
+                reply_conversation_key: "",
+                idempotency_key: &format!("call:{call_key}"),
+                overrides: None,
+                model_tier: "",
+                trust: ctx.trust,
+            })
+            .await
+            .map_err(ToolError::new)?;
+        let outcome = tokio::select! {
+            r = starter.wait(&task_id, self.limits.inline_wait()) => r.map_err(ToolError::new)?,
+            _ = ctx.cancel.cancelled() => return Err(ToolError::unknown("cancelled")),
+        };
+        match outcome {
+            WaitOutcome::Done {
+                success: true,
+                output,
+                outcome,
+                ..
+            } => Ok(with_outcome(output, outcome.as_ref())),
+            WaitOutcome::Done { error, .. } => Err(ToolError::new(if error.is_empty() {
+                format!("agent {} (task {task_id}) did not finish successfully", d.name)
+            } else {
+                error
+            })),
+            WaitOutcome::Pending => Err(ToolError::suspend(format!("child:{task_id}"))),
         }
     }
 
@@ -390,23 +818,48 @@ impl CallAgent {
                 })
                 .unwrap_or_default()
         };
+        let outcome = result.pointer("/metadata/agen.outcome");
         match state {
-            "completed" => Ok(result
-                .get("artifacts")
-                .and_then(Value::as_array)
-                .map(|arts| {
-                    arts.iter()
-                        .map(|a| text_of(a.get("parts")))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default()),
+            "completed" | "input-required" | "rejected" => {
+                let text = if state == "completed" {
+                    result
+                        .get("artifacts")
+                        .and_then(Value::as_array)
+                        .map(|arts| {
+                            arts.iter()
+                                .map(|a| text_of(a.get("parts")))
+                                .filter(|t| !t.is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                        .unwrap_or_default()
+                } else {
+                    text_of(result.pointer("/status/message/parts"))
+                };
+                Ok(with_outcome(text, outcome))
+            }
             other => Err(SendError::Remote(format!(
                 "agent task {other}: {}",
                 text_of(result.pointer("/status/message/parts"))
             ))),
         }
     }
+}
+
+/// A delegate's answer with how its run ended, when that is not simply done:
+/// `[partial: max_turns] <report>`, and its structured data as JSON.
+fn with_outcome(text: String, outcome: Option<&Value>) -> String {
+    let Some(o) = outcome else { return text };
+    let status = o.get("status").and_then(Value::as_str).unwrap_or("done");
+    let mut out = match (status, o.get("reason").and_then(Value::as_str)) {
+        ("done", _) => text,
+        (s, Some(r)) if !r.is_empty() => format!("[{s}: {r}] {text}"),
+        (s, _) => format!("[{s}] {text}"),
+    };
+    if let Some(d) = o.get("data").filter(|d| !d.is_null()) {
+        out.push_str(&format!("\ndata: {d}"));
+    }
+    out
 }
 
 /// Sends tasks/cancel (by message id) to the endpoint of a call in flight
@@ -525,6 +978,11 @@ impl Tool for CallAgent {
                 return Err(ToolError::new(msg));
             }
         }
+        if !d.sync_a2a() {
+            if let Some(starter) = self.starter.clone() {
+                return self.call_unified(&starter, d, message, &ctx, &message_id).await;
+            }
+        }
         let body = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -541,7 +999,16 @@ impl Tool for CallAgent {
                     "agen.depth": depth,
                     "agen.root_run_id": root,
                     "agen.parent_run_id": ctx.run_id,
-                    "agen.labels": ctx.labels
+                    "agen.labels": ctx.labels,
+                    // The caller's live trust right now, already lowered by
+                    // any taint it picked up (never raised) — read by the
+                    // Gateway only from a cryptographically verified agent
+                    // caller (calltoken.Claims.Agent()), the same trust
+                    // boundary that already gates agen.depth/root_run_id
+                    // above. Closes the taint-propagation gap this
+                    // call_agent path (via:"a2a") previously had: without
+                    // it, an inbound A2A task defaulted to Trust::Trusted.
+                    "agen.trust": ctx.trust.as_str()
                 }
             }
         });

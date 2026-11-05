@@ -25,9 +25,48 @@ allowed, sent to a person for approval, or denied.
 - Rules are evaluated deny first, then ask, then allow; the first match in
   that order wins, regardless of the order they are written in. Nothing
   matches: `default` applies (`ask` if unset).
-- A denied call returns an error to the model, which can try something else.
+- Tools a rule denies are not offered to the model at all. A call that names
+  one anyway gets an error saying it is not available, and the model can try
+  something else.
 - `agen deploy --validate` warns about a rule that names a server the bundle
   does not have.
+
+## Trust and taint
+
+Every task has a **trust**: `operator`, `trusted` or `untrusted`. It is set
+by the task's source and only ever narrows, never raises, down a
+delegation tree:
+
+- An API token's `trust` (`agen token create --trust`), default `trusted`.
+- A webhook trigger's `trust` (default `untrusted`); cron tasks are always
+  `trusted`.
+- A child task started with `start_agent` gets its caller's trust *at that
+  moment* — which may already be lower than the caller's own task, through
+  taint (below).
+
+A tool marks its result **untrusted output** when it may carry content from
+outside the agent's control — a page, a search result, an email:
+
+```json
+{ "tools": { "search.web": { "untrustedOutput": true } } }
+```
+
+An MCP tool's `openWorldHint` annotation sets this by default; the bundle
+can turn it off for a server it trusts. The first time a run calls such a
+tool, its trust drops to `untrusted` for the rest of the run (and for
+anything it starts from then on); the trace gets an `agen.trust.lowered`
+attribute naming the call.
+
+A permission rule can condition on trust with `when`:
+
+```json
+{ "tool": "*", "action": "ask", "when": { "trustBelow": "trusted" } }
+```
+
+This is the practical defence against the "lethal trifecta" (untrusted
+input, access to private data, a way to act outward): a run that has read
+something untrusted must ask before it does anything else. `when.trust`
+matches an exact trust instead of a ceiling.
 
 ## Approvals
 
@@ -66,6 +105,23 @@ agen approve <id> --token <approver token>
 
 A delegated run's approvals name the person behind the root task, so
 delegation cannot be used to approve your own request either.
+
+## Feedback
+
+Record a judgement on how a task went: a person's rating, an automated
+check, or a judge model's score. `RecordFeedback` takes a `score` (0.0 worst
+to 1.0 best), optional `labels` and a `note`; `ListFeedback` reads it back,
+filtered by deployment, labels and time.
+
+```sh
+agen feedback record <task-id> --score 0.8 --note "mostly right" --label judge=rubric-v1
+agen feedback ls researcher --label judge=rubric-v1 --since 24h
+```
+
+Every approval decision is recorded as feedback too, `by: "approval"`:
+approved is a score of 1.0, denied a score of 0.0. This gives a single place
+to see how a deployment is doing, whether the signal came from a human
+rating, a check, or an approval.
 
 ## Notifications
 

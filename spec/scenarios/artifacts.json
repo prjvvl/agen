@@ -1,0 +1,47 @@
+{
+  "name": "artifacts",
+  "description": "An agent saves an artifact with save_artifact; GetArtifact and ListArtifacts read it back.",
+  "features": ["artifacts"],
+  "bundles": {
+    "saver": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/fake-script.json": {
+          "responses": [
+            { "toolCalls": [{ "name": "save_artifact", "arguments": { "name": "note", "content": "hello artifact" } }] },
+            { "text": "saved" }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "saver", "bundleText": "$bundle:saver" },
+      "expect": { "deployment.name": "saver" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "saver" }, "input": "go" },
+      "save": { "t1": "task.id" }
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$t1", "waitSeconds": 60 },
+      "expect": { "task.state": "TASK_STATE_SUCCEEDED" },
+      "retry": 120
+    },
+    {
+      "call": "ListArtifacts",
+      "args": { "namespace": "$ns", "taskId": "$t1" },
+      "expect": { "artifacts": { "has": { "name": "note" } } },
+      "save": { "a1": "artifacts.0.id" }
+    },
+    {
+      "call": "GetArtifact",
+      "args": { "namespace": "$ns", "id": "$a1" },
+      "expect": { "artifact.content": "hello artifact" }
+    }
+  ]
+}

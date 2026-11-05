@@ -1,0 +1,31 @@
+{
+  "name": "queue",
+  "description": "A deployment in collect queue mode merges two quick submissions of the same conversation into one task instead of running them one at a time.",
+  "features": ["tasks.queue-modes"],
+  "bundles": {
+    "collector": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/config.json": { "conversations": { "queueMode": "collect", "debounce": "200ms" } }
+      }
+    }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "collector", "bundleText": "$bundle:collector" },
+      "expect": { "deployment.conversations.queueMode": "collect" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "collector" }, "input": "first", "conversationKey": "c1" },
+      "expect": { "task.state": "TASK_STATE_QUEUED" },
+      "save": { "t1": "task.id" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "collector" }, "input": "second", "conversationKey": "c1" },
+      "expect": { "task.id": "$t1", "task.input": { "contains": "second" } }
+    }
+  ]
+}

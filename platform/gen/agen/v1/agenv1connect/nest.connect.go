@@ -50,6 +50,33 @@ const (
 	NestServiceCompleteTaskProcedure = "/agen.v1.NestService/CompleteTask"
 	// NestServiceReleaseTaskProcedure is the fully-qualified name of the NestService's ReleaseTask RPC.
 	NestServiceReleaseTaskProcedure = "/agen.v1.NestService/ReleaseTask"
+	// NestServiceSuspendTaskProcedure is the fully-qualified name of the NestService's SuspendTask RPC.
+	NestServiceSuspendTaskProcedure = "/agen.v1.NestService/SuspendTask"
+	// NestServiceWaitTaskProcedure is the fully-qualified name of the NestService's WaitTask RPC.
+	NestServiceWaitTaskProcedure = "/agen.v1.NestService/WaitTask"
+	// NestServiceReportProgressProcedure is the fully-qualified name of the NestService's
+	// ReportProgress RPC.
+	NestServiceReportProgressProcedure = "/agen.v1.NestService/ReportProgress"
+	// NestServiceQueryChildTaskProcedure is the fully-qualified name of the NestService's
+	// QueryChildTask RPC.
+	NestServiceQueryChildTaskProcedure = "/agen.v1.NestService/QueryChildTask"
+	// NestServiceSignalChildTaskProcedure is the fully-qualified name of the NestService's
+	// SignalChildTask RPC.
+	NestServiceSignalChildTaskProcedure = "/agen.v1.NestService/SignalChildTask"
+	// NestServiceDrainInboxProcedure is the fully-qualified name of the NestService's DrainInbox RPC.
+	NestServiceDrainInboxProcedure = "/agen.v1.NestService/DrainInbox"
+	// NestServiceUnfinishedChildrenProcedure is the fully-qualified name of the NestService's
+	// UnfinishedChildren RPC.
+	NestServiceUnfinishedChildrenProcedure = "/agen.v1.NestService/UnfinishedChildren"
+	// NestServiceIsHeldProcedure is the fully-qualified name of the NestService's IsHeld RPC.
+	NestServiceIsHeldProcedure = "/agen.v1.NestService/IsHeld"
+	// NestServiceAcquireLockProcedure is the fully-qualified name of the NestService's AcquireLock RPC.
+	NestServiceAcquireLockProcedure = "/agen.v1.NestService/AcquireLock"
+	// NestServiceReleaseLockProcedure is the fully-qualified name of the NestService's ReleaseLock RPC.
+	NestServiceReleaseLockProcedure = "/agen.v1.NestService/ReleaseLock"
+	// NestServiceTreeBudgetExceededProcedure is the fully-qualified name of the NestService's
+	// TreeBudgetExceeded RPC.
+	NestServiceTreeBudgetExceededProcedure = "/agen.v1.NestService/TreeBudgetExceeded"
 	// NestServiceCreateApprovalProcedure is the fully-qualified name of the NestService's
 	// CreateApproval RPC.
 	NestServiceCreateApprovalProcedure = "/agen.v1.NestService/CreateApproval"
@@ -92,6 +119,51 @@ type NestServiceClient interface {
 	// Give a leased task back to the queue early (the instance could not take
 	// it, or is gone).
 	ReleaseTask(context.Context, *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error)
+	// An instance's call_agent gave up its lease to wait for a child task it
+	// started (3.3): the task moves to TASK_STATE_WAITING, carrying wait_for.
+	// It is requeued when a matching run_inbox row arrives.
+	SuspendTask(context.Context, *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error)
+	// Waits for a task (typically one started by SubmitChildTask) to reach a
+	// terminal state, up to wait_seconds (3.3: call_agent's inline wait before
+	// it suspends instead of erroring).
+	WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error)
+	// Reports progress on a task this Nest currently leases (3.4, part).
+	// Low-stakes by design: unlike CompleteTask/SuspendTask there is no lease
+	// fencing (the engine does not carry its own lease id), so a stale or
+	// duplicate instance reporting progress after being fenced off is a
+	// harmless cosmetic race, not a correctness issue.
+	ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in). PermissionDenied if
+	// task_id is not a descendant of caller_task_id.
+	QueryChildTask(context.Context, *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in); same descendant check as QueryChildTask.
+	SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error)
+	// Claims a task this Nest currently leases' own unconsumed run_inbox
+	// entries other than "child" rows (3.4/3.9, part). Low-stakes like
+	// ReportProgress: requireNest only, no lease fencing.
+	DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error)
+	// Counts a task this Nest currently leases' own unfinished joined
+	// children (3.4, part: "join"). Low-stakes like ReportProgress:
+	// requireNest only, no lease fencing.
+	UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error)
+	// Whether a task this Nest currently leases is effectively held right
+	// now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
+	// only, no lease fencing.
+	IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error)
+	// Grants a named lock to a task this Nest currently leases (1.5, part:
+	// the acquire_lock built-in). FailedPrecondition (AlreadyExists at the
+	// store layer) if another task currently holds it.
+	AcquireLock(context.Context, *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error)
+	// Drops a lock a task this Nest currently leases holds (1.5, part: the
+	// release_lock built-in). A no-op if it doesn't hold one by that name.
+	ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error)
+	// Whether a task this Nest currently leases' tree has, right now,
+	// spent at least as much as its root's own declared budget (3.5,
+	// part: the live check). Low-stakes like IsHeld: requireNest only, no
+	// lease fencing.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -167,6 +239,72 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nestServiceMethods.ByName("ReleaseTask")),
 			connect.WithClientOptions(opts...),
 		),
+		suspendTask: connect.NewClient[v1.SuspendTaskRequest, v1.SuspendTaskResponse](
+			httpClient,
+			baseURL+NestServiceSuspendTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("SuspendTask")),
+			connect.WithClientOptions(opts...),
+		),
+		waitTask: connect.NewClient[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse](
+			httpClient,
+			baseURL+NestServiceWaitTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("WaitTask")),
+			connect.WithClientOptions(opts...),
+		),
+		reportProgress: connect.NewClient[v1.NestReportProgressRequest, v1.NestReportProgressResponse](
+			httpClient,
+			baseURL+NestServiceReportProgressProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("ReportProgress")),
+			connect.WithClientOptions(opts...),
+		),
+		queryChildTask: connect.NewClient[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse](
+			httpClient,
+			baseURL+NestServiceQueryChildTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("QueryChildTask")),
+			connect.WithClientOptions(opts...),
+		),
+		signalChildTask: connect.NewClient[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse](
+			httpClient,
+			baseURL+NestServiceSignalChildTaskProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("SignalChildTask")),
+			connect.WithClientOptions(opts...),
+		),
+		drainInbox: connect.NewClient[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse](
+			httpClient,
+			baseURL+NestServiceDrainInboxProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("DrainInbox")),
+			connect.WithClientOptions(opts...),
+		),
+		unfinishedChildren: connect.NewClient[v1.NestUnfinishedChildrenRequest, v1.NestUnfinishedChildrenResponse](
+			httpClient,
+			baseURL+NestServiceUnfinishedChildrenProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("UnfinishedChildren")),
+			connect.WithClientOptions(opts...),
+		),
+		isHeld: connect.NewClient[v1.NestIsHeldRequest, v1.NestIsHeldResponse](
+			httpClient,
+			baseURL+NestServiceIsHeldProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("IsHeld")),
+			connect.WithClientOptions(opts...),
+		),
+		acquireLock: connect.NewClient[v1.NestAcquireLockRequest, v1.NestAcquireLockResponse](
+			httpClient,
+			baseURL+NestServiceAcquireLockProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("AcquireLock")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseLock: connect.NewClient[v1.NestReleaseLockRequest, v1.NestReleaseLockResponse](
+			httpClient,
+			baseURL+NestServiceReleaseLockProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("ReleaseLock")),
+			connect.WithClientOptions(opts...),
+		),
+		treeBudgetExceeded: connect.NewClient[v1.NestTreeBudgetExceededRequest, v1.NestTreeBudgetExceededResponse](
+			httpClient,
+			baseURL+NestServiceTreeBudgetExceededProcedure,
+			connect.WithSchema(nestServiceMethods.ByName("TreeBudgetExceeded")),
+			connect.WithClientOptions(opts...),
+		),
 		createApproval: connect.NewClient[v1.CreateApprovalRequest, v1.CreateApprovalResponse](
 			httpClient,
 			baseURL+NestServiceCreateApprovalProcedure,
@@ -226,22 +364,33 @@ func NewNestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // nestServiceClient implements NestServiceClient.
 type nestServiceClient struct {
-	enroll            *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
-	watchAssignments  *connect.Client[v1.WatchAssignmentsRequest, v1.WatchAssignmentsResponse]
-	reportStatus      *connect.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
-	leaseTasks        *connect.Client[v1.LeaseTasksRequest, v1.LeaseTasksResponse]
-	extendLease       *connect.Client[v1.ExtendLeaseRequest, v1.ExtendLeaseResponse]
-	completeTask      *connect.Client[v1.CompleteTaskRequest, v1.CompleteTaskResponse]
-	releaseTask       *connect.Client[v1.ReleaseTaskRequest, v1.ReleaseTaskResponse]
-	createApproval    *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
-	getApproval       *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
-	reportActivity    *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
-	getDefinition     *connect.Client[v1.GetDefinitionRequest, v1.GetDefinitionResponse]
-	submitChildTask   *connect.Client[v1.SubmitChildTaskRequest, v1.SubmitChildTaskResponse]
-	resolve           *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
-	getTokenKeys      *connect.Client[v1.GetTokenKeysRequest, v1.GetTokenKeysResponse]
-	renewCertificate  *connect.Client[v1.RenewCertificateRequest, v1.RenewCertificateResponse]
-	getPlatformSecret *connect.Client[v1.GetPlatformSecretRequest, v1.GetPlatformSecretResponse]
+	enroll             *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
+	watchAssignments   *connect.Client[v1.WatchAssignmentsRequest, v1.WatchAssignmentsResponse]
+	reportStatus       *connect.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
+	leaseTasks         *connect.Client[v1.LeaseTasksRequest, v1.LeaseTasksResponse]
+	extendLease        *connect.Client[v1.ExtendLeaseRequest, v1.ExtendLeaseResponse]
+	completeTask       *connect.Client[v1.CompleteTaskRequest, v1.CompleteTaskResponse]
+	releaseTask        *connect.Client[v1.ReleaseTaskRequest, v1.ReleaseTaskResponse]
+	suspendTask        *connect.Client[v1.SuspendTaskRequest, v1.SuspendTaskResponse]
+	waitTask           *connect.Client[v1.NestWaitTaskRequest, v1.NestWaitTaskResponse]
+	reportProgress     *connect.Client[v1.NestReportProgressRequest, v1.NestReportProgressResponse]
+	queryChildTask     *connect.Client[v1.NestQueryChildTaskRequest, v1.QueryTaskResponse]
+	signalChildTask    *connect.Client[v1.NestSignalChildTaskRequest, v1.NestSignalChildTaskResponse]
+	drainInbox         *connect.Client[v1.NestDrainInboxRequest, v1.NestDrainInboxResponse]
+	unfinishedChildren *connect.Client[v1.NestUnfinishedChildrenRequest, v1.NestUnfinishedChildrenResponse]
+	isHeld             *connect.Client[v1.NestIsHeldRequest, v1.NestIsHeldResponse]
+	acquireLock        *connect.Client[v1.NestAcquireLockRequest, v1.NestAcquireLockResponse]
+	releaseLock        *connect.Client[v1.NestReleaseLockRequest, v1.NestReleaseLockResponse]
+	treeBudgetExceeded *connect.Client[v1.NestTreeBudgetExceededRequest, v1.NestTreeBudgetExceededResponse]
+	createApproval     *connect.Client[v1.CreateApprovalRequest, v1.CreateApprovalResponse]
+	getApproval        *connect.Client[v1.GetApprovalRequest, v1.GetApprovalResponse]
+	reportActivity     *connect.Client[v1.ReportActivityRequest, v1.ReportActivityResponse]
+	getDefinition      *connect.Client[v1.GetDefinitionRequest, v1.GetDefinitionResponse]
+	submitChildTask    *connect.Client[v1.SubmitChildTaskRequest, v1.SubmitChildTaskResponse]
+	resolve            *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
+	getTokenKeys       *connect.Client[v1.GetTokenKeysRequest, v1.GetTokenKeysResponse]
+	renewCertificate   *connect.Client[v1.RenewCertificateRequest, v1.RenewCertificateResponse]
+	getPlatformSecret  *connect.Client[v1.GetPlatformSecretRequest, v1.GetPlatformSecretResponse]
 }
 
 // Enroll calls agen.v1.NestService.Enroll.
@@ -277,6 +426,61 @@ func (c *nestServiceClient) CompleteTask(ctx context.Context, req *connect.Reque
 // ReleaseTask calls agen.v1.NestService.ReleaseTask.
 func (c *nestServiceClient) ReleaseTask(ctx context.Context, req *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error) {
 	return c.releaseTask.CallUnary(ctx, req)
+}
+
+// SuspendTask calls agen.v1.NestService.SuspendTask.
+func (c *nestServiceClient) SuspendTask(ctx context.Context, req *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error) {
+	return c.suspendTask.CallUnary(ctx, req)
+}
+
+// WaitTask calls agen.v1.NestService.WaitTask.
+func (c *nestServiceClient) WaitTask(ctx context.Context, req *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error) {
+	return c.waitTask.CallUnary(ctx, req)
+}
+
+// ReportProgress calls agen.v1.NestService.ReportProgress.
+func (c *nestServiceClient) ReportProgress(ctx context.Context, req *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error) {
+	return c.reportProgress.CallUnary(ctx, req)
+}
+
+// QueryChildTask calls agen.v1.NestService.QueryChildTask.
+func (c *nestServiceClient) QueryChildTask(ctx context.Context, req *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return c.queryChildTask.CallUnary(ctx, req)
+}
+
+// SignalChildTask calls agen.v1.NestService.SignalChildTask.
+func (c *nestServiceClient) SignalChildTask(ctx context.Context, req *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error) {
+	return c.signalChildTask.CallUnary(ctx, req)
+}
+
+// DrainInbox calls agen.v1.NestService.DrainInbox.
+func (c *nestServiceClient) DrainInbox(ctx context.Context, req *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error) {
+	return c.drainInbox.CallUnary(ctx, req)
+}
+
+// UnfinishedChildren calls agen.v1.NestService.UnfinishedChildren.
+func (c *nestServiceClient) UnfinishedChildren(ctx context.Context, req *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error) {
+	return c.unfinishedChildren.CallUnary(ctx, req)
+}
+
+// IsHeld calls agen.v1.NestService.IsHeld.
+func (c *nestServiceClient) IsHeld(ctx context.Context, req *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error) {
+	return c.isHeld.CallUnary(ctx, req)
+}
+
+// AcquireLock calls agen.v1.NestService.AcquireLock.
+func (c *nestServiceClient) AcquireLock(ctx context.Context, req *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error) {
+	return c.acquireLock.CallUnary(ctx, req)
+}
+
+// ReleaseLock calls agen.v1.NestService.ReleaseLock.
+func (c *nestServiceClient) ReleaseLock(ctx context.Context, req *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error) {
+	return c.releaseLock.CallUnary(ctx, req)
+}
+
+// TreeBudgetExceeded calls agen.v1.NestService.TreeBudgetExceeded.
+func (c *nestServiceClient) TreeBudgetExceeded(ctx context.Context, req *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error) {
+	return c.treeBudgetExceeded.CallUnary(ctx, req)
 }
 
 // CreateApproval calls agen.v1.NestService.CreateApproval.
@@ -339,6 +543,51 @@ type NestServiceHandler interface {
 	// Give a leased task back to the queue early (the instance could not take
 	// it, or is gone).
 	ReleaseTask(context.Context, *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error)
+	// An instance's call_agent gave up its lease to wait for a child task it
+	// started (3.3): the task moves to TASK_STATE_WAITING, carrying wait_for.
+	// It is requeued when a matching run_inbox row arrives.
+	SuspendTask(context.Context, *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error)
+	// Waits for a task (typically one started by SubmitChildTask) to reach a
+	// terminal state, up to wait_seconds (3.3: call_agent's inline wait before
+	// it suspends instead of erroring).
+	WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error)
+	// Reports progress on a task this Nest currently leases (3.4, part).
+	// Low-stakes by design: unlike CompleteTask/SuspendTask there is no lease
+	// fencing (the engine does not carry its own lease id), so a stale or
+	// duplicate instance reporting progress after being fenced off is a
+	// harmless cosmetic race, not a correctness issue.
+	ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in). PermissionDenied if
+	// task_id is not a descendant of caller_task_id.
+	QueryChildTask(context.Context, *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in); same descendant check as QueryChildTask.
+	SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error)
+	// Claims a task this Nest currently leases' own unconsumed run_inbox
+	// entries other than "child" rows (3.4/3.9, part). Low-stakes like
+	// ReportProgress: requireNest only, no lease fencing.
+	DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error)
+	// Counts a task this Nest currently leases' own unfinished joined
+	// children (3.4, part: "join"). Low-stakes like ReportProgress:
+	// requireNest only, no lease fencing.
+	UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error)
+	// Whether a task this Nest currently leases is effectively held right
+	// now (3.4, part: hold). Low-stakes like ReportProgress: requireNest
+	// only, no lease fencing.
+	IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error)
+	// Grants a named lock to a task this Nest currently leases (1.5, part:
+	// the acquire_lock built-in). FailedPrecondition (AlreadyExists at the
+	// store layer) if another task currently holds it.
+	AcquireLock(context.Context, *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error)
+	// Drops a lock a task this Nest currently leases holds (1.5, part: the
+	// release_lock built-in). A no-op if it doesn't hold one by that name.
+	ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error)
+	// Whether a task this Nest currently leases' tree has, right now,
+	// spent at least as much as its root's own declared budget (3.5,
+	// part: the live check). Low-stakes like IsHeld: requireNest only, no
+	// lease fencing.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error)
 	// Instance asked a human; returns the approval to wait on.
 	CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[v1.GetApprovalRequest]) (*connect.Response[v1.GetApprovalResponse], error)
@@ -408,6 +657,72 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 		NestServiceReleaseTaskProcedure,
 		svc.ReleaseTask,
 		connect.WithSchema(nestServiceMethods.ByName("ReleaseTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceSuspendTaskHandler := connect.NewUnaryHandler(
+		NestServiceSuspendTaskProcedure,
+		svc.SuspendTask,
+		connect.WithSchema(nestServiceMethods.ByName("SuspendTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceWaitTaskHandler := connect.NewUnaryHandler(
+		NestServiceWaitTaskProcedure,
+		svc.WaitTask,
+		connect.WithSchema(nestServiceMethods.ByName("WaitTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceReportProgressHandler := connect.NewUnaryHandler(
+		NestServiceReportProgressProcedure,
+		svc.ReportProgress,
+		connect.WithSchema(nestServiceMethods.ByName("ReportProgress")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceQueryChildTaskHandler := connect.NewUnaryHandler(
+		NestServiceQueryChildTaskProcedure,
+		svc.QueryChildTask,
+		connect.WithSchema(nestServiceMethods.ByName("QueryChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceSignalChildTaskHandler := connect.NewUnaryHandler(
+		NestServiceSignalChildTaskProcedure,
+		svc.SignalChildTask,
+		connect.WithSchema(nestServiceMethods.ByName("SignalChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceDrainInboxHandler := connect.NewUnaryHandler(
+		NestServiceDrainInboxProcedure,
+		svc.DrainInbox,
+		connect.WithSchema(nestServiceMethods.ByName("DrainInbox")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceUnfinishedChildrenHandler := connect.NewUnaryHandler(
+		NestServiceUnfinishedChildrenProcedure,
+		svc.UnfinishedChildren,
+		connect.WithSchema(nestServiceMethods.ByName("UnfinishedChildren")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceIsHeldHandler := connect.NewUnaryHandler(
+		NestServiceIsHeldProcedure,
+		svc.IsHeld,
+		connect.WithSchema(nestServiceMethods.ByName("IsHeld")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceAcquireLockHandler := connect.NewUnaryHandler(
+		NestServiceAcquireLockProcedure,
+		svc.AcquireLock,
+		connect.WithSchema(nestServiceMethods.ByName("AcquireLock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceReleaseLockHandler := connect.NewUnaryHandler(
+		NestServiceReleaseLockProcedure,
+		svc.ReleaseLock,
+		connect.WithSchema(nestServiceMethods.ByName("ReleaseLock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nestServiceTreeBudgetExceededHandler := connect.NewUnaryHandler(
+		NestServiceTreeBudgetExceededProcedure,
+		svc.TreeBudgetExceeded,
+		connect.WithSchema(nestServiceMethods.ByName("TreeBudgetExceeded")),
 		connect.WithHandlerOptions(opts...),
 	)
 	nestServiceCreateApprovalHandler := connect.NewUnaryHandler(
@@ -480,6 +795,28 @@ func NewNestServiceHandler(svc NestServiceHandler, opts ...connect.HandlerOption
 			nestServiceCompleteTaskHandler.ServeHTTP(w, r)
 		case NestServiceReleaseTaskProcedure:
 			nestServiceReleaseTaskHandler.ServeHTTP(w, r)
+		case NestServiceSuspendTaskProcedure:
+			nestServiceSuspendTaskHandler.ServeHTTP(w, r)
+		case NestServiceWaitTaskProcedure:
+			nestServiceWaitTaskHandler.ServeHTTP(w, r)
+		case NestServiceReportProgressProcedure:
+			nestServiceReportProgressHandler.ServeHTTP(w, r)
+		case NestServiceQueryChildTaskProcedure:
+			nestServiceQueryChildTaskHandler.ServeHTTP(w, r)
+		case NestServiceSignalChildTaskProcedure:
+			nestServiceSignalChildTaskHandler.ServeHTTP(w, r)
+		case NestServiceDrainInboxProcedure:
+			nestServiceDrainInboxHandler.ServeHTTP(w, r)
+		case NestServiceUnfinishedChildrenProcedure:
+			nestServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
+		case NestServiceIsHeldProcedure:
+			nestServiceIsHeldHandler.ServeHTTP(w, r)
+		case NestServiceAcquireLockProcedure:
+			nestServiceAcquireLockHandler.ServeHTTP(w, r)
+		case NestServiceReleaseLockProcedure:
+			nestServiceReleaseLockHandler.ServeHTTP(w, r)
+		case NestServiceTreeBudgetExceededProcedure:
+			nestServiceTreeBudgetExceededHandler.ServeHTTP(w, r)
 		case NestServiceCreateApprovalProcedure:
 			nestServiceCreateApprovalHandler.ServeHTTP(w, r)
 		case NestServiceGetApprovalProcedure:
@@ -533,6 +870,50 @@ func (UnimplementedNestServiceHandler) CompleteTask(context.Context, *connect.Re
 
 func (UnimplementedNestServiceHandler) ReleaseTask(context.Context, *connect.Request[v1.ReleaseTaskRequest]) (*connect.Response[v1.ReleaseTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReleaseTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) SuspendTask(context.Context, *connect.Request[v1.SuspendTaskRequest]) (*connect.Response[v1.SuspendTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.SuspendTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) WaitTask(context.Context, *connect.Request[v1.NestWaitTaskRequest]) (*connect.Response[v1.NestWaitTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.WaitTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) ReportProgress(context.Context, *connect.Request[v1.NestReportProgressRequest]) (*connect.Response[v1.NestReportProgressResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReportProgress is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) QueryChildTask(context.Context, *connect.Request[v1.NestQueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.QueryChildTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) SignalChildTask(context.Context, *connect.Request[v1.NestSignalChildTaskRequest]) (*connect.Response[v1.NestSignalChildTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.SignalChildTask is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) DrainInbox(context.Context, *connect.Request[v1.NestDrainInboxRequest]) (*connect.Response[v1.NestDrainInboxResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.DrainInbox is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) UnfinishedChildren(context.Context, *connect.Request[v1.NestUnfinishedChildrenRequest]) (*connect.Response[v1.NestUnfinishedChildrenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.UnfinishedChildren is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) IsHeld(context.Context, *connect.Request[v1.NestIsHeldRequest]) (*connect.Response[v1.NestIsHeldResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.IsHeld is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) AcquireLock(context.Context, *connect.Request[v1.NestAcquireLockRequest]) (*connect.Response[v1.NestAcquireLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.AcquireLock is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) ReleaseLock(context.Context, *connect.Request[v1.NestReleaseLockRequest]) (*connect.Response[v1.NestReleaseLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.ReleaseLock is not implemented"))
+}
+
+func (UnimplementedNestServiceHandler) TreeBudgetExceeded(context.Context, *connect.Request[v1.NestTreeBudgetExceededRequest]) (*connect.Response[v1.NestTreeBudgetExceededResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.NestService.TreeBudgetExceeded is not implemented"))
 }
 
 func (UnimplementedNestServiceHandler) CreateApproval(context.Context, *connect.Request[v1.CreateApprovalRequest]) (*connect.Response[v1.CreateApprovalResponse], error) {

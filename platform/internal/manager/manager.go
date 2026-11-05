@@ -997,7 +997,7 @@ func (m *Manager) runTask(ctx context.Context, in *instance, t *agenv1.Task) {
 	}()
 	res, err := in.host.RunTask(runCtx, HostTask{ID: t.Id, Input: t.Input, ParentRunID: t.ParentRunId, RootRunID: t.RootRunId, Traceparent: t.Traceparent,
 		Depth: int(t.Depth), ConversationKey: t.ConversationKey, Labels: t.Labels, Attempts: int(t.Attempts),
-		ModelTier: t.ModelTier, BudgetPressure: t.BudgetPressure})
+		ModelTier: t.ModelTier, BudgetPressure: t.BudgetPressure, Overrides: storeOverrides(t.Overrides), Trust: t.Trust, LockFences: t.LockFences})
 	stopRun()
 	var he *HostError
 	switch {
@@ -1021,8 +1021,16 @@ func (m *Manager) runTask(ctx context.Context, in *instance, t *agenv1.Task) {
 	}
 	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
+	if res.Suspended {
+		// Not finished: give up the lease and wait (3.3, part). Requeued
+		// when a run_inbox row matching WaitFor arrives.
+		if _, err := m.hub().SuspendTask(c, connect.NewRequest(&agenv1.SuspendTaskRequest{NestId: m.nestID, TaskId: t.Id, LeaseId: t.LeaseId, WaitFor: res.WaitFor})); err != nil {
+			log.Warn("suspend task rejected", "err", err)
+		}
+		return
+	}
 	if _, err := m.hub().CompleteTask(c, connect.NewRequest(&agenv1.CompleteTaskRequest{NestId: m.nestID, TaskId: t.Id, Success: res.Success,
-		Output: res.Output, Error: res.Error, RunId: res.Run.ID, InstanceId: in.id, LeaseId: t.LeaseId})); err != nil {
+		Output: res.Output, Error: res.Error, RunId: res.Run.ID, InstanceId: in.id, LeaseId: t.LeaseId, Outcome: res.Outcome()})); err != nil {
 		log.Warn("complete task rejected", "err", err)
 	}
 }

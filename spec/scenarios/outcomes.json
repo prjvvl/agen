@@ -1,0 +1,95 @@
+{
+  "name": "outcomes",
+  "description": "A run that ends with finish carries its status, report and data on the task and the run; a run stopped by its budget reports and ends partial.",
+  "features": ["engine.outcome"],
+  "bundles": {
+    "reporter": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/harness.json": {
+          "result": { "schema": { "type": "object", "properties": { "account": { "type": "string" } } } }
+        },
+        "x-agen/fake-script.json": {
+          "cycle": null,
+          "perRun": true,
+          "responses": [
+            {
+              "text": "",
+              "toolCalls": [
+                { "name": "finish", "arguments": { "status": "needs_input", "summary": "Which account?", "data": { "account": "unknown" }, "inputFrom": "human" } }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "limited": {
+      "from": "examples/bundles/hello",
+      "patch": {
+        "x-agen/config.json": {
+          "permissions": { "default": "ask", "rules": [{ "tool": "load_skill", "action": "allow" }] },
+          "budget": { "maxTokensPerRun": 1 }
+        },
+        "x-agen/fake-script.json": {
+          "cycle": null,
+          "perRun": true,
+          "responses": [
+            { "text": "", "toolCalls": [{ "name": "load_skill", "arguments": { "name": "greeting" } }] },
+            { "text": "I read the greeting skill; nothing else was done.", "expect": "reached a limit" }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "reporter", "bundleText": "$bundle:reporter" },
+      "expect": { "deployment.name": "reporter" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "reporter" }, "input": "close my account" },
+      "save": { "t1": "task.id" }
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$t1", "waitSeconds": 60 },
+      "expect": {
+        "task.state": "TASK_STATE_SUCCEEDED",
+        "task.output": "Which account?",
+        "task.outcome.status": "needs_input",
+        "task.outcome.inputFrom": "human",
+        "task.outcome.data.account": "unknown"
+      },
+      "retry": 120,
+      "save": { "r1": "task.runId" }
+    },
+    {
+      "call": "ListRuns",
+      "args": { "namespace": "$ns", "deployment": "reporter" },
+      "expect": { "runs": { "has": { "id": "$r1" } }, "runs.0.outcome.status": "needs_input" }
+    },
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "limited", "bundleText": "$bundle:limited" },
+      "expect": { "deployment.name": "limited" }
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "limited" }, "input": "greet everyone" },
+      "save": { "t2": "task.id" }
+    },
+    {
+      "call": "GetTask",
+      "args": { "id": "$t2", "waitSeconds": 60 },
+      "expect": {
+        "task.state": "TASK_STATE_SUCCEEDED",
+        "task.outcome.status": "partial",
+        "task.outcome.reason": "budget",
+        "task.outcome.summary": "I read the greeting skill; nothing else was done."
+      },
+      "retry": 120
+    }
+  ]
+}

@@ -7,6 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"google.golang.org/protobuf/encoding/protojson"
+
+	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
+	"github.com/prjvvl/agen/platform/internal/store"
 )
 
 // HostClient calls an agen-host instance's HostService (Connect unary JSON:
@@ -69,6 +74,29 @@ type HostTask struct {
 	ModelTier string `json:"modelTier,omitempty"`
 	// BudgetPressure: the deployment spent most of its daily budget.
 	BudgetPressure bool `json:"budgetPressure,omitempty"`
+	// Overrides: what this task may do, narrower than its bundle.
+	Overrides *store.TaskOverrides `json:"overrides,omitempty"`
+	// Trust: "operator", "trusted" or "untrusted" (3.7).
+	Trust string `json:"trust,omitempty"`
+	// LockFences (1.5, part): this task's own declared locks' fencing
+	// tokens, name -> fence, as of the moment it was leased.
+	LockFences map[string]int64 `json:"lockFences,omitempty"`
+}
+
+// storeOverrides converts a task's API overrides to the plain JSON shape
+// the host reads (store.TaskOverrides has the right json tags for it).
+func storeOverrides(o *agenv1.TaskOverrides) *store.TaskOverrides {
+	if o == nil {
+		return nil
+	}
+	out := &store.TaskOverrides{Tools: o.Tools, Skills: o.Skills, SystemAddendum: o.SystemAddendum}
+	for _, r := range o.Permissions {
+		out.Permissions = append(out.Permissions, store.OverrideRule{Tool: r.Tool, Action: r.Action})
+	}
+	if b := o.Budget; b != nil {
+		out.Budget = &store.RunBudget{MaxTokens: b.MaxTokens, MaxUsd: b.MaxUsd, MaxTurns: b.MaxTurns, MaxDuration: b.MaxDuration}
+	}
+	return out
 }
 
 // HostRunResult is RunTask's response.
@@ -76,11 +104,31 @@ type HostRunResult struct {
 	Success bool   `json:"success"`
 	Output  string `json:"output"`
 	Error   string `json:"error"`
-	Run     struct {
+	// Suspended (3.3, part): the run gave up its instance slot to wait for
+	// something (WaitFor, "<kind>:<ref>") instead of finishing or failing.
+	// Success/Output/Error do not apply.
+	Suspended bool   `json:"suspended"`
+	WaitFor   string `json:"waitFor"`
+	Run       struct {
 		ID      string `json:"id"`
 		Status  string `json:"status"`
 		TraceID string `json:"traceId"`
+		// How the run ended (status, reason, summary, data, ...).
+		Outcome json.RawMessage `json:"outcome"`
 	} `json:"run"`
+}
+
+// Outcome is the run's outcome as the API message (nil when the host
+// reported none).
+func (r HostRunResult) Outcome() *agenv1.Outcome {
+	if len(r.Run.Outcome) == 0 || string(r.Run.Outcome) == "null" {
+		return nil
+	}
+	o := &agenv1.Outcome{}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(r.Run.Outcome, o); err != nil {
+		return nil
+	}
+	return o
 }
 
 func (c *HostClient) call(ctx context.Context, method string, in, out any) error {

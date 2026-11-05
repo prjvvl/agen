@@ -385,13 +385,36 @@ func (n *NestAPI) LeaseTasks(ctx context.Context, req *connect.Request[agenv1.Le
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	// A task carrying an exhausted label_usd_per_day label is released
+	// right back (3.5, part: label budgets) rather than excluded from the
+	// batch up front: unlike max_usd_per_day, which holds the whole
+	// deployment at zero instances, this is a per-candidate check, so it
+	// runs after the lease exactly like the lock re-check just above does
+	// for the same reason (checking before the SELECT can't see a row
+	// another concurrent lease just claimed).
+	var excludedLabels map[string]bool
+	if d, err := n.hub.Store.GetDeployment(ctx, ns, name); err == nil {
+		excludedLabels, _ = n.hub.exhaustedLabels(ctx, d)
+	}
 	out := &agenv1.LeaseTasksResponse{}
 	for _, t := range list {
+		if labelsExhausted(t, excludedLabels) {
+			_ = n.hub.Store.ReleaseTask(ctx, t.ID, t.LeaseID, true)
+			continue
+		}
+		// Under budget pressure (2.46, part), background-priority work
+		// stops first: released back the same way an exhausted label's
+		// candidate is, so whatever budget is left goes to higher-priority
+		// work instead.
+		if pressure && t.Priority == "background" {
+			_ = n.hub.Store.ReleaseTask(ctx, t.ID, t.LeaseID, true)
+			continue
+		}
 		pt := TaskProto(t)
 		pt.BudgetPressure = pressure
 		out.Tasks = append(out.Tasks, pt)
 	}
-	if len(list) > 0 {
+	if len(out.Tasks) > 0 {
 		_ = n.hub.Store.TouchActivity(ctx, ns, name)
 	}
 	return connect.NewResponse(out), nil
@@ -418,7 +441,7 @@ func (n *NestAPI) CompleteTask(ctx context.Context, req *connect.Request[agenv1.
 	if _, err := n.requireNestTask(ctx, m.NestId, m.TaskId); err != nil {
 		return nil, err
 	}
-	if err := n.hub.Store.CompleteTask(ctx, m.TaskId, m.LeaseId, m.Success, m.Output, m.Error, m.RunId, m.InstanceId); err != nil {
+	if err := n.hub.Store.CompleteTaskWithOutcome(ctx, m.TaskId, m.LeaseId, m.Success, m.Output, m.Error, m.RunId, m.InstanceId, OutcomeJSON(m.Outcome)); err != nil {
 		return nil, connectErr(err)
 	}
 	go func() {
@@ -438,6 +461,305 @@ func (n *NestAPI) ReleaseTask(ctx context.Context, req *connect.Request[agenv1.R
 		return nil, connectErr(err)
 	}
 	return connect.NewResponse(&agenv1.ReleaseTaskResponse{}), nil
+}
+
+// SuspendTask moves a leased task to TASK_STATE_WAITING (3.3, part): the
+// instance running it gave up its lease to wait for something (today, only
+// a child task it started with call_agent). The lease is checked like
+// CompleteTask's.
+func (n *NestAPI) SuspendTask(ctx context.Context, req *connect.Request[agenv1.SuspendTaskRequest]) (*connect.Response[agenv1.SuspendTaskResponse], error) {
+	m := req.Msg
+	if _, err := n.requireNestTask(ctx, m.NestId, m.TaskId); err != nil {
+		return nil, err
+	}
+	if m.WaitFor == "" {
+		return nil, invalid("wait_for is required")
+	}
+	if err := n.hub.Store.SuspendTask(ctx, m.TaskId, m.LeaseId, m.WaitFor); err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.SuspendTaskResponse{}), nil
+}
+
+// ReportProgress records a task's latest report_progress call and emits a
+// task.progress event, rate-limited to one per 10s per task (3.4, part).
+// Low-stakes by design (see nest.proto): requireNest only, no lease
+// fencing, and a terminal or already-gone task is left alone rather than
+// erroring, since the engine has no way to know that before calling.
+func (n *NestAPI) ReportProgress(ctx context.Context, req *connect.Request[agenv1.NestReportProgressRequest]) (*connect.Response[agenv1.NestReportProgressResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if t.Terminal() {
+		return connect.NewResponse(&agenv1.NestReportProgressResponse{}), nil
+	}
+	p := m.Progress
+	data := map[string]any{"step": p.GetStep(), "done": p.GetDone()}
+	if p.GetTotal() > 0 {
+		data["total"] = p.GetTotal()
+	}
+	if p.GetNote() != "" {
+		data["note"] = p.GetNote()
+	}
+	if len(p.GetArtifacts()) > 0 {
+		data["artifacts"] = p.GetArtifacts()
+	}
+	progressJSON, err := json.Marshal(data)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := n.hub.Store.SetTaskProgress(ctx, t.ID, string(progressJSON)); err != nil {
+		return nil, connectErr(err)
+	}
+	now := store.NowMs()
+	_, _ = n.hub.Store.AppendEventOnce(ctx, store.Event{Namespace: t.Namespace, Type: "task.progress", Deployment: t.Deployment, TaskID: t.ID,
+		ParentTaskID: t.ParentTaskID, Labels: t.Labels, Severity: "info", Data: data,
+		DedupeKey: fmt.Sprintf("progress:%s:%d", t.ID, now/10_000)})
+	return connect.NewResponse(&agenv1.NestReportProgressResponse{}), nil
+}
+
+// maxDescendantWalk bounds isDescendant's walk up the parent chain:
+// generous next to any realistic max_delegation_depth, just a backstop
+// against a corrupted chain looping forever.
+const maxDescendantWalk = 64
+
+// isDescendant reports whether id is ancestorID itself or a descendant of
+// it, walking up id's parent_task_id chain (3.4, part: query_agent and
+// signal_agent only work on the caller's own descendants).
+func (n *NestAPI) isDescendant(ctx context.Context, ancestorID, id string) (bool, error) {
+	for i := 0; i < maxDescendantWalk; i++ {
+		if id == ancestorID {
+			return true, nil
+		}
+		if id == "" {
+			return false, nil
+		}
+		t, err := n.hub.Store.GetTask(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		id = t.ParentTaskID
+	}
+	return false, nil
+}
+
+// QueryChildTask is query_agent's RPC (3.4, part): QueryTask, restricted to
+// one of the calling task's own descendants.
+func (n *NestAPI) QueryChildTask(ctx context.Context, req *connect.Request[agenv1.NestQueryChildTaskRequest]) (*connect.Response[agenv1.QueryTaskResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if ok, err := n.isDescendant(ctx, m.CallerTaskId, m.TaskId); err != nil {
+		return nil, connectErr(err)
+	} else if !ok {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("task %s is not a descendant of %s", m.TaskId, m.CallerTaskId))
+	}
+	t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out, err := n.hub.queryTaskProto(ctx, t)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(out), nil
+}
+
+// SignalChildTask is signal_agent's RPC (3.4, part): writes a run_inbox row
+// for one of the calling task's own descendants and wakes it if it is
+// waiting on exactly this signal. A running (not waiting) target just
+// holds the row until draining a signal into a running or resumed run is
+// implemented; it is not yet.
+func (n *NestAPI) SignalChildTask(ctx context.Context, req *connect.Request[agenv1.NestSignalChildTaskRequest]) (*connect.Response[agenv1.NestSignalChildTaskResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.Message == "" {
+		return nil, invalid("message is required")
+	}
+	if ok, err := n.isDescendant(ctx, m.CallerTaskId, m.TaskId); err != nil {
+		return nil, connectErr(err)
+	} else if !ok {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("task %s is not a descendant of %s", m.TaskId, m.CallerTaskId))
+	}
+	t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if t.Terminal() {
+		return nil, invalid(fmt.Sprintf("task %s has already ended", m.TaskId))
+	}
+	if _, err := n.hub.Store.WriteInbox(ctx, store.InboxRow{Namespace: t.Namespace, TaskID: t.ID, RunID: t.RunID, Kind: "signal", Ref: m.CallerTaskId, Payload: m.Message}); err != nil {
+		return nil, connectErr(err)
+	}
+	_ = n.hub.Store.AppendEvent(ctx, store.Event{Namespace: t.Namespace, Type: "task.signalled", Deployment: t.Deployment, TaskID: t.ID,
+		ParentTaskID: t.ParentTaskID, Labels: t.Labels, Severity: "info", Data: map[string]any{"from": m.CallerTaskId, "message": m.Message}})
+	return connect.NewResponse(&agenv1.NestSignalChildTaskResponse{}), nil
+}
+
+// DrainInbox claims a task this Nest currently leases' own unconsumed
+// run_inbox entries other than "child" rows (3.4/3.9, part), so the
+// engine can turn them into run messages before its next model call.
+// Low-stakes like ReportProgress: requireNest only, no lease fencing (the
+// engine has no lease id to send).
+func (n *NestAPI) DrainInbox(ctx context.Context, req *connect.Request[agenv1.NestDrainInboxRequest]) (*connect.Response[agenv1.NestDrainInboxResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	rows, err := n.hub.Store.DrainInbox(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out := make([]*agenv1.InboxEntry, len(rows))
+	for i, r := range rows {
+		out[i] = &agenv1.InboxEntry{Kind: r.Kind, Ref: r.Ref, Payload: r.Payload, CreatedAt: ms(r.CreatedMs)}
+	}
+	return connect.NewResponse(&agenv1.NestDrainInboxResponse{Entries: out}), nil
+}
+
+// UnfinishedChildren counts a task this Nest currently leases' own
+// unfinished joined children (3.4, part: "join"). Low-stakes like
+// ReportProgress: requireNest only, no lease fencing.
+func (n *NestAPI) UnfinishedChildren(ctx context.Context, req *connect.Request[agenv1.NestUnfinishedChildrenRequest]) (*connect.Response[agenv1.NestUnfinishedChildrenResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	n2, err := n.hub.Store.CountUnfinishedChildren(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestUnfinishedChildrenResponse{Count: n2}), nil
+}
+
+// IsHeld reports whether a task this Nest currently leases is effectively
+// held right now (3.4, part: hold). Low-stakes like ReportProgress:
+// requireNest only, no lease fencing.
+func (n *NestAPI) IsHeld(ctx context.Context, req *connect.Request[agenv1.NestIsHeldRequest]) (*connect.Response[agenv1.NestIsHeldResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	held, err := n.hub.Store.IsHeld(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestIsHeldResponse{Held: held}), nil
+}
+
+// AcquireLock grants a named lock to a task this Nest currently leases
+// (1.5, part: the acquire_lock built-in), for a resource not already
+// covered by its declared locks. Low-stakes like ReportProgress:
+// requireNest only, no lease fencing — the engine does not carry its own
+// lease id, and the correctness bar this exists for (a holder whose lease
+// expired can't write) is the fencing token itself, checked by whatever
+// external system actually owns the resource, not by this call.
+func (n *NestAPI) AcquireLock(ctx context.Context, req *connect.Request[agenv1.NestAcquireLockRequest]) (*connect.Response[agenv1.NestAcquireLockResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" || m.Name == "" {
+		return nil, invalid("task_id and name are required")
+	}
+	ttlMs := int64(m.TtlSeconds) * 1000
+	if m.TtlSeconds <= 0 || m.TtlSeconds > 86400 {
+		return nil, invalid("ttl_seconds must be 1-86400")
+	}
+	fence, err := n.hub.Store.AcquireLock(ctx, m.TaskId, m.Name, ttlMs)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestAcquireLockResponse{Fence: fence}), nil
+}
+
+// ReleaseLock drops a lock a task this Nest currently leases holds (1.5,
+// part: the release_lock built-in). Low-stakes like AcquireLock.
+func (n *NestAPI) ReleaseLock(ctx context.Context, req *connect.Request[agenv1.NestReleaseLockRequest]) (*connect.Response[agenv1.NestReleaseLockResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" || m.Name == "" {
+		return nil, invalid("task_id and name are required")
+	}
+	if err := n.hub.Store.ReleaseLock(ctx, m.TaskId, m.Name); err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestReleaseLockResponse{}), nil
+}
+
+// TreeBudgetExceeded reports whether a task this Nest currently leases'
+// tree has, right now, spent at least as much as its root's own declared
+// budget (3.5, part: the live check). Low-stakes like IsHeld: requireNest
+// only, no lease fencing.
+func (n *NestAPI) TreeBudgetExceeded(ctx context.Context, req *connect.Request[agenv1.NestTreeBudgetExceededRequest]) (*connect.Response[agenv1.NestTreeBudgetExceededResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	exceeded, err := n.hub.treeBudgetExceeded(ctx, m.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.NestTreeBudgetExceededResponse{Exceeded: exceeded}), nil
+}
+
+// maxNestTaskWait bounds WaitTask's wait_seconds: the calling instance holds
+// an HTTP connection to the Hub for the whole wait.
+const maxNestTaskWait = 60 * time.Second
+
+// WaitTask polls a task (typically one this Nest's instance started with
+// SubmitChildTask) until it reaches a terminal state or wait_seconds
+// elapses (3.3, part: call_agent's inline wait). Unlike requireNestTask,
+// the waited-for task need not be leased by this Nest — it may be running
+// anywhere.
+func (n *NestAPI) WaitTask(ctx context.Context, req *connect.Request[agenv1.NestWaitTaskRequest]) (*connect.Response[agenv1.NestWaitTaskResponse], error) {
+	m := req.Msg
+	if err := requireNest(ctx, m.NestId); err != nil {
+		return nil, err
+	}
+	if m.TaskId == "" {
+		return nil, invalid("task_id is required")
+	}
+	deadline := time.Now().Add(min(time.Duration(m.WaitSeconds)*time.Second, maxNestTaskWait))
+	for {
+		t, err := n.hub.Store.GetTask(ctx, m.TaskId)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		if t.Terminal() || time.Now().After(deadline) {
+			return connect.NewResponse(&agenv1.NestWaitTaskResponse{Task: TaskProto(t)}), nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, connect.NewError(connect.CodeCanceled, ctx.Err())
+		case <-time.After(n.hub.Poll):
+		}
+	}
 }
 
 // ---- approvals (raised by instances through their Manager) ----
@@ -735,9 +1057,29 @@ func (n *NestAPI) SubmitChildTask(ctx context.Context, req *connect.Request[agen
 	if max := int(PolicyOf(d).Limits.MaxDelegationDepth); max > 0 && depth > max {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("delegation depth %d exceeds max_delegation_depth %d of %s/%s", depth, max, ns, name))
 	}
+	if err := validateOverrides(m.Overrides); err != nil {
+		return nil, invalid(err.Error())
+	}
+	if err := checkTrust(m.Trust); err != nil {
+		return nil, invalid(err.Error())
+	}
+	if err := checkOnParentEnd(m.OnParentEnd); err != nil {
+		return nil, invalid(err.Error())
+	}
+	trust := m.Trust
+	if trust == "" {
+		trust = "trusted"
+	}
+	// Never more trusted than the parent's own task, even if a stale
+	// caller reports a higher trust than it was started with.
+	trust = narrowTrust(trust, parent.Trust)
+	parentOv, _ := store.ParseOverrides(parent.Overrides)
+	effective := store.CombineOverrides(parentOv, overridesFromProto(m.Overrides))
+	effective = n.hub.narrowForTreeBudget(ctx, parent.RootTaskID, effective)
 	child := store.Task{Namespace: ns, Deployment: name, Input: m.Input, Source: "a2a", IdempotencyKey: m.IdempotencyKey,
-		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, Depth: depth, Traceparent: m.Traceparent,
-		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks)}
+		ParentTaskID: parent.ID, ParentRunID: parentRun, RootRunID: root, RootTaskID: parent.RootTaskID, Depth: depth, Traceparent: m.Traceparent,
+		SubmittedBy: parent.SubmittedBy, Labels: parent.Labels, MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks),
+		ModelTier: m.ModelTier, Overrides: effective.JSON(), Trust: trust, OnParentEnd: m.OnParentEnd}
 	if m.ReplyConversationKey != "" {
 		child.ReplyDeployment, child.ReplyConversationKey = parent.Deployment, m.ReplyConversationKey
 	}

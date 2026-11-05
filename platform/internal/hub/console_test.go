@@ -130,6 +130,37 @@ func TestTranscriptAndSystemPrompt(t *testing.T) {
 	}
 }
 
+// GetCassette returns a run's recorded interactions (3.6, part: agen
+// replay), if the engine saved one (Store.save_cassette, on the Rust
+// side — simulated here with a raw INSERT, the same way runTree
+// simulates the engine's own run/message writes); not_found otherwise,
+// namespace-scoped like every other run-data read.
+// features: replay
+func TestGetCassetteReturnsARunsRecordedInteractions(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	runTree(t, e, time.Now().UnixMilli())
+	if _, err := e.store.DB().Exec("INSERT INTO cassettes (run_id, data, created_ms) VALUES ('r1', $1, $2)",
+		`{"provider":"fake","interactions":[{"fingerprint":"x","request":{},"response":{"text":"hi"}}]}`, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.GetCassette(ctx, connect.NewRequest(&agenv1.GetCassetteRequest{RunId: "r1"}))
+	if err != nil || got.Msg.Run.Id != "r1" || !strings.Contains(got.Msg.CassetteJson, `"fingerprint":"x"`) {
+		t.Fatalf("cassette: %v %v", got, err)
+	}
+	if _, err := c.GetCassette(ctx, connect.NewRequest(&agenv1.GetCassetteRequest{RunId: "r2"})); code(err) != connect.CodeNotFound {
+		t.Fatalf("a run that never recorded one: %v", err)
+	}
+	other, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: "other2", Scopes: []string{"viewer"}, Namespaces: []string{"other"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.client(other.Msg.Secret).GetCassette(ctx, connect.NewRequest(&agenv1.GetCassetteRequest{RunId: "r1"})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("another namespace's cassette: %v", err)
+	}
+}
+
 // features: observe.metrics
 func TestMetricsAndCallEdges(t *testing.T) {
 	e := setup(t)
@@ -317,6 +348,10 @@ func tokenID(t *testing.T, e env, name string) string {
 }
 
 // features: observe.notifications
+// Notification targets are delivered from the event log: in order, signed,
+// filtered, retried while the receiver fails (visible on the target), and
+// dropped after failing for an hour.
+// features: observe.notifications
 func TestNotificationTargets(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -325,53 +360,177 @@ func TestNotificationTargets(t *testing.T) {
 	var got []map[string]any
 	var sigs []string
 	var bodies [][]byte
+	failing := false
 	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		defer mu.Unlock()
+		if failing {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
 		var v map[string]any
 		_ = json.Unmarshal(b, &v)
-		mu.Lock()
 		got, sigs, bodies = append(got, v), append(sigs, r.Header.Get("X-Agen-Signature")), append(bodies, b)
-		mu.Unlock()
 	}))
 	defer recv.Close()
-	if _, err := c.SetNotificationTarget(ctx, connect.NewRequest(&agenv1.SetNotificationTargetRequest{Target: &agenv1.NotificationTarget{Name: "Bad Name", Url: recv.URL}})); code(err) != connect.CodeInvalidArgument {
+	received := func() []map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]map[string]any(nil), got...)
+	}
+	set := func(tg *agenv1.NotificationTarget) (*connect.Response[agenv1.SetNotificationTargetResponse], error) {
+		return c.SetNotificationTarget(ctx, connect.NewRequest(&agenv1.SetNotificationTargetRequest{Target: tg}))
+	}
+	if _, err := set(&agenv1.NotificationTarget{Name: "Bad Name", Url: recv.URL}); code(err) != connect.CodeInvalidArgument {
 		t.Fatalf("bad name: %v", err)
 	}
-	if _, err := c.SetNotificationTarget(ctx, connect.NewRequest(&agenv1.SetNotificationTargetRequest{Target: &agenv1.NotificationTarget{Name: "ops", Url: recv.URL, Events: []string{"nope"}}})); code(err) != connect.CodeInvalidArgument {
+	if _, err := set(&agenv1.NotificationTarget{Name: "ops", Url: recv.URL, Events: []string{"nope"}}); code(err) != connect.CodeInvalidArgument {
 		t.Fatalf("bad event: %v", err)
 	}
-	set, err := c.SetNotificationTarget(ctx, connect.NewRequest(&agenv1.SetNotificationTargetRequest{Target: &agenv1.NotificationTarget{Name: "ops", Url: recv.URL, Events: []string{"task.failed"}}}))
-	if err != nil || set.Msg.Secret == "" {
-		t.Fatalf("set: %v %v", set, err)
-	}
-	list, err := c.ListNotificationTargets(ctx, connect.NewRequest(&agenv1.ListNotificationTargetsRequest{}))
-	if err != nil || len(list.Msg.Targets) != 1 || list.Msg.Targets[0].Namespace != "default" {
-		t.Fatalf("list: %v %v", list, err)
+	if _, err := set(&agenv1.NotificationTarget{Name: "ops", Url: recv.URL, Severity: "loud"}); code(err) != connect.CodeInvalidArgument {
+		t.Fatalf("bad severity: %v", err)
 	}
 	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
 		t.Fatal(err)
 	}
-	task, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "x"}))
-	if err != nil {
+	// Events before a target exists are not sent to it.
+	if _, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "before"})); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.store.DB().Exec("UPDATE tasks SET state = 'failed', error = 'boom' WHERE id = $1", task.Msg.Task.Id); err != nil {
-		t.Fatal(err)
+	ops, err := set(&agenv1.NotificationTarget{Name: "ops", Url: recv.URL, Events: []string{"task.failed", "task.queued"}, Labels: map[string]string{"team": "a"}})
+	if err != nil || ops.Msg.Secret == "" {
+		t.Fatalf("set: %v %v", ops, err)
 	}
-	e.hub.afterTaskEnded(ctx, task.Msg.Task.Id)
-	e.hub.notifyApproval(ctx, store.Approval{ID: "a1", Namespace: "default", Deployment: "hello", Tool: "x", Arguments: []byte("{}"), State: "pending"})
+	list, err := c.ListNotificationTargets(ctx, connect.NewRequest(&agenv1.ListNotificationTargetsRequest{}))
+	if err != nil || len(list.Msg.Targets) != 1 || list.Msg.Targets[0].Namespace != "default" || list.Msg.Targets[0].Labels["team"] != "a" {
+		t.Fatalf("list: %v %v", list, err)
+	}
+	fail := func(input string, labels map[string]string) string {
+		t.Helper()
+		task, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: input, Labels: labels}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		leased, err := e.store.LeaseTasks(ctx, "n1", "default", "hello", 5, 60_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range leased {
+			if l.ID == task.Msg.Task.Id {
+				if err := e.store.CompleteTask(ctx, l.ID, l.LeaseID, false, "", "boom", "", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return task.Msg.Task.Id
+	}
+	failed := fail("x", map[string]string{"team": "a"})
+	fail("other team", map[string]string{"team": "b"}) // filtered out by label
+	e.hub.deliverTargets(ctx)
+	g := received()
+	if len(g) != 2 || g[0]["type"] != "task.queued" || g[1]["type"] != "task.failed" {
+		t.Fatalf("notifications: %v", g)
+	}
+	task, _ := g[1]["task"].(map[string]any)
+	ev, _ := g[1]["event"].(map[string]any)
+	if task["id"] != failed || task["error"] != "boom" || ev["type"] != "task.finished" || ev["taskId"] != failed {
+		t.Fatalf("task.failed body: %v", g[1])
+	}
+	mac := hmac.New(sha256.New, []byte(ops.Msg.Secret))
+	mac.Write(bodies[1])
+	if sigs[1] != "sha256="+hex.EncodeToString(mac.Sum(nil)) {
+		t.Fatalf("signature %q", sigs[1])
+	}
+	// Nothing new: nothing sent again.
+	e.hub.deliverTargets(ctx)
+	if len(received()) != 2 {
+		t.Fatalf("sent twice: %v", received())
+	}
+
+	// The receiver fails: the target says so and the event is kept.
 	mu.Lock()
-	defer mu.Unlock()
-	if len(got) != 1 || got[0]["type"] != "task.failed" || got[0]["task"].(map[string]any)["error"] != "boom" {
-		t.Fatalf("notifications: %v", got)
+	failing = true
+	mu.Unlock()
+	fail("y", map[string]string{"team": "a"})
+	e.hub.deliverTargets(ctx)
+	target := func() *agenv1.NotificationTarget {
+		l, _ := c.ListNotificationTargets(ctx, connect.NewRequest(&agenv1.ListNotificationTargetsRequest{}))
+		return l.Msg.Targets[0]
 	}
-	mac := hmac.New(sha256.New, []byte(set.Msg.Secret))
-	mac.Write(bodies[0])
-	if sigs[0] != "sha256="+hex.EncodeToString(mac.Sum(nil)) {
-		t.Fatalf("signature %q", sigs[0])
+	if tg := target(); tg.FailingSince == nil || !strings.Contains(tg.LastError, "502") {
+		t.Fatalf("failing target: %v", tg)
+	}
+	// It recovers: the next try (once its pause is over) delivers in order.
+	mu.Lock()
+	failing = false
+	mu.Unlock()
+	if _, err := e.store.DB().Exec("UPDATE notification_targets SET retry_ms = 0"); err != nil {
+		t.Fatal(err)
+	}
+	e.hub.deliverTargets(ctx)
+	g = received()
+	if len(g) != 4 || g[2]["type"] != "task.queued" || g[3]["type"] != "task.failed" {
+		t.Fatalf("after recovery: %v", g)
+	}
+	if tg := target(); tg.FailingSince != nil || tg.LastError != "" || tg.LastDeliveredAt == nil {
+		t.Fatalf("recovered target: %v", tg)
+	}
+
+	// Failing for over an hour: the event is dropped and counted.
+	mu.Lock()
+	failing = true
+	mu.Unlock()
+	fail("z", map[string]string{"team": "a"})
+	e.hub.deliverTargets(ctx)
+	if _, err := e.store.DB().Exec("UPDATE notification_targets SET retry_ms = 0, failing_since_ms = $1", store.NowMs()-2*3600*1000); err != nil {
+		t.Fatal(err)
+	}
+	e.hub.deliverTargets(ctx)
+	if tg := target(); tg.Dropped != 1 {
+		t.Fatalf("dropped: %v", tg)
 	}
 	if _, err := c.DeleteNotificationTarget(ctx, connect.NewRequest(&agenv1.DeleteNotificationTargetRequest{Name: "ops"})); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Budget thresholds at 50, 80 and 100% of the daily budget are events, each
+// once a day; the default target set gets budget.exhausted.
+// features: budgets
+func TestBudgetThresholdEvents(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: helloFiles(t)})); err != nil {
+		t.Fatal(err)
+	}
+	// hello's budget is $0.20 a day; spend $0.17 (85%).
+	now := store.NowMs()
+	for _, q := range []string{
+		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','x','default','hello','{}',$1,$1)",
+		"INSERT INTO conversations (id, session_id, created_ms) VALUES ('c1','s1',$1)",
+		"INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, trace_id, started_ms, ended_ms, cost_usd) VALUES ('r1','s1','c1','default','hello','succeeded','x','t1',$1,$1,0.17)",
+	} {
+		if _, err := e.store.DB().ExecContext(ctx, q, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, _ := e.store.GetDeployment(ctx, "default", "hello")
+	e.hub.budgetThresholds(ctx, d)
+	e.hub.budgetThresholds(ctx, d) // once per threshold and day
+	r, err := c.ListEvents(ctx, connect.NewRequest(&agenv1.ListEventsRequest{Types: []string{"budget.threshold"}}))
+	if err != nil || len(r.Msg.Events) != 2 {
+		t.Fatalf("thresholds: %v %v", r, err)
+	}
+	if p := r.Msg.Events[1].Data.AsMap()["percent"]; p != float64(80) || r.Msg.Events[1].Severity != "warning" {
+		t.Fatalf("80%%: %v", r.Msg.Events[1])
+	}
+	if name := targetEventName(nil, store.Event{Type: "budget.threshold", Data: map[string]any{"percent": 100}}); name != "budget.exhausted" {
+		t.Fatalf("100%% for a default target: %q", name)
+	}
+	if name := targetEventName(nil, store.Event{Type: "budget.threshold", Data: map[string]any{"percent": 80}}); name != "" {
+		t.Fatalf("80%% for a default target: %q", name)
 	}
 }
 

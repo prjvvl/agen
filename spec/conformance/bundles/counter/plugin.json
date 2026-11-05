@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agentplugins.dev/schema/1.0/plugin.json",
+  "name": "counter",
+  "version": "0.1.0",
+  "description": "Returns a structured result (conformance fixture)"
+}

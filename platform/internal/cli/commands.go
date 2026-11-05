@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agenv1 "github.com/prjvvl/agen/platform/gen/agen/v1"
@@ -81,12 +82,16 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	name := fs.String("name", "", "deployment name (default: bundle name)")
 	replicas := fs.Int("replicas", -1, "desired instances after deploying")
 	validate := fs.Bool("validate", false, "check the bundle and print warnings without deploying")
+	requireEval := fs.Bool("require-eval", false, "run the bundle's eval scenarios first (agen eval) and refuse to deploy unless every one passes (2.43)")
+	scenariosDir := fs.String("scenarios", "", "eval scenarios directory for --require-eval (default: x-agen/evals inside the bundle, if present)")
+	evalRuns := fs.Int("eval-runs", 1, "runs per scenario for --require-eval")
+	hostBin := fs.String("host-bin", "", "agen-host executable, for --require-eval (default: next to agen, $AGEN_HOST_BIN, or on PATH)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen deploy <bundle-dir> [--name N] [--replicas N] [--validate] [-n NS]")
+		return usageErr("agen deploy <bundle-dir> [--name N] [--replicas N] [--validate] [--require-eval] [-n NS]")
 	}
 	files, err := readBundle(pos[0])
 	if err != nil {
@@ -110,6 +115,53 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 		fmt.Fprintln(e.stdout, "bundle is valid")
 		return nil
 	}
+
+	var evalReportJSON string
+	n := *name
+	if n == "" {
+		n = bundleName(files)
+	}
+	if *requireEval {
+		dir := *scenariosDir
+		if dir == "" {
+			dir = filepath.Join(pos[0], "x-agen", "evals")
+			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+				return errors.New("--require-eval needs --scenarios DIR or an x-agen/evals directory in the bundle")
+			}
+		}
+		filesInDir, err := scenarioFiles(dir)
+		if err != nil {
+			return err
+		}
+		if len(filesInDir) == 0 {
+			return fmt.Errorf("--require-eval: no *.json scenario files in %s", dir)
+		}
+		bin, err := findHostBin(*hostBin)
+		if err != nil {
+			return err
+		}
+		reports, allPass, err := runEvalScenarios(ctx, bin, pos[0], filesInDir, *evalRuns, "")
+		if err != nil {
+			return fmt.Errorf("--require-eval: %w", err)
+		}
+		if !allPass {
+			return fmt.Errorf("--require-eval: scenarios in %s did not all pass^%d; not deploying", dir, *evalRuns)
+		}
+		b, err := json.Marshal(reports)
+		if err != nil {
+			return err
+		}
+		evalReportJSON = string(b)
+		if n != "" {
+			if last, err := c.ListEvalReports(ctx, connect.NewRequest(&agenv1.ListEvalReportsRequest{Ref: ref(cf, n), Limit: 1})); err == nil && len(last.Msg.Reports) > 0 {
+				for _, line := range evalComparisonLines(last.Msg.Reports[0].ReportJson, reports) {
+					fmt.Fprintln(e.stdout, line)
+				}
+			}
+		}
+		fmt.Fprintf(e.stdout, "eval: %d scenario(s) in %s passed^%d\n", len(filesInDir), dir, *evalRuns)
+	}
+
 	created, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Namespace: cf.namespace, Name: *name, BundleFiles: files}))
 	var d *agenv1.Deployment
 	var warnings []string
@@ -117,10 +169,6 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	case err == nil:
 		d, warnings = created.Msg.Deployment, created.Msg.Warnings
 	case connect.CodeOf(err) == connect.CodeAlreadyExists:
-		n := *name
-		if n == "" {
-			n = bundleName(files)
-		}
 		if n == "" {
 			return errors.New("deployment exists but the bundle has no name in plugin.json; pass --name")
 		}
@@ -134,6 +182,12 @@ func (e *env) cmdDeploy(ctx context.Context, args []string) error {
 	}
 	for _, w := range warnings {
 		fmt.Fprintln(e.stderr, "warning: "+w)
+	}
+	if evalReportJSON != "" {
+		if _, err := c.RecordEvalReport(ctx, connect.NewRequest(&agenv1.RecordEvalReportRequest{
+			Ref: ref(cf, d.Name), DefinitionDigest: d.DefinitionDigest, ReportJson: evalReportJSON})); err != nil {
+			fmt.Fprintln(e.stderr, "warning: could not record the eval report: "+err.Error())
+		}
 	}
 	if *replicas >= 0 {
 		s, err := c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref(cf, d.Name), Desired: int32(*replicas)}))
@@ -210,18 +264,39 @@ func (e *env) pause(ctx context.Context, args []string, paused bool) error {
 	if paused {
 		name = "stop"
 	}
-	pos, err := parse(e.flags(name, &cf), args)
+	fs := e.flags(name, &cf)
+	// hold_runs (2.8): stop only, also holds every unfinished task of the
+	// deployment (PauseTask/PauseTree's own mechanism, applied deployment
+	// wide) rather than just letting them run to completion.
+	holdRuns := fs.Bool("hold-runs", false, "also hold every unfinished task of the deployment, not just stop leasing new ones")
+	at := fs.String("at", "", "hold-runs only: end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for `agen start`")
+	in := fs.Duration("in", 0, "hold-runs only: end the hold this long from now (e.g. 30m)")
+	reason := fs.String("reason", "", "hold-runs only: why, for anyone who looks at a held task later")
+	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen stop|start <name>")
+		return usageErr("agen stop <name> [--hold-runs] [--at TIME | --in D] [--reason TEXT] | agen start <name>")
+	}
+	var until *timestamppb.Timestamp
+	switch {
+	case *at != "" && *in != 0:
+		return usageErr("use --at or --in, not both")
+	case *at != "":
+		ts, err := time.Parse(time.RFC3339, *at)
+		if err != nil {
+			return usageErr("--at: " + err.Error())
+		}
+		until = timestamppb.New(ts)
+	case *in > 0:
+		until = timestamppb.New(time.Now().Add(*in))
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
-	r, err := c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref(cf, pos[0]), Paused: paused}))
+	r, err := c.PauseDeployment(ctx, connect.NewRequest(&agenv1.PauseDeploymentRequest{Ref: ref(cf, pos[0]), Paused: paused, HoldRuns: *holdRuns, Until: until, Reason: *reason}))
 	if err != nil {
 		return err
 	}
@@ -230,7 +305,11 @@ func (e *env) pause(ctx context.Context, args []string, paused bool) error {
 	}
 	d := r.Msg.Deployment
 	if paused {
-		fmt.Fprintf(e.stdout, "%s/%s stopped (paused)\n", d.Namespace, d.Name)
+		fmt.Fprintf(e.stdout, "%s/%s stopped (paused)", d.Namespace, d.Name)
+		if *holdRuns {
+			fmt.Fprintf(e.stdout, ", %d task(s) held", len(r.Msg.Held))
+		}
+		fmt.Fprintln(e.stdout)
 	} else {
 		fmt.Fprintf(e.stdout, "%s/%s started, desired %d\n", d.Namespace, d.Name, d.Desired)
 	}
@@ -414,14 +493,22 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	labels := labelFlag{}
 	fs.Var(labels, "label", "label the task, key=value (repeatable)")
 	tier := fs.String("tier", "", "cost tier for a routing model: low, medium, high, xhigh or max")
+	priority := fs.String("priority", "", "lease order within the deployment's queue: urgent, high, normal or background")
+	trust := fs.String("trust", "", "a trust at most this high: operator, trusted or untrusted (default: the token's own)")
 	at := fs.String("at", "", "run no earlier than this time (RFC 3339, e.g. 2026-10-18T09:00:00Z)")
 	in := fs.Duration("in", 0, "run no earlier than this long from now (e.g. 30m)")
+	expiresIn := fs.Duration("expires-in", 0, "fail as expired if still queued this long from now, instead of waiting indefinitely")
+	scheduleKey := fs.String("schedule-key", "", "at most one queued task per deployment and key; submitting again with the same key cancels the queued one")
+	var locks listFlag
+	fs.Var(&locks, "lock", "wait until this (and every other --lock) is free, then hold it until the task ends (repeatable)")
+	onParentEnd := fs.String("on-parent-end", "", "what happens to this task's own children when it ends: cancel (default) or abandon")
+	delivery := fs.String("delivery", "", "override the conversation's queue mode for this submission only: followup, collect, steer or interrupt")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--at TIME | --in D] [--no-wait] [--timeout D]")
+		return usageErr("agen run <name> <input> [--conversation KEY] [--label k=v] [--tier T] [--priority P] [--trust T] [--lock NAME] [--on-parent-end cancel|abandon] [--delivery MODE] [--at TIME | --in D] [--expires-in D] [--schedule-key K] [--no-wait] [--timeout D]")
 	}
 	var notBefore *timestamppb.Timestamp
 	switch {
@@ -436,12 +523,17 @@ func (e *env) cmdRun(ctx context.Context, args []string) error {
 	case *in > 0:
 		notBefore = timestamppb.New(time.Now().Add(*in))
 	}
+	var notAfter *timestamppb.Timestamp
+	if *expiresIn > 0 {
+		notAfter = timestamppb.New(time.Now().Add(*expiresIn))
+	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
 	s, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref(cf, pos[0]), Input: pos[1], IdempotencyKey: *key,
-		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, NotBefore: notBefore}))
+		ConversationKey: *conversation, Labels: labels, ModelTier: *tier, Priority: *priority, Trust: *trust, Locks: locks, OnParentEnd: *onParentEnd,
+		Delivery: *delivery, NotBefore: notBefore, NotAfter: notAfter, ScheduleKey: *scheduleKey}))
 	if err != nil {
 		return err
 	}
@@ -484,18 +576,21 @@ func (e *env) cmdWait(ctx context.Context, args []string) error {
 func (e *env) cmdCancel(ctx context.Context, args []string) error {
 	var cf clientFlags
 	fs := e.flags("cancel", &cf)
+	tree := fs.Bool("tree", false, "cancel every unfinished task of its whole tree (its root and every descendant), not just this one")
+	mode := fs.String("mode", "", "hard (default): stop at once. graceful: give each run a last turn to call finish before stopping it")
+	grace := fs.Duration("grace", 0, "mode=graceful only: how long to wait for a last turn before stopping anyway (default 20s, capped at 5m)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("agen cancel <task-id>")
+		return usageErr("agen cancel <task-id> [--tree] [--mode hard|graceful] [--grace D]")
 	}
 	c, err := e.client(cf)
 	if err != nil {
 		return err
 	}
-	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0]}))
+	r, err := c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: pos[0], Tree: *tree, Mode: *mode, GracePeriodSeconds: int32(grace.Seconds())}))
 	if err != nil {
 		return err
 	}
@@ -503,6 +598,152 @@ func (e *env) cmdCancel(ctx context.Context, args []string) error {
 		return e.printJSON(r.Msg)
 	}
 	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Task.Id, stateName(r.Msg.Task.State, "TASK_STATE_"))
+	if *tree {
+		fmt.Fprintf(e.stdout, "%d task(s) cancelled across its tree\n", len(r.Msg.Cancelled))
+	}
+	return nil
+}
+
+// cmdPause holds a task: a queued one is skipped by leasing, a running
+// one suspends at its next model call.
+func (e *env) cmdPause(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("pause", &cf)
+	tree := fs.Bool("tree", false, "hold every unfinished task of its whole tree (its root and every descendant), not just this one")
+	at := fs.String("at", "", "end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for `agen resume`")
+	in := fs.Duration("in", 0, "end the hold this long from now (e.g. 30m)")
+	reason := fs.String("reason", "", "why, for anyone who looks at the task later")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen pause <task-id> [--tree] [--at TIME | --in D] [--reason TEXT]")
+	}
+	var until *timestamppb.Timestamp
+	switch {
+	case *at != "" && *in != 0:
+		return usageErr("use --at or --in, not both")
+	case *at != "":
+		ts, err := time.Parse(time.RFC3339, *at)
+		if err != nil {
+			return usageErr("--at: " + err.Error())
+		}
+		until = timestamppb.New(ts)
+	case *in > 0:
+		until = timestamppb.New(time.Now().Add(*in))
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.PauseTask(ctx, connect.NewRequest(&agenv1.PauseTaskRequest{Id: pos[0], Tree: *tree, Until: until, Reason: *reason}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s held\n", r.Msg.Task.Id)
+	if *tree {
+		fmt.Fprintf(e.stdout, "%d task(s) held across its tree\n", len(r.Msg.Held))
+	}
+	return nil
+}
+
+// cmdResume ends a hold started by agen pause.
+func (e *env) cmdResume(ctx context.Context, args []string) error {
+	var cf clientFlags
+	fs := e.flags("resume", &cf)
+	tree := fs.Bool("tree", false, "end the hold on every task of its whole tree, not just this one")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen resume <task-id> [--tree]")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.ResumeTask(ctx, connect.NewRequest(&agenv1.ResumeTaskRequest{Id: pos[0], Tree: *tree}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Task.Id, stateName(r.Msg.Task.State, "TASK_STATE_"))
+	if *tree {
+		fmt.Fprintf(e.stdout, "%d task(s) resumed across its tree\n", len(r.Msg.Resumed))
+	}
+	return nil
+}
+
+func (e *env) cmdTree(ctx context.Context, args []string) error {
+	var cf clientFlags
+	pos, err := parse(e.flags("tree", &cf), args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen tree <task-id>")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.GetTaskTree(ctx, connect.NewRequest(&agenv1.GetTaskTreeRequest{TaskId: pos[0]}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	for _, t := range r.Msg.Tasks {
+		fmt.Fprintf(e.stdout, "%s%s %s/%s %s\n", strings.Repeat("  ", int(t.Depth)), t.Id, t.Namespace, t.Deployment, stateName(t.State, "TASK_STATE_"))
+	}
+	return nil
+}
+
+func (e *env) cmdQuery(ctx context.Context, args []string) error {
+	var cf clientFlags
+	pos, err := parse(e.flags("query", &cf), args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return usageErr("agen query <task-id>")
+	}
+	c, err := e.client(cf)
+	if err != nil {
+		return err
+	}
+	r, err := c.QueryTask(ctx, connect.NewRequest(&agenv1.QueryTaskRequest{Id: pos[0]}))
+	if err != nil {
+		return err
+	}
+	if cf.json {
+		return e.printJSON(r.Msg)
+	}
+	fmt.Fprintf(e.stdout, "task %s %s\n", r.Msg.Id, stateName(r.Msg.State, "TASK_STATE_"))
+	if r.Msg.Activity != "" {
+		detail := r.Msg.Detail
+		if detail != "" {
+			detail = ": " + detail
+		}
+		fmt.Fprintf(e.stdout, "activity: %s%s\n", r.Msg.Activity, detail)
+	}
+	if p := r.Msg.Progress; p != nil {
+		fmt.Fprintf(e.stdout, "progress: %s (done=%v)\n", p.Step, p.Done)
+		if p.Note != "" {
+			fmt.Fprintf(e.stdout, "note: %s\n", p.Note)
+		}
+	}
+	if o := r.Msg.Outcome; o != nil && o.Summary != "" {
+		fmt.Fprintf(e.stdout, "outcome: %s\n", o.Summary)
+	}
 	return nil
 }
 
@@ -531,8 +772,29 @@ func (e *env) waitTask(ctx context.Context, c agenv1connect.HubServiceClient, t 
 	}
 	if !asJSON {
 		fmt.Fprintln(e.stdout, t.Output)
+		if o := t.Outcome; o != nil && o.Status != "done" {
+			fmt.Fprintf(e.stderr, "outcome: %s\n", outcomeLabel(o))
+		}
+		if d := t.GetOutcome().GetData(); d != nil {
+			if b, err := protojson.Marshal(d); err == nil {
+				fmt.Fprintf(e.stderr, "data: %s\n", b)
+			}
+		}
 	}
 	return nil
+}
+
+// outcomeLabel is "partial (budget)", "needs_input (human)" or "done".
+func outcomeLabel(o *agenv1.Outcome) string {
+	switch {
+	case o == nil:
+		return "-"
+	case o.Reason != "":
+		return o.Status + " (" + o.Reason + ")"
+	case o.InputFrom != "":
+		return o.Status + " (" + o.InputFrom + ")"
+	}
+	return o.Status
 }
 
 func terminal(s agenv1.TaskState) bool {
@@ -581,6 +843,9 @@ func (e *env) cmdTasks(ctx context.Context, args []string) error {
 		state := stateName(t.State, "TASK_STATE_")
 		if t.PendingApprovalId != "" {
 			state += " (approval " + t.PendingApprovalId + ")"
+		}
+		if t.WaitReason != "" {
+			state += " (" + strings.ReplaceAll(t.WaitReason, "_", " ") + ")"
 		}
 		fmt.Fprintf(w, "%s\t%s/%s\t%s\t%s\t%d\t%s\n", t.Id, t.Namespace, t.Deployment, state, t.Source, t.Attempts,
 			t.CreatedAt.AsTime().Local().Format(time.RFC3339))
@@ -779,7 +1044,7 @@ func (l *listFlag) Set(v string) error { *l = append(*l, strings.Split(v, ",")..
 
 func (e *env) cmdToken(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "create" {
-		return usageErr("agen token create --name N --scope viewer|operator|approver|admin [--namespace NS] [--ttl D] [--on-behalf]")
+		return usageErr("agen token create --name N --scope viewer|operator|approver|admin [--namespace NS] [--ttl D] [--on-behalf] [--trust operator|trusted|untrusted]")
 	}
 	var cf clientFlags
 	fs := e.flags("token create", &cf)
@@ -789,6 +1054,7 @@ func (e *env) cmdToken(ctx context.Context, args []string) error {
 	fs.Var(&namespaces, "namespace", "limit to namespace (repeatable)")
 	ttl := fs.Duration("ttl", 0, "validity (0 = no expiry)")
 	onBehalf := fs.Bool("on-behalf", false, "for an agent that works for people: it acts for whoever submitted its task (see the assistant template)")
+	trust := fs.String("trust", "", "trust tasks submitted with this token get: operator, trusted (default) or untrusted")
 	if _, err := parse(fs, args[1:]); err != nil {
 		return err
 	}
@@ -800,7 +1066,7 @@ func (e *env) cmdToken(ctx context.Context, args []string) error {
 		return err
 	}
 	r, err := c.CreateApiToken(ctx, connect.NewRequest(&agenv1.CreateApiTokenRequest{Name: *name, Scopes: scopes, Namespaces: namespaces,
-		TtlSeconds: int32(ttl.Seconds()), OnBehalf: *onBehalf}))
+		TtlSeconds: int32(ttl.Seconds()), OnBehalf: *onBehalf, Trust: *trust}))
 	if err != nil {
 		return err
 	}

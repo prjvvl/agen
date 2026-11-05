@@ -1,8 +1,9 @@
 {
   "name": "max_turns",
-  "description": "A run that needs more model turns than maxTurns fails instead of looping; maxTokensPerRun is accepted.",
+  "description": "A run that needs more model turns than maxTurns stops, gets one call without tools to report, and ends partial with that report; maxTokensPerRun is accepted.",
   "features": [
-    "engine.limits"
+    "engine.limits",
+    "engine.outcome"
   ],
   "agent": {
     "name": "c",
@@ -24,7 +25,7 @@
           ]
         },
         {
-          "text": "never reached"
+          "text": "I echoed once and ran out of turns."
         }
       ]
     }
@@ -44,7 +45,13 @@
   ],
   "expect": [
     {
-      "status": "failed"
+      "status": "succeeded",
+      "output": "I echoed once and ran out of turns.",
+      "outcome": {
+        "status": "partial",
+        "reason": "max_turns",
+        "summary": "I echoed once and ran out of turns."
+      }
     }
   ]
 }

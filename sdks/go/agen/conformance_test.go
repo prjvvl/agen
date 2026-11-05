@@ -56,17 +56,18 @@ type confOptions struct {
 }
 
 type confExpect struct {
-	MaxWallMs                  int       `json:"maxWallMs"`
-	TraceIncludes              []string  `json:"traceIncludes"`
-	Status                     string    `json:"status"`
-	Output                     *string   `json:"output"`
-	MinDeltas                  int       `json:"minDeltas"`
-	DeltasEqualOutput          bool      `json:"deltasEqualOutput"`
-	ToolCalls                  *[]string `json:"toolCalls"`
-	ApprovalsAsked             *[]string `json:"approvalsAsked"`
-	ToolCancelled              bool      `json:"toolCancelled"`
-	SameConversationAsPrevious bool      `json:"sameConversationAsPrevious"`
-	SameRunAsPrevious          bool      `json:"sameRunAsPrevious"`
+	MaxWallMs                  int            `json:"maxWallMs"`
+	TraceIncludes              []string       `json:"traceIncludes"`
+	Status                     string         `json:"status"`
+	Output                     *string        `json:"output"`
+	MinDeltas                  int            `json:"minDeltas"`
+	DeltasEqualOutput          bool           `json:"deltasEqualOutput"`
+	ToolCalls                  *[]string      `json:"toolCalls"`
+	ApprovalsAsked             *[]string      `json:"approvalsAsked"`
+	ToolCancelled              bool           `json:"toolCancelled"`
+	SameConversationAsPrevious bool           `json:"sameConversationAsPrevious"`
+	SameRunAsPrevious          bool           `json:"sameRunAsPrevious"`
+	Outcome                    map[string]any `json:"outcome"`
 }
 
 type confState struct {
@@ -315,6 +316,16 @@ func runConfCase(t *testing.T, root string, c confCase) {
 			}
 			if exp.SameConversationAsPrevious && r.ConversationID != prev.ConversationID {
 				t.Fatal("conversation changed")
+			}
+			if len(exp.Outcome) > 0 {
+				var got map[string]any
+				b, _ := json.Marshal(r.Outcome)
+				_ = json.Unmarshal(b, &got)
+				for k, v := range exp.Outcome {
+					if !reflect.DeepEqual(got[k], v) {
+						t.Fatalf("outcome.%s = %v, want %v (%s)", k, got[k], v, b)
+					}
+				}
 			}
 			if exp.SameRunAsPrevious && r.RunID != prev.RunID {
 				t.Fatal("task ran again")

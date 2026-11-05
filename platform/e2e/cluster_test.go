@@ -330,7 +330,12 @@ func TestDistributedCluster(t *testing.T) {
 	}
 	k.deployOn("writer", files(t, map[string]string{"x-agen/fake-script.json": `{"cycle":true,"responses":[{"text":"Draft ready."}]}`}), 1, alive[0])
 	k.deployOn("boss", files(t, map[string]string{
-		"x-agen/config.json":      `{"kind":"pool","scale":{"min":0,"max":1},"delegates":[{"name":"writer"}],` + allow + `}`,
+		// via:"a2a" opts out of call_agent's unified child-task path (3.2b),
+		// which needs the Hub throughout to create the child task; this
+		// scenario is specifically about A2A delegation surviving a full
+		// Hub outage (see TestDirectA2ADelegationSurvivesHubOutage), which
+		// the plain synchronous A2A call this opts into actually exercises.
+		"x-agen/config.json":      `{"kind":"pool","scale":{"min":0,"max":1},"delegates":[{"name":"writer","via":"a2a"}],` + allow + `}`,
 		"x-agen/fake-script.json": `{"perRun":true,"responses":[{"toolCalls":[{"name":"call_agent","arguments":{"agent":"writer","message":"draft"}}]},{"text":"Boss done."}]}`,
 	}), 1, alive[1])
 	waitFor(t, "boss and writer", 120*time.Second, func() bool { return len(k.instances("boss")) == 1 && len(k.instances("writer")) == 1 })
@@ -347,7 +352,7 @@ func TestDistributedCluster(t *testing.T) {
 	a2aWith := func(id, token string) string {
 		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": map[string]any{
 			"message": map[string]any{"kind": "message", "role": "user", "messageId": id, "parts": []map[string]string{{"kind": "text", "text": "go"}}}}})
-		args := []string{"exec", "-T", bossNest, "curl", "-s", "--max-time", "60", "-X", "POST", "-H", "Content-Type: application/json"}
+		args := []string{"exec", "-T", bossNest, "curl", "-s", "--max-time", "120", "-X", "POST", "-H", "Content-Type: application/json"}
 		if token != "" {
 			args = append(args, "-H", "Authorization: Bearer "+token)
 		}
@@ -362,6 +367,11 @@ func TestDistributedCluster(t *testing.T) {
 		t.Fatalf("A2A with Hubs up: %s", out)
 	}
 	k.must("stop", "hub1", "hub2")
+	// While both Hubs are down, every bookkeeping call on the delegation
+	// path (start, the inline wait, is_held/unfinished_children/
+	// tree_budget_exceeded) falls open only after its own timeout — this
+	// still finishes well under the 120s above, just slower than with the
+	// Hubs up (warm-1, above).
 	if out := a2a("hub-down-1"); !strings.Contains(out, "Boss done.") || !strings.Contains(out, `"completed"`) {
 		t.Fatalf("A2A with both Hubs down: %s", out)
 	}

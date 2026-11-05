@@ -54,6 +54,34 @@ const (
 	// ManagerServiceStartTaskProcedure is the fully-qualified name of the ManagerService's StartTask
 	// RPC.
 	ManagerServiceStartTaskProcedure = "/agen.v1.ManagerService/StartTask"
+	// ManagerServiceWaitTaskProcedure is the fully-qualified name of the ManagerService's WaitTask RPC.
+	ManagerServiceWaitTaskProcedure = "/agen.v1.ManagerService/WaitTask"
+	// ManagerServiceReportProgressProcedure is the fully-qualified name of the ManagerService's
+	// ReportProgress RPC.
+	ManagerServiceReportProgressProcedure = "/agen.v1.ManagerService/ReportProgress"
+	// ManagerServiceQueryChildTaskProcedure is the fully-qualified name of the ManagerService's
+	// QueryChildTask RPC.
+	ManagerServiceQueryChildTaskProcedure = "/agen.v1.ManagerService/QueryChildTask"
+	// ManagerServiceSignalChildTaskProcedure is the fully-qualified name of the ManagerService's
+	// SignalChildTask RPC.
+	ManagerServiceSignalChildTaskProcedure = "/agen.v1.ManagerService/SignalChildTask"
+	// ManagerServiceDrainInboxProcedure is the fully-qualified name of the ManagerService's DrainInbox
+	// RPC.
+	ManagerServiceDrainInboxProcedure = "/agen.v1.ManagerService/DrainInbox"
+	// ManagerServiceUnfinishedChildrenProcedure is the fully-qualified name of the ManagerService's
+	// UnfinishedChildren RPC.
+	ManagerServiceUnfinishedChildrenProcedure = "/agen.v1.ManagerService/UnfinishedChildren"
+	// ManagerServiceIsHeldProcedure is the fully-qualified name of the ManagerService's IsHeld RPC.
+	ManagerServiceIsHeldProcedure = "/agen.v1.ManagerService/IsHeld"
+	// ManagerServiceAcquireLockProcedure is the fully-qualified name of the ManagerService's
+	// AcquireLock RPC.
+	ManagerServiceAcquireLockProcedure = "/agen.v1.ManagerService/AcquireLock"
+	// ManagerServiceReleaseLockProcedure is the fully-qualified name of the ManagerService's
+	// ReleaseLock RPC.
+	ManagerServiceReleaseLockProcedure = "/agen.v1.ManagerService/ReleaseLock"
+	// ManagerServiceTreeBudgetExceededProcedure is the fully-qualified name of the ManagerService's
+	// TreeBudgetExceeded RPC.
+	ManagerServiceTreeBudgetExceededProcedure = "/agen.v1.ManagerService/TreeBudgetExceeded"
 )
 
 // HostServiceClient is a client for the agen.v1.HostService service.
@@ -220,6 +248,51 @@ type ManagerServiceClient interface {
 	// (async delegation); its result comes back as a task in the caller's
 	// conversation.
 	StartTask(context.Context, *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error)
+	// Waits for a task this instance started to finish, up to wait_seconds
+	// (3.3: call_agent's unified delegation path starts a child task via
+	// StartTask, then waits here before suspending instead of erroring).
+	WaitTask(context.Context, *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error)
+	// Reports progress on the calling instance's own current task (3.4,
+	// part: the report_progress built-in), not one it started.
+	ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in).
+	QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in). Written to the target's run_inbox; drained
+	// into it before its next model call by DrainInbox.
+	SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error)
+	// Claims the calling task's own unconsumed run_inbox entries other than
+	// "child" rows (3.4/3.9, part), so the engine can turn them into
+	// messages before its next model call. Called once per turn when a
+	// TaskStarter is configured; claiming is atomic, so a retried call never
+	// redelivers an entry already claimed.
+	DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error)
+	// Counts the calling task's own unfinished joined children (3.4, part:
+	// "join"), checked by finish (refuses done while positive) and the
+	// engine's turn loop (suspends instead of asking the model while
+	// positive).
+	UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error)
+	// Whether the calling task is effectively held right now (3.4, part:
+	// hold), checked by the engine's turn loop (suspends with wait_for
+	// "resume" instead of asking the model while held).
+	IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error)
+	// Grants a named lock to the calling task mid-run (1.5, part: the
+	// acquire_lock built-in), for a resource not already covered by its
+	// declared locks. failed_precondition if another task currently holds
+	// it. Returns the lock's fencing token.
+	AcquireLock(context.Context, *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error)
+	// Drops a lock the calling task holds (1.5, part: the release_lock
+	// built-in) before the task ends, whether declared up front or
+	// acquired mid-run. Releasing one it doesn't hold is a no-op.
+	ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error)
+	// Whether the calling task's tree has, right now, spent at least as
+	// much as the root task's own declared budget (3.5, part: the live
+	// check), checked by the engine's turn loop alongside IsHeld and
+	// UnfinishedChildren. True ends the run as a graceful partial finish
+	// with a report, the same way the engine's own per-run budget check
+	// already does.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error)
 }
 
 // NewManagerServiceClient constructs a client for the agen.v1.ManagerService service. By default,
@@ -257,15 +330,85 @@ func NewManagerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(managerServiceMethods.ByName("StartTask")),
 			connect.WithClientOptions(opts...),
 		),
+		waitTask: connect.NewClient[v1.WaitTaskRequest, v1.WaitTaskResponse](
+			httpClient,
+			baseURL+ManagerServiceWaitTaskProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("WaitTask")),
+			connect.WithClientOptions(opts...),
+		),
+		reportProgress: connect.NewClient[v1.ReportProgressRequest, v1.ReportProgressResponse](
+			httpClient,
+			baseURL+ManagerServiceReportProgressProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("ReportProgress")),
+			connect.WithClientOptions(opts...),
+		),
+		queryChildTask: connect.NewClient[v1.QueryChildTaskRequest, v1.QueryTaskResponse](
+			httpClient,
+			baseURL+ManagerServiceQueryChildTaskProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("QueryChildTask")),
+			connect.WithClientOptions(opts...),
+		),
+		signalChildTask: connect.NewClient[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse](
+			httpClient,
+			baseURL+ManagerServiceSignalChildTaskProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("SignalChildTask")),
+			connect.WithClientOptions(opts...),
+		),
+		drainInbox: connect.NewClient[v1.DrainInboxRequest, v1.DrainInboxResponse](
+			httpClient,
+			baseURL+ManagerServiceDrainInboxProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("DrainInbox")),
+			connect.WithClientOptions(opts...),
+		),
+		unfinishedChildren: connect.NewClient[v1.UnfinishedChildrenRequest, v1.UnfinishedChildrenResponse](
+			httpClient,
+			baseURL+ManagerServiceUnfinishedChildrenProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("UnfinishedChildren")),
+			connect.WithClientOptions(opts...),
+		),
+		isHeld: connect.NewClient[v1.IsHeldRequest, v1.IsHeldResponse](
+			httpClient,
+			baseURL+ManagerServiceIsHeldProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("IsHeld")),
+			connect.WithClientOptions(opts...),
+		),
+		acquireLock: connect.NewClient[v1.AcquireLockRequest, v1.AcquireLockResponse](
+			httpClient,
+			baseURL+ManagerServiceAcquireLockProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("AcquireLock")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseLock: connect.NewClient[v1.ReleaseLockRequest, v1.ReleaseLockResponse](
+			httpClient,
+			baseURL+ManagerServiceReleaseLockProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("ReleaseLock")),
+			connect.WithClientOptions(opts...),
+		),
+		treeBudgetExceeded: connect.NewClient[v1.TreeBudgetExceededRequest, v1.TreeBudgetExceededResponse](
+			httpClient,
+			baseURL+ManagerServiceTreeBudgetExceededProcedure,
+			connect.WithSchema(managerServiceMethods.ByName("TreeBudgetExceeded")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // managerServiceClient implements ManagerServiceClient.
 type managerServiceClient struct {
-	requestApproval *connect.Client[v1.RequestApprovalRequest, v1.RequestApprovalResponse]
-	resolveSecret   *connect.Client[v1.ResolveSecretRequest, v1.ResolveSecretResponse]
-	resolve         *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
-	startTask       *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
+	requestApproval    *connect.Client[v1.RequestApprovalRequest, v1.RequestApprovalResponse]
+	resolveSecret      *connect.Client[v1.ResolveSecretRequest, v1.ResolveSecretResponse]
+	resolve            *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
+	startTask          *connect.Client[v1.StartTaskRequest, v1.StartTaskResponse]
+	waitTask           *connect.Client[v1.WaitTaskRequest, v1.WaitTaskResponse]
+	reportProgress     *connect.Client[v1.ReportProgressRequest, v1.ReportProgressResponse]
+	queryChildTask     *connect.Client[v1.QueryChildTaskRequest, v1.QueryTaskResponse]
+	signalChildTask    *connect.Client[v1.SignalChildTaskRequest, v1.SignalChildTaskResponse]
+	drainInbox         *connect.Client[v1.DrainInboxRequest, v1.DrainInboxResponse]
+	unfinishedChildren *connect.Client[v1.UnfinishedChildrenRequest, v1.UnfinishedChildrenResponse]
+	isHeld             *connect.Client[v1.IsHeldRequest, v1.IsHeldResponse]
+	acquireLock        *connect.Client[v1.AcquireLockRequest, v1.AcquireLockResponse]
+	releaseLock        *connect.Client[v1.ReleaseLockRequest, v1.ReleaseLockResponse]
+	treeBudgetExceeded *connect.Client[v1.TreeBudgetExceededRequest, v1.TreeBudgetExceededResponse]
 }
 
 // RequestApproval calls agen.v1.ManagerService.RequestApproval.
@@ -288,6 +431,56 @@ func (c *managerServiceClient) StartTask(ctx context.Context, req *connect.Reque
 	return c.startTask.CallUnary(ctx, req)
 }
 
+// WaitTask calls agen.v1.ManagerService.WaitTask.
+func (c *managerServiceClient) WaitTask(ctx context.Context, req *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error) {
+	return c.waitTask.CallUnary(ctx, req)
+}
+
+// ReportProgress calls agen.v1.ManagerService.ReportProgress.
+func (c *managerServiceClient) ReportProgress(ctx context.Context, req *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error) {
+	return c.reportProgress.CallUnary(ctx, req)
+}
+
+// QueryChildTask calls agen.v1.ManagerService.QueryChildTask.
+func (c *managerServiceClient) QueryChildTask(ctx context.Context, req *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return c.queryChildTask.CallUnary(ctx, req)
+}
+
+// SignalChildTask calls agen.v1.ManagerService.SignalChildTask.
+func (c *managerServiceClient) SignalChildTask(ctx context.Context, req *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error) {
+	return c.signalChildTask.CallUnary(ctx, req)
+}
+
+// DrainInbox calls agen.v1.ManagerService.DrainInbox.
+func (c *managerServiceClient) DrainInbox(ctx context.Context, req *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error) {
+	return c.drainInbox.CallUnary(ctx, req)
+}
+
+// UnfinishedChildren calls agen.v1.ManagerService.UnfinishedChildren.
+func (c *managerServiceClient) UnfinishedChildren(ctx context.Context, req *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error) {
+	return c.unfinishedChildren.CallUnary(ctx, req)
+}
+
+// IsHeld calls agen.v1.ManagerService.IsHeld.
+func (c *managerServiceClient) IsHeld(ctx context.Context, req *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error) {
+	return c.isHeld.CallUnary(ctx, req)
+}
+
+// AcquireLock calls agen.v1.ManagerService.AcquireLock.
+func (c *managerServiceClient) AcquireLock(ctx context.Context, req *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error) {
+	return c.acquireLock.CallUnary(ctx, req)
+}
+
+// ReleaseLock calls agen.v1.ManagerService.ReleaseLock.
+func (c *managerServiceClient) ReleaseLock(ctx context.Context, req *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error) {
+	return c.releaseLock.CallUnary(ctx, req)
+}
+
+// TreeBudgetExceeded calls agen.v1.ManagerService.TreeBudgetExceeded.
+func (c *managerServiceClient) TreeBudgetExceeded(ctx context.Context, req *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error) {
+	return c.treeBudgetExceeded.CallUnary(ctx, req)
+}
+
 // ManagerServiceHandler is an implementation of the agen.v1.ManagerService service.
 type ManagerServiceHandler interface {
 	// Raise an "ask" approval and wait for the decision.
@@ -300,6 +493,51 @@ type ManagerServiceHandler interface {
 	// (async delegation); its result comes back as a task in the caller's
 	// conversation.
 	StartTask(context.Context, *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error)
+	// Waits for a task this instance started to finish, up to wait_seconds
+	// (3.3: call_agent's unified delegation path starts a child task via
+	// StartTask, then waits here before suspending instead of erroring).
+	WaitTask(context.Context, *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error)
+	// Reports progress on the calling instance's own current task (3.4,
+	// part: the report_progress built-in), not one it started.
+	ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error)
+	// Progress, activity and outcome of one of the calling task's own
+	// descendants (3.4, part: the query_agent built-in).
+	QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Signals one of the calling task's own descendants (3.4, part: the
+	// signal_agent built-in). Written to the target's run_inbox; drained
+	// into it before its next model call by DrainInbox.
+	SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error)
+	// Claims the calling task's own unconsumed run_inbox entries other than
+	// "child" rows (3.4/3.9, part), so the engine can turn them into
+	// messages before its next model call. Called once per turn when a
+	// TaskStarter is configured; claiming is atomic, so a retried call never
+	// redelivers an entry already claimed.
+	DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error)
+	// Counts the calling task's own unfinished joined children (3.4, part:
+	// "join"), checked by finish (refuses done while positive) and the
+	// engine's turn loop (suspends instead of asking the model while
+	// positive).
+	UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error)
+	// Whether the calling task is effectively held right now (3.4, part:
+	// hold), checked by the engine's turn loop (suspends with wait_for
+	// "resume" instead of asking the model while held).
+	IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error)
+	// Grants a named lock to the calling task mid-run (1.5, part: the
+	// acquire_lock built-in), for a resource not already covered by its
+	// declared locks. failed_precondition if another task currently holds
+	// it. Returns the lock's fencing token.
+	AcquireLock(context.Context, *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error)
+	// Drops a lock the calling task holds (1.5, part: the release_lock
+	// built-in) before the task ends, whether declared up front or
+	// acquired mid-run. Releasing one it doesn't hold is a no-op.
+	ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error)
+	// Whether the calling task's tree has, right now, spent at least as
+	// much as the root task's own declared budget (3.5, part: the live
+	// check), checked by the engine's turn loop alongside IsHeld and
+	// UnfinishedChildren. True ends the run as a graceful partial finish
+	// with a report, the same way the engine's own per-run budget check
+	// already does.
+	TreeBudgetExceeded(context.Context, *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error)
 }
 
 // NewManagerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -333,6 +571,66 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 		connect.WithSchema(managerServiceMethods.ByName("StartTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	managerServiceWaitTaskHandler := connect.NewUnaryHandler(
+		ManagerServiceWaitTaskProcedure,
+		svc.WaitTask,
+		connect.WithSchema(managerServiceMethods.ByName("WaitTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceReportProgressHandler := connect.NewUnaryHandler(
+		ManagerServiceReportProgressProcedure,
+		svc.ReportProgress,
+		connect.WithSchema(managerServiceMethods.ByName("ReportProgress")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceQueryChildTaskHandler := connect.NewUnaryHandler(
+		ManagerServiceQueryChildTaskProcedure,
+		svc.QueryChildTask,
+		connect.WithSchema(managerServiceMethods.ByName("QueryChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceSignalChildTaskHandler := connect.NewUnaryHandler(
+		ManagerServiceSignalChildTaskProcedure,
+		svc.SignalChildTask,
+		connect.WithSchema(managerServiceMethods.ByName("SignalChildTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceDrainInboxHandler := connect.NewUnaryHandler(
+		ManagerServiceDrainInboxProcedure,
+		svc.DrainInbox,
+		connect.WithSchema(managerServiceMethods.ByName("DrainInbox")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceUnfinishedChildrenHandler := connect.NewUnaryHandler(
+		ManagerServiceUnfinishedChildrenProcedure,
+		svc.UnfinishedChildren,
+		connect.WithSchema(managerServiceMethods.ByName("UnfinishedChildren")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceIsHeldHandler := connect.NewUnaryHandler(
+		ManagerServiceIsHeldProcedure,
+		svc.IsHeld,
+		connect.WithSchema(managerServiceMethods.ByName("IsHeld")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceAcquireLockHandler := connect.NewUnaryHandler(
+		ManagerServiceAcquireLockProcedure,
+		svc.AcquireLock,
+		connect.WithSchema(managerServiceMethods.ByName("AcquireLock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceReleaseLockHandler := connect.NewUnaryHandler(
+		ManagerServiceReleaseLockProcedure,
+		svc.ReleaseLock,
+		connect.WithSchema(managerServiceMethods.ByName("ReleaseLock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	managerServiceTreeBudgetExceededHandler := connect.NewUnaryHandler(
+		ManagerServiceTreeBudgetExceededProcedure,
+		svc.TreeBudgetExceeded,
+		connect.WithSchema(managerServiceMethods.ByName("TreeBudgetExceeded")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.ManagerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ManagerServiceRequestApprovalProcedure:
@@ -343,6 +641,26 @@ func NewManagerServiceHandler(svc ManagerServiceHandler, opts ...connect.Handler
 			managerServiceResolveHandler.ServeHTTP(w, r)
 		case ManagerServiceStartTaskProcedure:
 			managerServiceStartTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceWaitTaskProcedure:
+			managerServiceWaitTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceReportProgressProcedure:
+			managerServiceReportProgressHandler.ServeHTTP(w, r)
+		case ManagerServiceQueryChildTaskProcedure:
+			managerServiceQueryChildTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceSignalChildTaskProcedure:
+			managerServiceSignalChildTaskHandler.ServeHTTP(w, r)
+		case ManagerServiceDrainInboxProcedure:
+			managerServiceDrainInboxHandler.ServeHTTP(w, r)
+		case ManagerServiceUnfinishedChildrenProcedure:
+			managerServiceUnfinishedChildrenHandler.ServeHTTP(w, r)
+		case ManagerServiceIsHeldProcedure:
+			managerServiceIsHeldHandler.ServeHTTP(w, r)
+		case ManagerServiceAcquireLockProcedure:
+			managerServiceAcquireLockHandler.ServeHTTP(w, r)
+		case ManagerServiceReleaseLockProcedure:
+			managerServiceReleaseLockHandler.ServeHTTP(w, r)
+		case ManagerServiceTreeBudgetExceededProcedure:
+			managerServiceTreeBudgetExceededHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -366,4 +684,44 @@ func (UnimplementedManagerServiceHandler) Resolve(context.Context, *connect.Requ
 
 func (UnimplementedManagerServiceHandler) StartTask(context.Context, *connect.Request[v1.StartTaskRequest]) (*connect.Response[v1.StartTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.StartTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) WaitTask(context.Context, *connect.Request[v1.WaitTaskRequest]) (*connect.Response[v1.WaitTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.WaitTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) ReportProgress(context.Context, *connect.Request[v1.ReportProgressRequest]) (*connect.Response[v1.ReportProgressResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.ReportProgress is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) QueryChildTask(context.Context, *connect.Request[v1.QueryChildTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.QueryChildTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) SignalChildTask(context.Context, *connect.Request[v1.SignalChildTaskRequest]) (*connect.Response[v1.SignalChildTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.SignalChildTask is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) DrainInbox(context.Context, *connect.Request[v1.DrainInboxRequest]) (*connect.Response[v1.DrainInboxResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.DrainInbox is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) UnfinishedChildren(context.Context, *connect.Request[v1.UnfinishedChildrenRequest]) (*connect.Response[v1.UnfinishedChildrenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.UnfinishedChildren is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) IsHeld(context.Context, *connect.Request[v1.IsHeldRequest]) (*connect.Response[v1.IsHeldResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.IsHeld is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) AcquireLock(context.Context, *connect.Request[v1.AcquireLockRequest]) (*connect.Response[v1.AcquireLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.AcquireLock is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) ReleaseLock(context.Context, *connect.Request[v1.ReleaseLockRequest]) (*connect.Response[v1.ReleaseLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.ReleaseLock is not implemented"))
+}
+
+func (UnimplementedManagerServiceHandler) TreeBudgetExceeded(context.Context, *connect.Request[v1.TreeBudgetExceededRequest]) (*connect.Response[v1.TreeBudgetExceededResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.ManagerService.TreeBudgetExceeded is not implemented"))
 }

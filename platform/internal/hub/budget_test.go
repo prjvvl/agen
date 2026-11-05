@@ -28,6 +28,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 	}
 	idA, a := e.enroll(t, "a", 4, nil)
 	sched := e.scheduler()
+	defer sched.Wait()
 	now := time.Now()
 	for i, q := range []string{
 		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','hello','default','hello','{}',$1,$1)",
@@ -42,6 +43,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 	}
 	c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "work"}))
 	sched.Step(ctx)
+	sched.Wait()
 	d, _ := c.GetDeployment(ctx, connect.NewRequest(&agenv1.GetDeploymentRequest{Ref: ref("", "hello")}))
 	if d.Msg.Deployment.Desired != 1 || d.Msg.Deployment.BudgetExhausted || d.Msg.Deployment.SpentUsdToday != 0.6 {
 		t.Fatalf("under budget: %v", d.Msg.Deployment)
@@ -51,6 +53,7 @@ func TestDailyBudgetStopsNewWorkUntilTomorrow(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched.Step(ctx)
+	sched.Wait()
 	d, _ = c.GetDeployment(ctx, connect.NewRequest(&agenv1.GetDeploymentRequest{Ref: ref("", "hello")}))
 	if d.Msg.Deployment.Desired != 0 || !d.Msg.Deployment.BudgetExhausted {
 		t.Fatalf("over budget: %v", d.Msg.Deployment)
@@ -147,5 +150,52 @@ func TestTaskTierScheduleAndBudgetPressure(t *testing.T) {
 	}
 	if got := lease(); len(got) != 0 {
 		t.Fatalf("scheduled task leased early: %v", got)
+	}
+}
+
+// Under budget pressure (2.46, part), a background-priority candidate is
+// released right back (like an exhausted label's), while a normal- or
+// higher-priority sibling of the same deployment still leases normally.
+// features: budgets
+func TestBudgetPressureExcludesBackgroundPriority(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c := e.client(admin)
+	f := helloFiles(t)
+	f["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":3},"budget":{"maxUsdPerDay":1.0}}`)
+	if _, err := c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{BundleFiles: f})); err != nil {
+		t.Fatal(err)
+	}
+	idA, a := e.enroll(t, "a", 4, nil)
+	now := time.Now().UnixMilli()
+	for _, q := range []string{
+		"INSERT INTO sessions (id, agent, namespace, deployment, memory, created_ms, updated_ms) VALUES ('s1','hello','default','hello','{}',$1,$1)",
+		"INSERT INTO conversations (id, session_id, created_ms, closed_ms) VALUES ('c1','s1',$1,$1)",
+		"INSERT INTO runs (id, session_id, conversation_id, namespace, deployment, status, input, started_ms, ended_ms, cost_usd) VALUES ('r1','s1','c1','default','hello','succeeded','x',$1,$1,0.85)",
+	} {
+		if _, err := e.store.DB().ExecContext(ctx, q, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bg, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "low priority", Priority: "background"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normal, err := c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: ref("", "hello"), Input: "normal priority"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: ref("", "hello"), Desired: 1}))
+	e.scheduler().Step(ctx)
+	leased, err := a.LeaseTasks(ctx, connect.NewRequest(&agenv1.LeaseTasksRequest{NestId: idA, Ref: ref("", "hello"), Max: 10}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leased.Msg.Tasks) != 1 || leased.Msg.Tasks[0].Id != normal.Msg.Task.Id || !leased.Msg.Tasks[0].BudgetPressure {
+		t.Fatalf("leased under pressure: %v, want only the normal-priority task", leased.Msg.Tasks)
+	}
+	gotBg, err := c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: bg.Msg.Task.Id}))
+	if err != nil || gotBg.Msg.Task.State != agenv1.TaskState_TASK_STATE_QUEUED {
+		t.Fatalf("background task: %v %v, want still queued (released back, not dropped)", gotBg, err)
 	}
 }

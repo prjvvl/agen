@@ -32,6 +32,51 @@ service ManagerService {
   // (async delegation); its result comes back as a task in the caller's
   // conversation.
   rpc StartTask(StartTaskRequest) returns (StartTaskResponse);
+  // Waits for a task this instance started to finish, up to wait_seconds
+  // (3.3: call_agent's unified delegation path starts a child task via
+  // StartTask, then waits here before suspending instead of erroring).
+  rpc WaitTask(WaitTaskRequest) returns (WaitTaskResponse);
+  // Reports progress on the calling instance's own current task (3.4,
+  // part: the report_progress built-in), not one it started.
+  rpc ReportProgress(ReportProgressRequest) returns (ReportProgressResponse);
+  // Progress, activity and outcome of one of the calling task's own
+  // descendants (3.4, part: the query_agent built-in).
+  rpc QueryChildTask(QueryChildTaskRequest) returns (QueryTaskResponse);
+  // Signals one of the calling task's own descendants (3.4, part: the
+  // signal_agent built-in). Written to the target's run_inbox; drained
+  // into it before its next model call by DrainInbox.
+  rpc SignalChildTask(SignalChildTaskRequest) returns (SignalChildTaskResponse);
+  // Claims the calling task's own unconsumed run_inbox entries other than
+  // "child" rows (3.4/3.9, part), so the engine can turn them into
+  // messages before its next model call. Called once per turn when a
+  // TaskStarter is configured; claiming is atomic, so a retried call never
+  // redelivers an entry already claimed.
+  rpc DrainInbox(DrainInboxRequest) returns (DrainInboxResponse);
+  // Counts the calling task's own unfinished joined children (3.4, part:
+  // "join"), checked by finish (refuses done while positive) and the
+  // engine's turn loop (suspends instead of asking the model while
+  // positive).
+  rpc UnfinishedChildren(UnfinishedChildrenRequest) returns (UnfinishedChildrenResponse);
+  // Whether the calling task is effectively held right now (3.4, part:
+  // hold), checked by the engine's turn loop (suspends with wait_for
+  // "resume" instead of asking the model while held).
+  rpc IsHeld(IsHeldRequest) returns (IsHeldResponse);
+  // Grants a named lock to the calling task mid-run (1.5, part: the
+  // acquire_lock built-in), for a resource not already covered by its
+  // declared locks. failed_precondition if another task currently holds
+  // it. Returns the lock's fencing token.
+  rpc AcquireLock(AcquireLockRequest) returns (AcquireLockResponse);
+  // Drops a lock the calling task holds (1.5, part: the release_lock
+  // built-in) before the task ends, whether declared up front or
+  // acquired mid-run. Releasing one it doesn't hold is a no-op.
+  rpc ReleaseLock(ReleaseLockRequest) returns (ReleaseLockResponse);
+  // Whether the calling task's tree has, right now, spent at least as
+  // much as the root task's own declared budget (3.5, part: the live
+  // check), checked by the engine's turn loop alongside IsHeld and
+  // UnfinishedChildren. True ends the run as a graceful partial finish
+  // with a report, the same way the engine's own per-run budget check
+  // already does.
+  rpc TreeBudgetExceeded(TreeBudgetExceededRequest) returns (TreeBudgetExceededResponse);
 }
 
 message StartTaskRequest {
@@ -44,9 +89,84 @@ message StartTaskRequest {
   string reply_conversation_key = 5;
   // The same key returns the same task (a retried or resumed call).
   string idempotency_key = 6;
+  // Narrow what the child may do (only for delegates with overrides on).
+  TaskOverrides overrides = 7;
+  // Cost tier for a routing model.
+  string model_tier = 8;
+  // The caller's trust right now (3.7); the child inherits it as is.
+  string trust = 9;
 }
 message StartTaskResponse {
   Task task = 1;
+}
+
+message WaitTaskRequest {
+  string task_id = 1;
+  int32 wait_seconds = 2;
+}
+message WaitTaskResponse {
+  Task task = 1;
+}
+
+message ReportProgressRequest {
+  string task_id = 1;
+  TaskProgress progress = 2;
+}
+message ReportProgressResponse {}
+
+message QueryChildTaskRequest {
+  string caller_task_id = 1;
+  string task_id = 2;
+}
+
+message SignalChildTaskRequest {
+  string caller_task_id = 1;
+  string task_id = 2;
+  string message = 3;
+}
+message SignalChildTaskResponse {}
+
+message DrainInboxRequest {
+  string task_id = 1;
+}
+message DrainInboxResponse {
+  repeated InboxEntry entries = 1;
+}
+
+message UnfinishedChildrenRequest {
+  string task_id = 1;
+}
+message UnfinishedChildrenResponse {
+  int64 count = 1;
+}
+
+message IsHeldRequest {
+  string task_id = 1;
+}
+message IsHeldResponse {
+  bool held = 1;
+}
+
+message AcquireLockRequest {
+  string task_id = 1;
+  string name = 2;
+  int32 ttl_seconds = 3;
+}
+message AcquireLockResponse {
+  int64 fence = 1;
+}
+
+message ReleaseLockRequest {
+  string task_id = 1;
+  string name = 2;
+}
+message ReleaseLockResponse {}
+
+message TreeBudgetExceededRequest {
+  string task_id = 1;
+}
+message TreeBudgetExceededResponse {
+  bool exceeded = 1;
 }
 
 message RequestApprovalRequest {

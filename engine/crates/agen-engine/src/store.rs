@@ -14,7 +14,7 @@ use crate::provider::{Message, Usage};
 
 macro_rules! run_cols {
     () => {
-        "id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, output, error, step, input_tokens, output_tokens, cost_usd, trace_id, started_ms, ended_ms, requested_by, labels"
+        "id, session_id, conversation_id, namespace, deployment, definition_digest, task_id, parent_run_id, root_run_id, status, input, output, error, step, input_tokens, output_tokens, cost_usd, trace_id, started_ms, ended_ms, requested_by, labels, outcome"
     };
 }
 
@@ -168,6 +168,121 @@ const MIGRATIONS: &[Migration] = &[
         sqlite: include_str!("../../../../spec/sql/sqlite/0024_deployment_versions.sql"),
         postgres: include_str!("../../../../spec/sql/postgres/0024_deployment_versions.sql"),
     },
+    Migration {
+        version: 25,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0025_outcomes.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0025_outcomes.sql"),
+    },
+    Migration {
+        version: 26,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0026_events.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0026_events.sql"),
+    },
+    Migration {
+        version: 27,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0027_subscriptions.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0027_subscriptions.sql"),
+    },
+    Migration {
+        version: 28,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0028_event_triggers.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0028_event_triggers.sql"),
+    },
+    Migration {
+        version: 29,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0029_task_overrides.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0029_task_overrides.sql"),
+    },
+    Migration {
+        version: 30,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0030_task_scheduling.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0030_task_scheduling.sql"),
+    },
+    Migration {
+        version: 31,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0031_feedback.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0031_feedback.sql"),
+    },
+    Migration {
+        version: 32,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0032_task_priority.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0032_task_priority.sql"),
+    },
+    Migration {
+        version: 33,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0033_trust.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0033_trust.sql"),
+    },
+    Migration {
+        version: 34,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0034_memory_blocks.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0034_memory_blocks.sql"),
+    },
+    Migration {
+        version: 35,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0035_locks.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0035_locks.sql"),
+    },
+    Migration {
+        version: 36,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0036_artifacts.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0036_artifacts.sql"),
+    },
+    Migration {
+        version: 37,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0037_run_inbox.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0037_run_inbox.sql"),
+    },
+    Migration {
+        version: 38,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0038_on_parent_end.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0038_on_parent_end.sql"),
+    },
+    Migration {
+        version: 39,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0039_root_task_id.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0039_root_task_id.sql"),
+    },
+    Migration {
+        version: 40,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0040_task_progress.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0040_task_progress.sql"),
+    },
+    Migration {
+        version: 41,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0041_conversation_queue_mode.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0041_conversation_queue_mode.sql"),
+    },
+    Migration {
+        version: 42,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0042_task_hold.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0042_task_hold.sql"),
+    },
+    Migration {
+        version: 43,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0043_cassettes.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0043_cassettes.sql"),
+    },
+    Migration {
+        version: 44,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0044_task_merge_keys.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0044_task_merge_keys.sql"),
+    },
+    Migration {
+        version: 45,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0045_lock_fencing.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0045_lock_fencing.sql"),
+    },
+    Migration {
+        version: 46,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0046_conversation_rollover.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0046_conversation_rollover.sql"),
+    },
+    Migration {
+        version: 47,
+        sqlite: include_str!("../../../../spec/sql/sqlite/0047_eval_reports.sql"),
+        postgres: include_str!("../../../../spec/sql/postgres/0047_eval_reports.sql"),
+    },
 ];
 
 // Postgres advisory lock id guarding migrations: 1634166126 = 0x6167656e ("agen").
@@ -196,6 +311,64 @@ pub struct Session {
     pub memory: serde_json::Value,
 }
 
+/// A durable, named block of text an agent reads and updates across runs
+/// and conversations (`x-agen/config.json` `memory`), namespace-scoped so
+/// a namespace's deployments can share one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryBlock {
+    pub namespace: String,
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub value: String,
+    /// 0: no limit.
+    pub limit_chars: i64,
+    /// Bumped on every update; `update_memory_block`'s `expected_version`
+    /// is checked against it so parallel writers cannot silently clobber
+    /// each other.
+    pub version: i64,
+    pub updated_ms: i64,
+}
+
+/// How `update_memory_block` changes a block's value.
+#[derive(Debug, Clone)]
+pub enum MemoryOp {
+    Replace(String),
+    Append(String),
+    /// Exactly one occurrence of `old` in the current value becomes `new`.
+    StrReplace {
+        old: String,
+        new: String,
+    },
+}
+
+/// Named, content-addressed text an agent saves during a run and reads
+/// back later (`save_artifact` / `read_artifact`), so a long result does
+/// not have to stay in the model's context.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Artifact {
+    pub namespace: String,
+    /// "sha256:<hex>" of content.
+    pub id: String,
+    pub name: String,
+    pub media_type: String,
+    /// Byte length of content.
+    pub size: i64,
+    pub content: String,
+    pub task_id: String,
+    pub run_id: String,
+    pub created_ms: i64,
+}
+
+/// What `save_artifact` needs beyond the namespace and quota.
+pub struct NewArtifact<'a> {
+    pub name: &'a str,
+    pub content: &'a str,
+    pub media_type: &'a str,
+    pub task_id: &'a str,
+    pub run_id: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunRecord {
     pub id: String,
@@ -222,6 +395,9 @@ pub struct RunRecord {
     /// The task's labels, passed on to tool calls and delegated tasks.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+    /// How the run ended (status, reason, report, data); None while it runs.
+    #[serde(default)]
+    pub outcome: Option<crate::outcome::RunOutcome>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -556,6 +732,248 @@ impl Store {
         Ok(())
     }
 
+    fn memory_block_row(row: AnyRow) -> MemoryBlock {
+        MemoryBlock {
+            namespace: row.get(0),
+            id: row.get(1),
+            label: row.get(2),
+            description: row.get(3),
+            value: row.get(4),
+            limit_chars: row.get(5),
+            version: row.get(6),
+            updated_ms: row.get(7),
+        }
+    }
+
+    pub async fn get_memory_block(&self, namespace: &str, id: &str) -> Result<Option<MemoryBlock>> {
+        let row = sqlx::query(
+            "SELECT namespace, id, label, description, value, limit_chars, version, updated_ms \
+             FROM memory_blocks WHERE namespace = $1 AND id = $2",
+        )
+        .bind(namespace)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(Self::memory_block_row))
+    }
+
+    /// A namespace's memory blocks, newest-updated first (the API:
+    /// ListMemoryBlocks).
+    pub async fn list_memory_blocks(&self, namespace: &str) -> Result<Vec<MemoryBlock>> {
+        let rows = sqlx::query(
+            "SELECT namespace, id, label, description, value, limit_chars, version, updated_ms \
+             FROM memory_blocks WHERE namespace = $1 ORDER BY updated_ms DESC, id",
+        )
+        .bind(namespace)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(Self::memory_block_row).collect())
+    }
+
+    /// Replaces a block's value outright (the API: SetMemoryBlock),
+    /// creating it if it does not exist yet. Bumps the version.
+    pub async fn set_memory_block(
+        &self,
+        namespace: &str,
+        id: &str,
+        label: &str,
+        description: &str,
+        value: &str,
+        limit_chars: i64,
+    ) -> Result<MemoryBlock> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO memory_blocks (namespace, id, label, description, value, limit_chars, version, updated_ms) \
+             VALUES ($1, $2, $3, $4, $5, $6, 1, $7) \
+             ON CONFLICT (namespace, id) DO UPDATE SET label = excluded.label, description = excluded.description, \
+             value = excluded.value, limit_chars = excluded.limit_chars, version = memory_blocks.version + 1, updated_ms = excluded.updated_ms",
+        )
+        .bind(namespace)
+        .bind(id)
+        .bind(label)
+        .bind(description)
+        .bind(value)
+        .bind(limit_chars)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        self.get_memory_block(namespace, id)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("memory block {namespace}/{id}")))
+    }
+
+    /// Compare-and-set update (the `memory_update` tool): applies `op` to
+    /// the block's current value, creating it (at version 0) on first
+    /// write. With `expected_version`, a concurrent writer is a conflict
+    /// the caller must retry deliberately; without one, a concurrent
+    /// write is retried once against the fresh value.
+    pub async fn update_memory_block(
+        &self,
+        namespace: &str,
+        id: &str,
+        op: &MemoryOp,
+        expected_version: Option<i64>,
+    ) -> Result<MemoryBlock> {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO memory_blocks (namespace, id, label, description, value, limit_chars, version, updated_ms) \
+             VALUES ($1, $2, '', '', '', 0, 0, $3) ON CONFLICT (namespace, id) DO NOTHING",
+        )
+        .bind(namespace)
+        .bind(id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        for _ in 0..10 {
+            let cur = self
+                .get_memory_block(namespace, id)
+                .await?
+                .ok_or_else(|| StoreError::NotFound(format!("memory block {namespace}/{id}")))?;
+            if let Some(want) = expected_version {
+                if want != cur.version {
+                    return Err(StoreError::Conflict(format!(
+                        "memory block {namespace}/{id} is at version {}, not {want} (someone else updated it)",
+                        cur.version
+                    )));
+                }
+            }
+            let new_value = match op {
+                MemoryOp::Replace(text) => text.clone(),
+                MemoryOp::Append(text) => format!("{}{}", cur.value, text),
+                MemoryOp::StrReplace { old, new } => {
+                    let n = cur.value.matches(old.as_str()).count();
+                    if n != 1 {
+                        return Err(StoreError::Invalid(format!(
+                            "{old:?} occurs {n} times in memory block {namespace}/{id}; it must occur exactly once"
+                        )));
+                    }
+                    cur.value.replacen(old.as_str(), new, 1)
+                }
+            };
+            if cur.limit_chars > 0 && new_value.chars().count() as i64 > cur.limit_chars {
+                return Err(StoreError::Invalid(format!(
+                    "memory block {namespace}/{id} would be {} chars, over its limit of {}",
+                    new_value.chars().count(),
+                    cur.limit_chars
+                )));
+            }
+            let res = sqlx::query(
+                "UPDATE memory_blocks SET value = $1, version = version + 1, updated_ms = $2 WHERE namespace = $3 AND id = $4 AND version = $5",
+            )
+            .bind(&new_value)
+            .bind(now)
+            .bind(namespace)
+            .bind(id)
+            .bind(cur.version)
+            .execute(&self.pool)
+            .await?;
+            if res.rows_affected() == 1 {
+                return self
+                    .get_memory_block(namespace, id)
+                    .await?
+                    .ok_or_else(|| StoreError::NotFound(format!("memory block {namespace}/{id}")));
+            }
+            if expected_version.is_some() {
+                return Err(StoreError::Conflict(format!(
+                    "memory block {namespace}/{id} changed concurrently; try again"
+                )));
+            }
+            // No specific version was demanded: retry against the value as it now stands.
+        }
+        Err(StoreError::Conflict(format!(
+            "memory block {namespace}/{id} changed concurrently too many times; try again"
+        )))
+    }
+
+    fn artifact_row(row: AnyRow) -> Artifact {
+        Artifact {
+            namespace: row.get(0),
+            id: row.get(1),
+            name: row.get(2),
+            media_type: row.get(3),
+            size: row.get(4),
+            content: row.get(5),
+            task_id: row.get(6),
+            run_id: row.get(7),
+            created_ms: row.get(8),
+        }
+    }
+
+    /// Saves content as an artifact (`save_artifact`), content-addressed:
+    /// saving the same bytes again in the same namespace returns the
+    /// existing row (its name and task/run stay the first save's).
+    /// `quota` (0: no limit) bounds the namespace's total artifact bytes.
+    pub async fn save_artifact(&self, namespace: &str, new: NewArtifact<'_>, quota: i64) -> Result<Artifact> {
+        let NewArtifact {
+            name,
+            content,
+            media_type,
+            task_id,
+            run_id,
+        } = new;
+        use sha2::{Digest, Sha256};
+        let id = format!("sha256:{}", hex::encode(Sha256::digest(content.as_bytes())));
+        if let Some(existing) = self.get_artifact(namespace, &id).await? {
+            return Ok(existing);
+        }
+        let size = content.len() as i64;
+        if quota > 0 {
+            let used: i64 = sqlx::query("SELECT COALESCE(SUM(size), 0) FROM artifacts WHERE namespace = $1")
+                .bind(namespace)
+                .fetch_one(&self.pool)
+                .await?
+                .get(0);
+            if used + size > quota {
+                return Err(StoreError::Invalid(format!(
+                    "saving this artifact ({size} bytes) would put {namespace} over its {quota}-byte artifact quota ({used} used)"
+                )));
+            }
+        }
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO artifacts (namespace, id, name, media_type, size, content, task_id, run_id, created_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+             ON CONFLICT (namespace, id) DO NOTHING",
+        )
+        .bind(namespace)
+        .bind(&id)
+        .bind(name)
+        .bind(media_type)
+        .bind(size)
+        .bind(content)
+        .bind(task_id)
+        .bind(run_id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        self.get_artifact(namespace, &id)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(format!("artifact {namespace}/{id}")))
+    }
+
+    pub async fn get_artifact(&self, namespace: &str, id: &str) -> Result<Option<Artifact>> {
+        let row = sqlx::query(
+            "SELECT namespace, id, name, media_type, size, content, task_id, run_id, created_ms FROM artifacts WHERE namespace = $1 AND id = $2",
+        )
+        .bind(namespace)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(Self::artifact_row))
+    }
+
+    /// A task's artifacts, newest first.
+    pub async fn list_artifacts(&self, namespace: &str, task_id: &str) -> Result<Vec<Artifact>> {
+        let rows = sqlx::query(
+            "SELECT namespace, id, name, media_type, size, content, task_id, run_id, created_ms FROM artifacts \
+             WHERE namespace = $1 AND ($2 = '' OR task_id = $2) ORDER BY created_ms DESC, id DESC",
+        )
+        .bind(namespace)
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(Self::artifact_row).collect())
+    }
+
     /// The conversation key of a conversation's session, giving the session
     /// one ("async:<session id>") if it has none, so results of async
     /// delegations can be sent back to it.
@@ -648,6 +1066,40 @@ impl Store {
     pub async fn run_messages(&self, run_id: &str) -> Result<Vec<Message>> {
         self.load_messages("SELECT body FROM messages WHERE run_id = $1 ORDER BY seq", run_id)
             .await
+    }
+
+    /// A conversation's rolling summary and how many of its own messages
+    /// (oldest first) are already folded into it (1.8, part: rollover).
+    /// `("", 0)` for a conversation that has never needed one.
+    pub async fn conversation_summary(&self, conversation_id: &str) -> Result<(String, i64)> {
+        let row = sqlx::query("SELECT summary, summarized_through FROM conversations WHERE id = $1")
+            .bind(conversation_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(match row {
+            Some(r) => (r.get::<String, _>(0), r.get::<i64, _>(1)),
+            None => (String::new(), 0),
+        })
+    }
+
+    /// Replaces a conversation's rolling summary and advances
+    /// `summarized_through` (1.8, part: rollover) — never retreats, so a
+    /// retried or concurrent write can never un-summarize a message.
+    pub async fn set_conversation_summary(
+        &self,
+        conversation_id: &str,
+        summary: &str,
+        summarized_through: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE conversations SET summary = $1, summarized_through = $2 WHERE id = $3 AND summarized_through < $2",
+        )
+        .bind(summary)
+        .bind(summarized_through)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn load_messages(&self, sql: &'static str, key: &str) -> Result<Vec<Message>> {
@@ -747,6 +1199,7 @@ impl Store {
         Ok(seq)
     }
 
+    #[allow(clippy::too_many_arguments)] // one column per argument
     pub async fn finish_run(
         &self,
         id: &str,
@@ -755,8 +1208,10 @@ impl Store {
         output: &str,
         error: &str,
         usage: Usage,
+        outcome: Option<&crate::outcome::RunOutcome>,
     ) -> Result<()> {
-        let r = sqlx::query("UPDATE runs SET status = $1, output = $2, error = $3, input_tokens = $4, output_tokens = $5, cost_usd = $6, ended_ms = $7 WHERE id = $8 AND epoch = $9 AND ended_ms IS NULL")
+        let outcome = crate::outcome::RunOutcome::to_json(&outcome.cloned());
+        let r = sqlx::query("UPDATE runs SET status = $1, output = $2, error = $3, input_tokens = $4, output_tokens = $5, cost_usd = $6, ended_ms = $7, outcome = $8 WHERE id = $9 AND epoch = $10 AND ended_ms IS NULL")
             .bind(status.as_str())
             .bind(output)
             .bind(error)
@@ -764,6 +1219,7 @@ impl Store {
             .bind(usage.output_tokens as i64)
             .bind(usage.cost_usd)
             .bind(now_ms())
+            .bind(outcome)
             .bind(id)
             .bind(epoch)
             .execute(&self.pool)
@@ -772,6 +1228,32 @@ impl Store {
             return Err(StoreError::Fenced(id.to_string()));
         }
         Ok(())
+    }
+
+    /// Persists a run's recorded interactions (3.6, part: `agen replay`),
+    /// only called when the provider actually recorded one (deployments
+    /// with `recordInteractions` on). One row per run; a retried write
+    /// (e.g. a resumed run re-recording) replaces the previous one.
+    pub async fn save_cassette(&self, run_id: &str, data: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO cassettes (run_id, data, created_ms) VALUES ($1, $2, $3) \
+             ON CONFLICT (run_id) DO UPDATE SET data = excluded.data, created_ms = excluded.created_ms",
+        )
+        .bind(run_id)
+        .bind(data)
+        .bind(now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// A run's recorded interactions, if any were saved for it.
+    pub async fn get_cassette(&self, run_id: &str) -> Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT data FROM cassettes WHERE run_id = $1")
+            .bind(run_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|(data,)| data))
     }
 
     pub async fn get_run(&self, id: &str) -> Result<RunRecord> {
@@ -1157,6 +1639,11 @@ fn run_from_row(r: &AnyRow) -> Result<RunRecord> {
         usage: Usage {
             input_tokens: r.get::<i64, _>(14) as u64,
             output_tokens: r.get::<i64, _>(15) as u64,
+            // Not persisted (2.21): a resumed run's cached-token discount
+            // resets to 0, counting its earlier cache hits at full price
+            // instead of their cached weight — conservative (it can only
+            // undercount the discount, never overcount a run's spend).
+            cached_input_tokens: 0,
             cost_usd: r.get(16),
         },
         trace_id: r.get(17),
@@ -1164,6 +1651,7 @@ fn run_from_row(r: &AnyRow) -> Result<RunRecord> {
         ended_ms: r.get(19),
         requested_by: r.get(20),
         labels: serde_json::from_str(&r.get::<String, _>(21)).map_err(|e| StoreError::Invalid(e.to_string()))?,
+        outcome: crate::outcome::RunOutcome::from_json(&r.get::<String, _>(22)),
     })
 }
 

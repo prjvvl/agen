@@ -153,6 +153,23 @@ func (h *Hub) GetTranscript(ctx context.Context, req *connect.Request[agenv1.Get
 	return connect.NewResponse(out), nil
 }
 
+// GetCassette returns a run's recorded interactions (3.6, part: agen
+// replay), if its deployment had recordInteractions on when it ran.
+func (h *Hub) GetCassette(ctx context.Context, req *connect.Request[agenv1.GetCassetteRequest]) (*connect.Response[agenv1.GetCassetteResponse], error) {
+	run, err := h.Store.GetRun(ctx, req.Msg.RunId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, run.Namespace); err != nil {
+		return nil, err
+	}
+	data, createdMs, err := h.Store.GetCassette(ctx, req.Msg.RunId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.GetCassetteResponse{Run: runProto(run), CassetteJson: data, RecordedAt: ms(createdMs)}), nil
+}
+
 func percentile(sorted []int64, p float64) int64 {
 	if len(sorted) == 0 {
 		return 0
@@ -231,6 +248,7 @@ func (h *Hub) GetMetrics(ctx context.Context, req *connect.Request[agenv1.GetMet
 		a := byDep[k]
 		slices.Sort(a.durations)
 		a.m.P50Ms, a.m.P95Ms = percentile(a.durations, 0.5), percentile(a.durations, 0.95)
+		a.m.LabelBudgets = h.labelBudgetMetrics(ctx, a.m.Ref.Namespace, a.m.Ref.Name)
 		out.Deployments = append(out.Deployments, a.m)
 	}
 	calls, err := h.Store.CallStats(ctx, nss, since)
@@ -297,13 +315,12 @@ func (h *Hub) ListTemplates(context.Context, *connect.Request[agenv1.ListTemplat
 
 // ---- notification targets ----
 
-// NotificationEvents are the event types a notification target can receive.
-var NotificationEvents = []string{"approval.pending", "task.failed", "budget.exhausted", "provider.held", "provider.resumed"}
-
 var targetName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 func targetProto(t store.NotificationTarget) *agenv1.NotificationTarget {
-	return &agenv1.NotificationTarget{Namespace: t.Namespace, Name: t.Name, Url: t.URL, Events: t.Events, CreatedAt: ms(t.CreatedMs)}
+	return &agenv1.NotificationTarget{Namespace: t.Namespace, Name: t.Name, Url: t.URL, Events: t.Events, CreatedAt: ms(t.CreatedMs),
+		Deployment: t.Filter.Deployment, Labels: t.Filter.Labels, Severity: t.Filter.Severity, DeliveredSeq: max(t.CursorSeq, 0),
+		LastDeliveredAt: ms(t.LastDeliveredMs), FailingSince: ms(t.FailingSinceMs), LastError: t.LastError, Dropped: t.Dropped}
 }
 
 func (h *Hub) SetNotificationTarget(ctx context.Context, req *connect.Request[agenv1.SetNotificationTargetRequest]) (*connect.Response[agenv1.SetNotificationTargetResponse], error) {
@@ -322,11 +339,18 @@ func (h *Hub) SetNotificationTarget(ctx context.Context, req *connect.Request[ag
 		return nil, invalid("url must be an http(s) URL")
 	}
 	for _, e := range t.Events {
-		if !slices.Contains(NotificationEvents, e) {
-			return nil, invalid(fmt.Sprintf("unknown event %q (known: %s)", e, strings.Join(NotificationEvents, ", ")))
+		if !ValidTargetEvent(e) {
+			return nil, invalid(fmt.Sprintf("unknown event %q (known: task.failed, budget.exhausted, %s, or a prefix such as task.)", e, strings.Join(EventTypes, ", ")))
 		}
 	}
-	saved, secret, err := h.Store.SetNotificationTarget(ctx, store.NotificationTarget{Namespace: ns, Name: t.Name, URL: t.Url, Events: t.Events})
+	if t.Severity != "" && !slices.Contains([]string{"info", "warning", "critical"}, t.Severity) {
+		return nil, invalid("severity must be info, warning or critical")
+	}
+	if err := store.CheckLabels(t.Labels); err != nil {
+		return nil, invalid(err.Error())
+	}
+	saved, secret, err := h.Store.SetNotificationTarget(ctx, store.NotificationTarget{Namespace: ns, Name: t.Name, URL: t.Url, Events: t.Events,
+		Filter: store.TargetFilter{Deployment: t.Deployment, Labels: t.Labels, Severity: t.Severity}})
 	if err != nil {
 		return nil, connectErr(err)
 	}

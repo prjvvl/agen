@@ -1,7 +1,8 @@
 # Triggers
 
-Triggers submit tasks without anyone calling the API: on a schedule (cron) or
-when another system calls a webhook. Each firing becomes a durable task, so a
+Triggers submit tasks without anyone calling the API: on a schedule (cron),
+when another system calls a webhook, or when something happens in the fleet
+(an event). Each firing becomes a durable task, so a
 trigger that fires while the agent is asleep or no Nest is up still runs once
 it can.
 
@@ -25,8 +26,19 @@ with bad credentials). For one task at a later time, without a trigger, see
   `@every 30s`), in UTC unless it starts with `CRON_TZ=<zone>`.
 - Each window fires exactly once. A window the Hub was not running for is
   recorded as `missed`; with `"catchUp": true` the latest missed window fires
-  once when the Hub is back.
+  once when the Hub is back, unless it is older than `catchUpWindow` (a
+  duration, e.g. `"15m"`), in which case it is recorded missed too.
 - A trigger added later never back-fills windows from before it existed.
+- `jitter` (a duration) spreads firing by a random amount after the window
+  is due, so deployments sharing a schedule don't all fire at the same
+  instant. The same window always gets the same offset.
+- `overlap` controls what happens when a window is due while an earlier
+  firing's task of this trigger is still queued, leased or running:
+  `"skip"` (don't fire while one is unfinished), `"buffer_one"` (fire at
+  most one more on top of one unfinished one), or the default `"allow"`
+  (fire regardless). A skipped window is recorded `skipped`, not `missed`.
+- `minStartSpacing` (a duration) keeps a fired window at least that long
+  after the previous firing's; a closer window is also recorded `skipped`.
 - The API returns each cron trigger with `nextDueAt` and `lastDueAt` (on
   `GetDeployment` and `ListDeployments`), computed the way the scheduler
   fires them.
@@ -94,6 +106,43 @@ per issue or ticket. See [Memory](memory.md).
 `labels` on a trigger are set on every task it submits, so its work can be
 told apart in tasks, runs, traces and tool calls.
 
+## Events
+
+An `event` trigger submits a task when the namespace's [event log](events.md)
+records a matching event, so an agent can react to other agents' work
+without polling:
+
+```json
+{
+  "type": "event", "name": "failures",
+  "input": "A task failed. Find out why and report.",
+  "on": { "types": ["task.finished"], "deployment": "researcher", "labels": { "project": "apollo" } },
+  "conversation": "{{event.labels.ticket}}",
+  "labels": { "via": "failures" }
+}
+```
+
+- `on` picks the events: `types` (event types, or prefixes such as
+  `task.`), and optionally `deployment`, `labels` and `severity`.
+- The task's input is the trigger's `input`, then `[Events from trigger
+  <name>]` and each event as one line of JSON (type, deployment, task id,
+  labels, data such as the task's state and outcome).
+- The task gets the event's labels, then the trigger's own.
+- `conversation` takes the task's conversation key from the event:
+  `{{event.taskId}}`, `{{event.parentTaskId}}`, `{{event.deployment}}`,
+  `{{event.type}}` or `{{event.labels.<key>}}`. Events with the same value
+  continue one conversation.
+- With `"count": 5, "within": "10m"` in `on`, the trigger fires once five
+  matching events arrived within ten minutes, with all of them in one task.
+- A new trigger starts with the events after it was deployed. Each event
+  fires at most once (`agen triggers <name>` lists the firings).
+- While the deployment's provider account is held, its event triggers wait,
+  and fire for the waiting events once the hold ends.
+- A trigger never reacts to the tasks it submitted itself, and when event
+  triggers lead from task to task five times in a row, the next firing is
+  refused and recorded as `rejected`, so triggers that set each other off
+  stop.
+
 ## One-off tasks at a later time
 
 A task can wait for a start time instead of a trigger:
@@ -109,6 +158,48 @@ deployment, and does not hold up other tasks of its conversation. It still
 counts towards `maxQueuedTasks`. `ListTasks` with `scheduled` lists the tasks
 waiting for their start time, soonest first (`agen tasks --scheduled`);
 cancel one with `CancelTask` (`agen cancel <task>`).
+
+`notAfter` (`--expires-in`) bounds how long a task may wait: if it is still
+queued once that time passes, it ends `failed`, reason `expired`, instead of
+waiting for capacity indefinitely.
+
+```sh
+agen run reporter "Summarize this week's incidents" --in 30m --expires-in 2h --no-wait
+```
+
+`scheduleKey` (`--schedule-key`) keeps at most one queued task per deployment
+and key: submitting another task with the same key cancels the queued one
+that already has it, in the same transaction, so a repeated schedule never
+piles up:
+
+```sh
+agen run reporter "Nightly digest" --schedule-key nightly-digest --no-wait
+```
+
+`priority` (`--priority`) orders a deployment's own queue: `urgent`, `high`,
+`normal` (the default) or `background`. It only decides which of a
+deployment's queued tasks is leased next; it never crosses deployments, and
+a conversation's own ordering (its tasks run one at a time, oldest first)
+still applies first.
+
+```sh
+agen run reporter "Page the on-call" --priority urgent --no-wait
+```
+
+`--lock` (repeatable) names a resource the task needs: it waits in the
+queue until it can take every one of its locks at once (recorded as
+`waitReason: "locks"`), then holds them until it ends. Taking them all
+together, never one at a time, is what avoids a deadlock between two
+tasks that each hold one of the locks the other needs.
+
+```sh
+agen run deployer "Deploy service-a" --lock repo:service-a --no-wait
+agen run deployer "Deploy service-a again" --lock repo:service-a --no-wait  # waits for the first to finish
+```
+
+Locks are not yet declarable on the bundle itself (`config.json`'s own
+`locks`, and the `acquire_lock`/`release_lock` tools for one named mid-run)
+— only per task, through `SubmitTask`/`agen run`.
 
 ## The Schedules page
 

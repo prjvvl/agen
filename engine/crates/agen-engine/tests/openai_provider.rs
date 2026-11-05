@@ -175,7 +175,26 @@ async fn agent_runs_tool_loop_through_bundle_configured_provider() {
     );
     let seen = m.seen.lock().unwrap();
     assert_eq!(seen[0].0.as_deref(), Some("Bearer mock-secret-key-123"));
-    assert_eq!(seen[0].1["tools"][0]["function"]["name"], "math_add");
+    let names: Vec<&str> = seen[0].1["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["function"]["name"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "acquire_lock",
+            "finish",
+            "math_add",
+            "query_agent",
+            "read_artifact",
+            "release_lock",
+            "report_progress",
+            "save_artifact",
+            "signal_agent"
+        ]
+    );
     let second = &seen[1].1["messages"];
     assert_eq!(second[2]["tool_calls"][0]["function"]["name"], "math_add");
     assert_eq!(second[3]["content"], "5");
@@ -338,4 +357,29 @@ async fn a_stream_cut_off_before_it_finished_is_retryable() {
     // A finish reason without [DONE] is a complete answer.
     let r = p.complete(&req(), &no_deltas).await.unwrap();
     assert_eq!(r.text, "whole");
+}
+
+// OpenRouter: the context window is the smallest of the model's endpoints;
+// routing models and other providers have none.
+#[tokio::test]
+async fn openrouter_reports_the_models_context_window() {
+    let app = Router::new().route(
+        "/v1/models/{*rest}",
+        axum::routing::get(|axum::extract::Path(rest): axum::extract::Path<String>| async move {
+            if rest != "acme/small/endpoints" {
+                return (StatusCode::NOT_FOUND, Json(json!({}))).into_response();
+            }
+            Json(json!({"data": {"id": "acme/small", "endpoints": [{"context_length": 65536}, {"context_length": 32768}]}})).into_response()
+        }),
+    );
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+    let url = format!("http://{addr}/v1");
+    let p = OpenAiCompatible::new("openrouter", &url, "k").unwrap();
+    assert_eq!(p.context_window("acme/small").await, Some(32768));
+    assert_eq!(p.context_window("acme/unknown").await, None);
+    assert_eq!(p.context_window("typesafe/jev-router").await, None);
+    let p = OpenAiCompatible::new("openai", &url, "k").unwrap();
+    assert_eq!(p.context_window("acme/small").await, None);
 }

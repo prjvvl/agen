@@ -108,6 +108,15 @@ func TestConsoleQueries(t *testing.T) {
 		if _, err := s.PruneObservability(ctx, 1); err != nil {
 			t.Fatal(err)
 		}
+		// Cassettes (3.6, part: agen replay) age out with the same
+		// retention sweep as spans/logs.
+		exec("INSERT INTO cassettes (run_id, data, created_ms) VALUES ($1, '{}', 5)", r1)
+		if _, err := s.PruneObservability(ctx, 10); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := s.GetCassette(ctx, r1); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("cassette should have been pruned: %v", err)
+		}
 		// Pruning keeps each trigger's latest event (cron catch-up reads it).
 		for _, due := range []int64{10, 20} {
 			if _, err := s.DB().ExecContext(ctx, "INSERT INTO trigger_events (id, namespace, deployment, trigger_name, state, due_ms, recorded_ms) VALUES ($1, $2, 'cronbot', 'tick', 'fired', $3, $3)",

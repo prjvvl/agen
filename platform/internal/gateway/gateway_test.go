@@ -91,6 +91,7 @@ func startStack(t *testing.T) *stack {
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	h := hub.New(st, admin)
 	h.Poll = 20 * time.Millisecond
+	h.InterruptGrace = 3 * time.Second
 	mux := http.NewServeMux()
 	p, hh := h.Handler()
 	mux.Handle(p, hh)
@@ -176,7 +177,10 @@ func writerFiles(t *testing.T) map[string][]byte {
 
 // P6 + E6: an agent delegates to another over A2A through the Nest Gateway
 // (resolved via the Manager, not the Hub); the callee's run joins the
-// caller's trace; with the Hub gone, delegation still works.
+// caller's trace; with the Hub gone, delegation still works. via: "a2a"
+// opts out of call_agent's unified child-task path (3.2b), which needs the
+// Hub throughout, so this delegate keeps the plain synchronous A2A call
+// this test is about.
 // features: delegation
 func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	k := startStack(t)
@@ -187,7 +191,7 @@ func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	c, st, logs, hubSrv, gwURL := k.c, k.st, k.logs, k.hubSrv, k.gwURL
 	boss := testutil.BundleFiles(t, "hello")
 	boss["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},
-		"delegates":[{"name":"writer","description":"Writes drafts"}],
+		"delegates":[{"name":"writer","description":"Writes drafts","via":"a2a"}],
 		"permissions":{"default":"deny","rules":[{"tool":"call_agent","action":"allow"}]}}`)
 	boss["x-agen/fake-script.json"] = []byte(`{"cycle":true,"responses":[
 		{"toolCalls":[{"name":"call_agent","arguments":{"agent":"writer","message":"draft it"}}]},
@@ -283,6 +287,311 @@ func TestDirectA2ADelegationSurvivesHubOutage(t *testing.T) {
 	}
 	if writerRuns != 2 {
 		t.Fatalf("writer runs after outage call: %d", writerRuns)
+	}
+}
+
+// 3.2b/3.3: call_agent's unified path starts the delegate as a child task
+// and waits inline up to limits.inlineWait; a child slower than that
+// suspends the caller's task (TASK_STATE_WAITING, no instance, no lease)
+// instead of blocking it, and it is woken and resumed once the child ends.
+// features: delegation
+func TestCallAgentSuspendsWhenTheChildOutlastsInlineWait(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	boss := testutil.BundleFiles(t, "hello")
+	boss["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},
+		"delegates":[{"name":"writer","description":"Writes drafts"}],
+		"limits":{"inlineWait":"1s"},
+		"permissions":{"default":"deny","rules":[{"tool":"call_agent","action":"allow"}]}}`)
+	boss["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"call_agent","arguments":{"agent":"writer","message":"draft it"}}]},
+		{"text":"Boss: done","expect":"Draft ready."}]}`)
+	writer := testutil.BundleFiles(t, "hello")
+	writer["x-agen/fake-script.json"] = []byte(`{"responses":[{"text":"Draft ready.","delayMs":4000}]}`)
+	k.deploy(t, "writer", writer, 1)
+	k.deploy(t, "boss", boss, 1)
+	k.waitReady(t, 2)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "boss"}, Input: "get me a draft"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The child (writer) takes 2s, well past boss's 300ms inline wait: boss
+	// must be seen waiting, with no instance and no lease, before it ends.
+	waitFor(t, "boss task waiting on its child", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_WAITING && strings.HasPrefix(got.Msg.Task.WaitFor, "child:")
+	})
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "Boss: done" {
+		t.Fatalf("boss task: %v %v", got, err)
+	}
+	if got.Msg.Task.WaitFor != "" {
+		t.Fatalf("wait_for must clear on resume: %q", got.Msg.Task.WaitFor)
+	}
+}
+
+// start_agent without detach: true (3.4, part: "join") ties the child to
+// the caller's own task: the caller's run suspends with wait_for
+// "children" right after starting it (not waiting for it to be slow, the
+// way call_agent's inline-wait suspend does), and resumes once the child
+// ends, however it ends.
+func TestStartAgentJoinsAndSuspendsUntilTheChildFinishes(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	boss := testutil.BundleFiles(t, "hello")
+	boss["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},
+		"delegates":[{"name":"writer","description":"Writes drafts"}],
+		"permissions":{"default":"allow"}}`)
+	boss["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"start_agent","arguments":{"agent":"writer","message":"draft it"}}]},
+		{"text":"Boss: got it","expect":"Started task"}]}`)
+	writer := testutil.BundleFiles(t, "hello")
+	// Long enough that boss's suspend (unlike call_agent's, not contingent
+	// on the child being slow at all) is reliably observed before it ends,
+	// not missed between polls.
+	writer["x-agen/fake-script.json"] = []byte(`{"responses":[{"text":"Draft ready.","delayMs":4000}]}`)
+	k.deploy(t, "writer", writer, 1)
+	k.deploy(t, "boss", boss, 1)
+	k.waitReady(t, 2)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "boss"}, Input: "get me a draft"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unlike call_agent's suspend, this one does not wait for the child to
+	// be slow: boss suspends right after starting it, well before the
+	// child's own 500ms delay finishes.
+	waitFor(t, "boss task waiting on its children", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_WAITING && got.Msg.Task.WaitFor == "children"
+	})
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "Boss: got it" {
+		t.Fatalf("boss task: %v %v", got, err)
+	}
+	if got.Msg.Task.WaitFor != "" {
+		t.Fatalf("wait_for must clear on resume: %q", got.Msg.Task.WaitFor)
+	}
+}
+
+// PauseTask holds a running task: the engine notices at its next turn
+// boundary (before calling the model again) and suspends with wait_for
+// "resume", instead of the Hub reaching in to stop it mid-turn. ResumeTask
+// wakes it directly, since nothing else would (3.4, part: hold).
+// features: tasks.hold
+func TestPauseTaskSuspendsARunningTaskAndResumeTaskRevivesIt(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// A long delay on the first turn's response gives PauseTask (called
+	// right after submit) a comfortable window to land before the second
+	// turn's hold check, which is what actually suspends the run.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":3000},
+		{"text":"worker done"}]}`)
+	k.deploy(t, "worker", worker, 1)
+	k.waitReady(t, 1)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pause only once the task is actually running its first (slow) turn:
+	// PauseTask on a still-queued task would just make LeaseTasks skip it
+	// forever, never exercising the engine's own mid-run suspend at all.
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	if _, err := k.c.PauseTask(ctx, connect.NewRequest(&agenv1.PauseTaskRequest{Id: sub.Msg.Task.Id, Reason: "testing"})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task waiting on its hold", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_WAITING && got.Msg.Task.WaitFor == "resume" && got.Msg.Task.Held
+	})
+
+	if _, err := k.c.ResumeTask(ctx, connect.NewRequest(&agenv1.ResumeTaskRequest{Id: sub.Msg.Task.Id})); err != nil {
+		t.Fatal(err)
+	}
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "worker done" {
+		t.Fatalf("worker task: %v %v", got, err)
+	}
+	if got.Msg.Task.Held || got.Msg.Task.WaitFor != "" {
+		t.Fatalf("held and wait_for must clear on resume: held=%v waitFor=%q", got.Msg.Task.Held, got.Msg.Task.WaitFor)
+	}
+}
+
+// CancelTask(mode="graceful") writes a "cancel" run_inbox entry for a
+// running task instead of stopping it at once; if the run calls finish on
+// its own before the grace period passes, it ends however it finished,
+// not cancelled (3.4, part: graceful cancel).
+// features: tasks.cancel-graceful
+func TestGracefulCancelLetsARunFinishOnItsOwnWithinTheGracePeriod(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// The first turn's delay gives CancelTask (called once running) a
+	// window to land before the run would otherwise finish; the second
+	// turn, right after, simulates the run wrapping up on its own.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":2000},
+		{"text":"wrapped up"}]}`)
+	k.deploy(t, "worker", worker, 1)
+	k.waitReady(t, 1)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	// CancelTask itself blocks for the grace period (or until the task
+	// ends, whichever is first), so its own response already carries the
+	// final outcome: no extra wait after this call is needed.
+	got, err := k.c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: sub.Msg.Task.Id, Mode: "graceful", GracePeriodSeconds: 10}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "wrapped up" {
+		t.Fatalf("worker task: %v, want succeeded with its own output, not cancelled", got.Msg.Task)
+	}
+}
+
+// CancelTask(mode="graceful") still stops a task once its grace period
+// passes without the run finishing on its own (3.4, part: graceful
+// cancel).
+// features: tasks.cancel-graceful
+func TestGracefulCancelStopsASurvivorOnceItsGracePeriodPasses(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// Long enough that it never finishes within the short grace period
+	// below.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":10000}]}`)
+	k.deploy(t, "worker", worker, 1)
+	k.waitReady(t, 1)
+
+	sub, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: sub.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	got, err := k.c.CancelTask(ctx, connect.NewRequest(&agenv1.CancelTaskRequest{Id: sub.Msg.Task.Id, Mode: "graceful", GracePeriodSeconds: 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Msg.Task.State != agenv1.TaskState_TASK_STATE_CANCELLED {
+		t.Fatalf("worker task: %v, want cancelled once its grace period passed", got.Msg.Task)
+	}
+}
+
+// "steer" queue mode delivers a second submission to a busy conversation
+// into the first's already-running turn, instead of queuing it
+// separately: the run is not disrupted and finishes normally, and no
+// second task is ever created (3.9, part).
+// features: tasks.queue-modes
+func TestSteerDeliversIntoARunningTaskWithoutDisruptingIt(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":2000},
+		{"text":"done"}]}`)
+	if _, err := k.c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "worker", BundleFiles: worker,
+		Conversations: &agenv1.ConversationPolicy{QueueMode: "steer"}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Desired: 1})); err != nil {
+		t.Fatal(err)
+	}
+	k.waitReady(t, 1)
+
+	first, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go", ConversationKey: "c1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: first.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	second, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "extra context", ConversationKey: "c1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Msg.Task.Id != first.Msg.Task.Id {
+		t.Fatalf("steer created a separate task %s instead of delivering into the running one %s", second.Msg.Task.Id, first.Msg.Task.Id)
+	}
+	got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: first.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || got.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || got.Msg.Task.Output != "done" {
+		t.Fatalf("worker task: %v %v, want succeeded undisturbed by the steer", got, err)
+	}
+	ls, err := k.c.ListTasks(ctx, connect.NewRequest(&agenv1.ListTasksRequest{Deployment: "worker"}))
+	if err != nil || len(ls.Msg.Tasks) != 1 {
+		t.Fatalf("tasks of worker: %v %v, want exactly 1 (steer must never create a second)", ls, err)
+	}
+}
+
+// "interrupt" queue mode gracefully cancels a conversation's currently
+// running task, then queues the new submission as its own task, which
+// goes on to run once the conversation is free (3.9, part).
+// features: tasks.queue-modes
+func TestInterruptStopsTheRunningTaskThenItsOwnSubmissionRuns(t *testing.T) {
+	k := startStack(t)
+	ctx := context.Background()
+	worker := testutil.BundleFiles(t, "hello")
+	worker["x-agen/config.json"] = []byte(`{"kind":"pool","scale":{"min":0,"max":2},"permissions":{"default":"allow"}}`)
+	// Long enough that it never finishes within startStack's short
+	// InterruptGrace (3s) below.
+	worker["x-agen/fake-script.json"] = []byte(`{"responses":[
+		{"toolCalls":[{"name":"report_progress","arguments":{"step":"step1"}}],"delayMs":10000},
+		{"text":"first done"}]}`)
+	if _, err := k.c.CreateDeployment(ctx, connect.NewRequest(&agenv1.CreateDeploymentRequest{Name: "worker", BundleFiles: worker,
+		Conversations: &agenv1.ConversationPolicy{QueueMode: "interrupt"}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.c.ScaleDeployment(ctx, connect.NewRequest(&agenv1.ScaleDeploymentRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Desired: 1})); err != nil {
+		t.Fatal(err)
+	}
+	k.waitReady(t, 1)
+
+	first, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "go", ConversationKey: "c1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "first worker task running", 15*time.Second, func() bool {
+		got, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: first.Msg.Task.Id}))
+		return err == nil && got.Msg.Task.State == agenv1.TaskState_TASK_STATE_RUNNING
+	})
+	// This call itself blocks for InterruptGrace before queuing the new
+	// submission, so by the time it returns the first task's fate is
+	// already decided.
+	second, err := k.c.SubmitTask(ctx, connect.NewRequest(&agenv1.SubmitTaskRequest{Ref: &agenv1.DeploymentRef{Name: "worker"}, Input: "new direction", ConversationKey: "c1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Msg.Task.Id == first.Msg.Task.Id {
+		t.Fatal("interrupt must queue its own task, not return the interrupted one")
+	}
+	gotFirst, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: first.Msg.Task.Id}))
+	if err != nil || gotFirst.Msg.Task.State != agenv1.TaskState_TASK_STATE_CANCELLED {
+		t.Fatalf("first worker task: %v %v, want cancelled once its grace period passed", gotFirst, err)
+	}
+	gotSecond, err := k.c.GetTask(ctx, connect.NewRequest(&agenv1.GetTaskRequest{Id: second.Msg.Task.Id, WaitSeconds: 30}))
+	if err != nil || gotSecond.Msg.Task.State != agenv1.TaskState_TASK_STATE_SUCCEEDED || gotSecond.Msg.Task.Output != "first done" {
+		t.Fatalf("second worker task: %v %v, want it to actually run once the conversation was free", gotSecond, err)
 	}
 }
 

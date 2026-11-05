@@ -38,6 +38,9 @@ type Principal struct {
 	// resolved for a call, ActingFor names the token it acted through.
 	OnBehalf  bool
 	ActingFor string
+	// Trust (3.7): the trust tasks it submits get. "operator" for the
+	// admin bearer token; a stored token's own Trust, or "trusted" if unset.
+	Trust string
 }
 
 // Can reports whether the principal holds scope (directly or implied).
@@ -118,13 +121,17 @@ func (a *Auth) Authenticate(ctx context.Context, secret string) (Principal, erro
 		return Principal{}, errors.New("missing bearer token")
 	}
 	if a.AdminToken != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(a.AdminToken)) == 1 {
-		return Principal{ID: "admin", Scopes: map[string]bool{ScopeAdmin: true}}, nil
+		return Principal{ID: "admin", Scopes: map[string]bool{ScopeAdmin: true}, Trust: "operator"}, nil
 	}
 	t, err := a.Store.LookupAPIToken(ctx, secret)
 	if err != nil {
 		return Principal{}, errors.New("invalid or revoked token")
 	}
-	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces, OnBehalf: t.OnBehalf}
+	trust := t.Trust
+	if trust == "" {
+		trust = "trusted"
+	}
+	p := Principal{ID: "token:" + t.ID, Name: t.Name, Scopes: map[string]bool{}, Namespaces: t.Namespaces, OnBehalf: t.OnBehalf, Trust: trust}
 	for _, s := range t.Scopes {
 		p.Scopes[s] = true
 	}
@@ -149,12 +156,12 @@ func RequiredScope(method string) string { return procedureScope("/" + method) }
 func procedureScope(procedure string) string {
 	name := procedure[strings.LastIndex(procedure, "/")+1:]
 	switch name {
-	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "Resolve",
+	case "ListDeployments", "GetDeployment", "ListInstances", "ListNests", "GetTask", "ListTasks", "GetTaskTree", "QueryTask", "Resolve",
 		"ListDefinitions", "GetDefinition", "ListTriggerEvents", "ListRuns", "GetTrace", "GetLogs", "WhoAmI", "GetBundleGuide",
-		"GetTranscript", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds":
+		"GetTranscript", "GetCassette", "GetMetrics", "GetActivity", "ListTemplates", "ListProviderHolds", "ListEvents", "ListFeedback", "ListMemoryBlocks", "GetArtifact", "ListArtifacts", "ListEvalReports":
 		return ScopeViewer
-	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "RequestWake",
-		"CreateWebhookSecret", "ResumeProvider":
+	case "CreateDeployment", "UpdateDeployment", "ScaleDeployment", "DeleteDeployment", "PauseDeployment", "SubmitTask", "CancelTask", "PauseTask", "ResumeTask", "RequestWake",
+		"CreateWebhookSecret", "ResumeProvider", "RecordFeedback", "SetMemoryBlock", "RecordEvalReport":
 		return ScopeOperator
 	case "ListApprovals", "DecideApproval":
 		return ScopeApprover

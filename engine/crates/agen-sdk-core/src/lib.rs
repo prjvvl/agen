@@ -825,6 +825,7 @@ pub fn result_json(r: &RunResult) -> Value {
         "error": r.error,
         "usage": {"inputTokens": r.usage.input_tokens, "outputTokens": r.usage.output_tokens, "costUsd": r.usage.cost_usd},
         "traceId": r.trace_id,
+        "outcome": r.outcome,
     })
 }
 

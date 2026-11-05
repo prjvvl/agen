@@ -185,6 +185,18 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		if v := str("modelTier"); v != "" {
 			c.args = append(c.args, "--tier", v)
 		}
+		if v := str("priority"); v != "" {
+			c.args = append(c.args, "--priority", v)
+		}
+		if v := str("trust"); v != "" {
+			c.args = append(c.args, "--trust", v)
+		}
+		if locks, ok := a["locks"].([]any); ok {
+			used["locks"] = true
+			for _, l := range locks {
+				c.args = append(c.args, "--lock", l.(string))
+			}
+		}
 		if v := str("notBefore"); v != "" {
 			c.args = append(c.args, "--at", v)
 		}
@@ -221,6 +233,49 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		}
 	case "CancelTask":
 		c.args = []string{"cancel", str("id"), "--json"}
+		if v, _ := a["tree"].(bool); v {
+			used["tree"] = true
+			c.args = append(c.args, "--tree")
+		}
+		if v := str("mode"); v != "" {
+			c.args = append(c.args, "--mode", v)
+		}
+		if v, ok := a["gracePeriodSeconds"].(float64); ok {
+			used["gracePeriodSeconds"] = true
+			c.args = append(c.args, "--grace", fmt.Sprintf("%ds", int(v)))
+		}
+	case "PauseTask":
+		c.args = []string{"pause", str("id"), "--json"}
+		if v, _ := a["tree"].(bool); v {
+			used["tree"] = true
+			c.args = append(c.args, "--tree")
+		}
+		if v := str("until"); v != "" {
+			c.args = append(c.args, "--at", v)
+		}
+		if v := str("reason"); v != "" {
+			c.args = append(c.args, "--reason", v)
+		}
+	case "ResumeTask":
+		c.args = []string{"resume", str("id"), "--json"}
+		if v, _ := a["tree"].(bool); v {
+			used["tree"] = true
+			c.args = append(c.args, "--tree")
+		}
+	case "GetTaskTree":
+		c.args = []string{"tree", str("taskId"), "--json"}
+	case "QueryTask":
+		c.args = []string{"query", str("id"), "--json"}
+	case "ListRuns":
+		c.args = append([]string{"runs", str("deployment"), "--json"}, ns()...)
+	case "ListEvents":
+		c.args = append([]string{"events", str("deployment"), "--json", "--limit", "1000"}, ns()...)
+		if ts, ok := a["types"].([]any); ok {
+			used["types"] = true
+			for _, ty := range ts {
+				c.args = append(c.args, "--type", ty.(string))
+			}
+		}
 	case "GetLogs":
 		n, name := ref()
 		c.args = []string{"logs", name, "-n", n, "--json"}
@@ -254,6 +309,13 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 	case "ListTriggerEvents":
 		n, name := ref()
 		c.args = []string{"triggers", name, "-n", n, "--json"}
+	case "ListEvalReports":
+		n, name := ref()
+		c.args = []string{"eval", "history", name, "-n", n, "--json"}
+		if v, ok := a["limit"].(float64); ok {
+			used["limit"] = true
+			c.args = append(c.args, "--limit", fmt.Sprintf("%d", int(v)))
+		}
 	case "CreateWebhookSecret":
 		n, name := ref()
 		c.args = []string{"webhook-secret", name, str("trigger"), "-n", n, "--json"}
@@ -288,6 +350,64 @@ func cliFor(t *testing.T, method string, a map[string]any) (cliCommand, error) {
 		c.args = []string{"providers", "--json"}
 	case "ListTemplates":
 		c.args = []string{"init", "--list", "--json"}
+	case "SetMemoryBlock":
+		c.args = append([]string{"memory", "set", str("id"), "--json"}, ns()...)
+		if v := str("label"); v != "" {
+			c.args = append(c.args, "--title", v)
+		}
+		if v := str("description"); v != "" {
+			c.args = append(c.args, "--description", v)
+		}
+		if n, ok := a["limitChars"].(float64); ok {
+			used["limitChars"] = true
+			c.args = append(c.args, "--limit-chars", fmt.Sprint(int(n)))
+		}
+		c.stdin = str("value")
+	case "ListMemoryBlocks":
+		c.args = append([]string{"memory", "ls", "--json"}, ns()...)
+	case "GetArtifact":
+		c.args = append([]string{"artifacts", "get", str("id"), "--json"}, ns()...)
+	case "ListArtifacts":
+		c.args = append([]string{"artifacts", "ls"}, ns()...)
+		c.args = append(c.args, "--json")
+		if v := str("taskId"); v != "" {
+			c.args = append(c.args, v)
+		}
+	case "RecordFeedback":
+		c.args = []string{"feedback", "record", str("taskId"), "--score", fmt.Sprint(a["score"]), "--json"}
+		used["score"] = true
+		if v := str("note"); v != "" {
+			c.args = append(c.args, "--note", v)
+		}
+		if l, ok := a["labels"].(map[string]any); ok {
+			used["labels"] = true
+			keys := make([]string, 0, len(l))
+			for k := range l {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				c.args = append(c.args, "--label", fmt.Sprintf("%s=%v", k, l[k]))
+			}
+		}
+	case "ListFeedback":
+		c.args = []string{"feedback", "ls"}
+		if dep := str("deployment"); dep != "" {
+			c.args = append(c.args, dep)
+		}
+		c.args = append(c.args, "--json")
+		c.args = append(c.args, ns()...)
+		if l, ok := a["labels"].(map[string]any); ok {
+			used["labels"] = true
+			keys := make([]string, 0, len(l))
+			for k := range l {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				c.args = append(c.args, "--label", fmt.Sprintf("%s=%v", k, l[k]))
+			}
+		}
 	default:
 		return c, fmt.Errorf("the CLI has no command for %s (map it in cliFor, or skip the step on cli with a reason)", method)
 	}

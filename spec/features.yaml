@@ -75,6 +75,14 @@ features:
     title: Fallback models
     contract: [harness:fallbackModels, sdk:fallbackModels]
     on: [rust, python, node, go, api, mcp, cli, console]
+  - id: models.fallback-providers
+    title: Fallback providers, each a full account, tried in order only after an account error on the primary (not a transient one, and not just a failing model)
+    contract: [harness:fallbackProviders]
+    on: [rust, console]
+    gap: {rust: "tested at the engine level (engine/crates/agen-engine/tests/model_routing.rs), not yet exposed through agen-sdk-core's own AgentSpec",
+      console: "no dedicated UI yet; the generic trace/span inspector already shows gen_ai.provider.name and agen.fallback_provider when one fires, not verified by an e2e test"}
+    not: {python: "bundle-config only, no SDK surface", node: "bundle-config only, no SDK surface", go: "bundle-config only, no SDK surface",
+      api: "bundle-config only, no SDK surface", mcp: "bundle-config only, no SDK surface", cli: "bundle-config only, no SDK surface"}
   - id: models.router
     title: Routing models (Jev Router, Auto Router) and cost tiers
     contract: [harness:router, sdk:router]
@@ -103,6 +111,18 @@ features:
     contract: [agent:maxTurns, sdk:maxTurns, sdk:maxTokensPerRun, config:limits, field:CreateDeployment.limits, field:UpdateDeployment.limits]
     on: [rust, python, node, go, api, cli]
 
+  - id: engine.outcome
+    title: Run outcomes (finish, result schema, report at a limit)
+    contract: [harness:result]
+    on: [rust, python, node, go, api, mcp, cli, console, a2a]
+
+  - id: events
+    title: Event log (ListEvents, event stream with a cursor)
+    contract: [rpc:ListEvents, field:ListEvents.after_seq, field:ListEvents.types, field:ListEvents.deployment, field:ListEvents.labels,
+      field:ListEvents.severity, field:ListEvents.limit, field:ListEvents.wait_seconds, cli:events, config:alerts]
+    on: [api, mcp, cli]
+    not: {console: "the console follows changes live through the same stream; it has no event log view yet"}
+
   # Tools and permissions
   - id: tools.host
     title: Host tools (functions in your program)
@@ -122,17 +142,59 @@ features:
     contract: [sdk:permissions, sdk:approvalTimeoutSeconds, config:permissions, rpc:ListApprovals, rpc:DecideApproval,
       field:ListApprovals.state, field:DecideApproval.approve, cli:approvals]
     on: [rust, python, node, go, api, mcp, cli, console, a2a]
+  - id: feedback
+    title: Record and list feedback on tasks (a person, a check, or a judge model)
+    contract: [rpc:RecordFeedback, rpc:ListFeedback, field:RecordFeedback.task_id, field:RecordFeedback.score,
+      field:RecordFeedback.labels, field:RecordFeedback.note, field:ListFeedback.deployment, field:ListFeedback.labels,
+      field:ListFeedback.since, cli:feedback]
+    on: [api, mcp, cli]
+    not: {console: "no UI yet; use agen feedback or the API"}
+  - id: memory.blocks
+    title: Memory blocks (durable, named text an agent reads and updates across runs), live context sources and conversation rollover
+    contract: [rpc:SetMemoryBlock, rpc:ListMemoryBlocks, field:SetMemoryBlock.id, field:SetMemoryBlock.label,
+      field:SetMemoryBlock.description, field:SetMemoryBlock.value, field:SetMemoryBlock.limit_chars,
+      field:ListMemoryBlocks.namespace, config:memory, config:rollover, cli:memory]
+    on: [api, mcp, cli]
+    not: {console: "no UI yet; use agen memory or the API"}
+  - id: artifacts
+    title: Artifacts (save_artifact / read_artifact; a long result need not stay in context)
+    contract: [rpc:GetArtifact, rpc:ListArtifacts, field:GetArtifact.id, field:ListArtifacts.task_id, cli:artifacts, harness:maxToolResultChars]
+    on: [api, mcp, cli]
+    not: {console: "no UI yet; use agen artifacts or the API"}
 
   # Work
   - id: tasks.run
     title: Run tasks and wait for results
     contract: [rpc:SubmitTask, rpc:GetTask, rpc:ListTasks, field:SubmitTask.input, field:SubmitTask.idempotency_key,
-      field:GetTask.wait_seconds, field:ListTasks.deployment, field:ListTasks.state, sdk:taskId, cli:run, cli:wait, cli:tasks]
+      field:GetTask.wait_seconds, field:ListTasks.deployment, field:ListTasks.state, sdk:taskId, cli:run, cli:wait, cli:tasks,
+      field:SubmitTask.overrides, field:SubmitTask.priority, field:SubmitTask.trust, field:SubmitTask.locks,
+      field:SubmitTask.on_parent_end]
     on: [rust, python, node, go, api, mcp, cli, console]
+  - id: tasks.tree
+    title: Every task of the tree a task belongs to (its root and descendants)
+    contract: [rpc:GetTaskTree, field:GetTaskTree.task_id, cli:tree]
+    on: [api, mcp, cli]
+  - id: tasks.queue-modes
+    title: How a busy conversation's queue behaves (followup, the default, queues separately; collect merges; steer delivers into the running turn; interrupt gracefully cancels it first); SubmitTask.delivery overrides it for one submission
+    contract: [config:conversations, field:CreateDeployment.conversations, field:UpdateDeployment.conversations, field:SubmitTask.delivery]
+    on: [api, mcp, cli]
+  - id: tasks.progress
+    title: An agent reports its own progress; query a task's progress, activity and outcome without waiting on it
+    contract: [rpc:QueryTask, field:QueryTask.id, cli:query]
+    on: [api, mcp, cli]
   - id: tasks.cancel
     title: Cancel a task or run
-    contract: [rpc:CancelTask, cli:cancel]
+    contract: [rpc:CancelTask, cli:cancel, field:CancelTask.tree]
     on: [rust, python, node, go, api, mcp, cli, console]
+  - id: tasks.cancel-graceful
+    title: Cancel a task gracefully, giving each run a last turn to call finish before it is stopped
+    contract: [field:CancelTask.mode, field:CancelTask.grace_period_seconds]
+    on: [api, mcp, cli]
+  - id: tasks.hold
+    title: Hold a task, and resume it; a queued one is skipped by leasing, a running one suspends at its next model call
+    contract: [rpc:PauseTask, rpc:ResumeTask, field:PauseTask.tree, field:PauseTask.until, field:PauseTask.reason,
+      field:ResumeTask.tree, cli:pause, cli:resume]
+    on: [api, mcp, cli]
   - id: tasks.streaming
     title: Stream output while a run is in progress
     contract: []
@@ -147,11 +209,11 @@ features:
     contract: [field:SubmitTask.model_tier, sdk:modelTier]
     on: [rust, python, node, go, api, mcp, cli, console]
   - id: tasks.schedule
-    title: Tasks with a start time
-    contract: [field:SubmitTask.not_before, field:ListTasks.scheduled]
+    title: Tasks with a start time, an expiry, or at most one queued per key
+    contract: [field:SubmitTask.not_before, field:ListTasks.scheduled, field:SubmitTask.not_after, field:SubmitTask.schedule_key]
     on: [api, mcp, cli, console]
   - id: triggers
-    title: Cron and webhook triggers
+    title: Cron, webhook, event and random triggers; a burst of events a trigger matches within coalesce merges into one task
     contract: [config:triggers, field:CreateDeployment.triggers, field:UpdateDeployment.triggers, rpc:ListTriggerEvents,
       field:ListTriggerEvents.state, rpc:CreateWebhookSecret, field:CreateWebhookSecret.trigger, cli:triggers, cli:webhook-secret]
     on: [api, mcp, cli, console]
@@ -172,6 +234,7 @@ features:
       field:CreateDeployment.bundle_text, field:CreateDeployment.kind, field:CreateDeployment.scale, field:CreateDeployment.placement,
       field:UpdateDeployment.bundle_files, field:UpdateDeployment.bundle_text, field:UpdateDeployment.scale,
       field:UpdateDeployment.placement, field:ScaleDeployment.desired, field:PauseDeployment.paused,
+      field:PauseDeployment.hold_runs, field:PauseDeployment.until, field:PauseDeployment.reason,
       field:ListInstances.deployment, field:ListInstances.nest_id, config:kind, config:scale,
       cli:deploy, cli:scale, cli:ps, cli:stop, cli:start, cli:rm]
     on: [api, mcp, cli, console, docker, kubernetes]
@@ -208,6 +271,15 @@ features:
     title: Deployment logs
     contract: [rpc:GetLogs, field:GetLogs.instance_id, field:GetLogs.since, cli:logs]
     on: [api, mcp, cli, console]
+  - id: replay
+    title: Record a deployment's model calls and replay a run from its cassette offline
+    contract: [config:recordInteractions, rpc:GetCassette, field:GetCassette.run_id, cli:replay]
+    on: [api, mcp, cli]
+  - id: eval
+    title: Run scenario files against a bundle with mocked tools; report pass@1/pass^k; eval history per deployment and deploy --require-eval
+    contract: [cli:eval, rpc:RecordEvalReport, rpc:ListEvalReports, field:RecordEvalReport.report_json, field:RecordEvalReport.definition_digest, field:ListEvalReports.limit]
+    on: [api, mcp, cli]
+    not: {console: "no UI yet; use agen eval/deploy --require-eval or the API"}
   - id: observe.metrics
     title: Metrics, costs and live activity
     contract: [rpc:GetMetrics, rpc:GetActivity, field:GetMetrics.window_seconds, field:GetMetrics.buckets]
@@ -222,7 +294,8 @@ features:
   - id: access.tokens
     title: API tokens, scopes and namespaces
     contract: [rpc:CreateApiToken, rpc:ListApiTokens, rpc:RevokeApiToken, rpc:WhoAmI, field:CreateApiToken.scopes,
-      field:CreateApiToken.namespaces, field:CreateApiToken.ttl_seconds, field:CreateApiToken.on_behalf, cli:token, cli:whoami]
+      field:CreateApiToken.namespaces, field:CreateApiToken.ttl_seconds, field:CreateApiToken.on_behalf, field:CreateApiToken.trust,
+      cli:token, cli:whoami]
     on: [api, mcp, cli, console]
 
   # Fleet

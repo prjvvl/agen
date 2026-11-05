@@ -95,6 +95,78 @@ async fn account_errors_do_not_fall_back() {
     assert_eq!(p.calls(), 1, "no other model is tried on an account error");
 }
 
+// An account error on the primary moves to the next fallback *provider*
+// (2.30) — a different account may still work, unlike another model on
+// the same one. The span records which provider actually served it.
+#[tokio::test]
+async fn account_error_falls_back_to_another_provider() {
+    let (s, _d) = store().await;
+    let primary = Arc::new(FakeProvider::new(vec![failing("primary/m", "account")]));
+    let fallback = Arc::new(FakeProvider::new(vec![answer("backup/m", "from the fallback account")]));
+    let mut c = cfg("primary/m", &[]);
+    c.fallback_providers = vec![agen_engine::agent::FallbackProvider {
+        provider: fallback.clone(),
+        model: "backup/m".into(),
+        fallback_models: vec![],
+    }];
+    let agent = Agent::builder(c, s.clone()).provider(primary.clone()).build().unwrap();
+    let r = agent.run("hi", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Succeeded, "{}", r.error);
+    assert_eq!(r.output, "from the fallback account");
+    assert_eq!(
+        primary.calls(),
+        1,
+        "the primary is tried exactly once before falling back"
+    );
+    assert_eq!(fallback.calls(), 1);
+    let spans = chat_spans(&s, &r.trace_id).await;
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0].attributes["agen.fallback_provider"], true);
+}
+
+// An account error on every configured fallback provider, not just the
+// primary, still ends the run — there is nothing left to try.
+#[tokio::test]
+async fn account_error_on_every_fallback_provider_fails_the_run() {
+    let (s, _d) = store().await;
+    let primary = Arc::new(FakeProvider::new(vec![failing("primary/m", "account")]));
+    let fallback = Arc::new(FakeProvider::new(vec![failing("backup/m", "account")]));
+    let mut c = cfg("primary/m", &[]);
+    c.fallback_providers = vec![agen_engine::agent::FallbackProvider {
+        provider: fallback.clone(),
+        model: "backup/m".into(),
+        fallback_models: vec![],
+    }];
+    let agent = Agent::builder(c, s).provider(primary).build().unwrap();
+    let r = agent.run("hi", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Failed);
+    assert!(r.error.contains("provider account error"), "{}", r.error);
+    assert_eq!(fallback.calls(), 1);
+}
+
+// A non-account error on the primary (e.g. a plain request failure) never
+// reaches the fallback provider at all: only an account error does.
+#[tokio::test]
+async fn a_non_account_error_never_tries_the_fallback_provider() {
+    let (s, _d) = store().await;
+    let primary = Arc::new(FakeProvider::new(vec![failing("primary/m", "request")]));
+    let fallback = Arc::new(FakeProvider::new(vec![answer("backup/m", "should never be called")]));
+    let mut c = cfg("primary/m", &[]);
+    c.fallback_providers = vec![agen_engine::agent::FallbackProvider {
+        provider: fallback.clone(),
+        model: "backup/m".into(),
+        fallback_models: vec![],
+    }];
+    let agent = Agent::builder(c, s).provider(primary).build().unwrap();
+    let r = agent.run("hi", RunOptions::default()).await.unwrap();
+    assert_eq!(r.status, RunStatus::Failed);
+    assert_eq!(
+        fallback.calls(),
+        0,
+        "a non-account error must not reach the fallback provider"
+    );
+}
+
 #[tokio::test]
 async fn an_empty_answer_is_asked_again_then_falls_back() {
     let (s, _d) = store().await;
@@ -262,6 +334,7 @@ async fn tokens_of_empty_answers_count_when_the_fallback_fails() {
         usage: Some(Usage {
             input_tokens: 100,
             output_tokens: 50,
+            cached_input_tokens: 0,
             cost_usd: 0.0,
         }),
         ..empty(model)

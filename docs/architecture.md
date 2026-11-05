@@ -79,7 +79,7 @@ Deployment kinds:
 | `pool` | min..max | Interchangeable workers sharing a task queue. |
 | `task` | one per task | Instance is created for one task and exits when it finishes (the autoscaler starts up to `max` at once for queued tasks). |
 
-Scale policy: `{min, max, target_queue_per_instance, idle_timeout, max_concurrency}`.
+Scale policy: `{min, max, target_queue_per_instance, idle_timeout, max_concurrency, reserve}`.
 
 A deployment can be **paused** (`agen stop`, `PauseDeployment`): its instances
 drain and stop, the autoscaler and wake-ups leave it at 0, queued tasks and
@@ -132,7 +132,11 @@ instance (one agen-host) is started differs.
 
 **Autoscaler** (runs on the Hub leader, every tick):
 want = clamp(ceil(queued_and_running_tasks / target_queue_per_instance), min, max)
-(target defaults to 1). Scale up to `want` at once; scale down to `want` only
+(target defaults to 1). **`reserve`** (2.46, part) raises that floor to
+`urgent_or_high_load + reserve`, still capped by `max`, whenever any
+urgent/high priority task is queued or running — so one arriving later
+finds an instance already idle instead of waiting on a scale-up; with no
+such load right now, `reserve` has no effect at all. Scale up to `want` at once; scale down to `want` only
 after no task or A2A activity for `idle_timeout` (default 5 min for pools and
 singletons, 0 for `task` deployments, which therefore stop as soon as their
 queue is empty). A manual scale counts as activity, so it holds for one idle
@@ -179,10 +183,62 @@ from a task (already carrying its source prefix) is accepted as is. Labels are
 copied to the task's runs, tool calls and child tasks. A task may carry
 `not_before` (at most 90 days ahead): until then it is not leased, does not
 count as load for the autoscaler and does not hold up its conversation, though
-it counts towards `maxQueuedTasks`. It may carry `model_tier`, the cost tier
+it counts towards `maxQueuedTasks`. It may carry `not_after`: the leader's
+scheduler tick fails a still-queued task past it (`ExpireOverdueTasks`,
+reason `expired`) instead of leaving it queued indefinitely. It may carry
+`schedule_key`: `SubmitTask` cancels, in the same transaction as the insert,
+the queued task of that deployment that already has the key, so at most one
+is ever queued per key. It may carry `priority` (`urgent`, `high`, `normal`,
+`background`; default `normal`): `LeaseTasks` orders a deployment's own
+queue by it before submission order, never across deployments and after a
+conversation's own ordering. It may carry `locks` (3.11, part): names it
+must hold all of at once before `LeaseTasks` leases it (so no deadlock
+from taking them one at a time), granted for as long as its lease and
+refreshed when the lease is extended, released when it ends
+(`task_locks` is what a task declared, `locks` what is currently
+granted, one task per namespace and name); a task waiting on one reports
+`wait_reason: "locks"`. The built-in `acquire_lock(name, ttl_seconds)`/
+`release_lock(name)` tools (1.5) grant or drop a lock named mid-run on
+top of a task's declared ones, through the same `locks` table and the
+same uniqueness rule, so two runs can never hold the same resource
+whether its lock was declared or named on the fly; released locks (by
+`release_lock`, or when the task ends) can be re-acquired by another
+task at once. Every grant — declared or mid-run — carries a fencing
+token, name -> fence in `_meta` `agen/locks`: a separate, durable
+counter (`lock_fences`) that advances only on a genuine handover to a
+different task, never a re-grant or lease extension to the same one,
+and keeps climbing across a release/re-acquire cycle rather than
+resetting (it lives apart from `locks`, which taskFinished deletes
+unconditionally) — this is the one thing an expired lease alone can't
+give a tool server outside the Hub's own control: it can remember the
+highest token it has seen for a resource and reject a write tagged with
+a stale one. A task may be in state
+`waiting` (3.3): it holds no instance or lease and is not autoscaler load,
+and carries `wait_for` (`"<kind>:<ref>"`, e.g. `"child:<task id>"`)
+describing what it is waiting for — unlike `wait_reason`, which says why a
+still-queued task has not started, `wait_for` is set only while suspended
+and cleared on resume. `run_inbox` holds what has happened for a waiting
+task while it waits; writing a row whose kind and ref match a waiting
+task's `wait_for` requeues it at `urgent` priority without counting an
+attempt (`Store.WriteInbox`), and a child task finishing always writes its
+outcome into its parent's inbox. A tool call suspends a run by returning a
+`ToolError` carrying `suspend` instead of a result: the engine does not
+write a tool message for it (it stays pending, exactly as if the process
+had died there) and `RunTask` returns early with `wait_for` set instead of
+an outcome. The Manager then calls the Hub's `SuspendTask` (giving up the
+lease, `Store.SuspendTask`) instead of `CompleteTask`, freeing the instance
+for other work. Woken, the same task id is leased and dispatched again; the
+engine resumes from its last checkpoint, finds the same call still pending
+and retries it from scratch (not from a cached result) — which is why
+`call_agent`'s unified path (below) checks the child task's own status
+again on resume, rather than trusting the `run_inbox` payload directly.
+It may carry `model_tier`, the cost tier
 for a routing model (§8). When the deployment has spent 80% of its daily
 budget, leased tasks carry `budget_pressure`, and a routing model then uses
-the bundle's `router.budgetTier`. When the Hub fails a
+the bundle's `router.budgetTier`; a `background`-priority candidate is
+released right back under the same pressure (2.46, part — the same
+mechanism an exhausted label's candidate already uses), so whatever
+budget is left goes to higher-priority work instead. When the Hub fails a
 task (lease expired too often) or cancels it, it also ends the task's
 unfinished run and bumps its epoch, so the conversation is not left blocked
 and a host still running it is fenced off. Deleting a deployment cancels its
@@ -190,6 +246,111 @@ unfinished tasks and ends every unfinished run (task or A2A) the same way.
 The Hub logs instance starts,
 failures and exits (from Nest reports) and task releases and lease expiries
 on the deployment's log.
+
+**Task overrides**: a task may carry `overrides` (`TaskOverrides`: `tools`,
+`skills`, `systemAddendum`, `permissions` (deny/ask only), `budget`), which
+can only narrow what its bundle allows, never widen it. `SubmitTask` and
+`SubmitChildTask` both validate it (an `allow` permission rule, or an
+unparsable `budget.maxDuration`, is refused) and store it on the task as
+JSON. A child task's effective overrides are its parent's combined with its
+own (`store.CombineOverrides`): `tools` and `skills` allowlists intersect,
+`permissions` concatenate, `systemAddendum` appends, and `budget` fields
+take the smaller of each side — so restrictions accumulate down a tree and
+a descendant can never regain what an ancestor gave up. The engine applies
+them per run (never by mutating the shared `AgentConfig`, since one agent
+process can run several tasks concurrently): a tool outside the `tools`
+allowlist is hidden from the model outright (stronger than a plain `deny`),
+`permissions` rules are merged in ahead of the bundle's own, `skills` adds
+to the bundle's own `preloadSkills`, `systemAddendum` is appended last to
+the system prompt, and `budget` narrows `maxTurns`, `maxRunDuration`,
+`maxTokensPerRun` and `maxUsdPerRun` (a bundle's own, lower limit is never
+widened by a looser override). `start_agent` can set overrides only on a
+delegate whose `x-agen/config.json` `delegates[].overrides` is `true`; the
+calling engine enforces this before the request reaches the Hub.
+
+**Tree budgets** (3.5, part): a root task's own `overrides.budget` is
+also the whole tree's budget — not a separate field. When a child is
+submitted (`SubmitChildTask`, or a header-linked task via
+`linkToCaller`), `Hub.narrowForTreeBudget` finds the root (via
+`RootTaskID`), reads its `overrides.budget`, and — if it set
+`maxTokens`/`maxUsd` — computes the tree's remainder (that limit minus
+`Store.TreeUsage`'s sum of every run of every task of the tree so far,
+joined through each run's `task_id`) and narrows the child's own
+combined budget down to the smaller of its own request and that
+remainder, through the exact same `budget` field and narrowing semantics
+described above. No new engine code, proto field, or table: the existing
+per-run `budget_exceeded` check (unchanged) is what actually enforces
+whatever this narrows a child's budget down to, the same as it always
+has for a plain per-run override. A remainder already used up floors at
+a small positive value (1 token / $0.0001) rather than 0, since 0 reads
+as "unset, no limit" to the existing narrowing logic; the floor still
+lets a child's own first turn run (no usage yet is not over a 1-token
+limit), so it is cut off on its very next check instead — the same
+"overshoot of at most one model call" the deployment's own daily budget
+already documents and accepts.
+
+`narrowForTreeBudget` alone is the "napkin math" slice, computed once
+at each child's own submission: a sibling spending heavily *while*
+another is already running would not, on its own, retroactively shrink
+the running one's already-fixed budget, only the next child submitted
+after it. **Closed** (3.5, the last gap, 2026-11-05): `Hub.treeBudgetExceeded`
+mirrors `narrowForTreeBudget`'s own read (the root's `overrides.budget`,
+`Store.TreeUsage`) but as a live, per-turn check instead — true once the
+tree's current usage reaches the root's limit, checked by the engine's
+turn loop via `TaskStarter::tree_budget_exceeded`, the exact same
+`ManagerService`/`NestService` round trip `is_held`/`unfinished_children`
+already use (turned out to need no new mechanism at all once actually
+designed, not comparable to join/hold in size as first assessed). A true
+result ends the run exactly the way the existing per-run `budget_exceeded`
+check already does — a graceful partial finish with a report, through
+`failure_reason`'s new `"tree_budget_exceeded"` → `"tree_budget"`
+mapping — never a hard stop or a suspend. A failed check (Manager
+unreachable) never stops or suspends the run on its own, same as every
+other `TaskStarter` check.
+
+**Budget visibility** (2.19/2.21, additive — not part of enforcement
+itself): `Hub.treeBudgetThresholds`/`labelBudgetThresholds` fire the same
+`budget.threshold` event (50/80/100%, deduped) `afterTaskEnded` already
+fires for the deployment-wide daily budget, scoped `"tree"`/`"label"`
+instead. `GetMetrics`'s `DeploymentMetrics.label_budgets` rolls up
+today's spend against every configured `labelUsdPerDay` rule regardless
+of the call's own time window, since a label budget resets daily, not by
+buckets; a tree's own rolled-up cost already existed via
+`ListRuns(rootsOnly=true)`'s `Run.TreeUsage`. The engine appends a late
+system-prompt line (after the cached prefix, so the provider's prompt
+cache over the rest of it stays valid) past 50% of any limit that
+applies — it has no notion of whether that limit came from the bundle, a
+task override, or this section's own tree narrowing, since by the time
+it checks it only ever sees one already-effective number, the same one
+`budget_exceeded`/`max_turns`/`max_run_duration` check. `Usage` also now
+carries `cached_input_tokens` (OpenRouter's
+`prompt_tokens_details.cached_tokens`); `Usage::budget_tokens(weight)`
+counts it at `budget.cachedInputWeight` (default 0.1) instead of full
+price for `maxTokensPerRun` — not persisted across a resume, which can
+only overcount a resumed run's spend, never undercount it.
+
+**Label budgets** (3.5, part), scoped down from the plan's own
+`labelBudgets` namespace-config wording to a per-deployment rule set,
+since there is no namespace-level budget config surface today (budgets
+are otherwise deployment-scoped) and building one is a separate, larger
+piece of product surface than this needed: `Budget.label_usd_per_day`
+(`"key=value" → maxUsdPerDay`, validated the same way a real task label
+is — `checkBudget`, `store.CheckLabels`). Unlike `max_usd_per_day`
+(which holds the *whole* deployment at zero instances once exhausted —
+see §5's autoscaler), an exhausted label only excludes the candidates
+that carry it:
+`Hub.exhaustedLabels` computes which configured rules have hit their
+`Store.LabelSpentToday` sum (bounded-fetch-then-filter-in-Go over today's
+runs, the same shape `ListEvents`'s own label filter already uses, since
+labels are JSON and this stays cross-dialect), and `NestAPI.LeaseTasks`
+releases a leased candidate carrying one right back
+(`Store.ReleaseTask(notStarted=true)`) rather than excluding it before
+the lease — deliberately avoiding any change to `Store.LeaseTasks`'s own
+SQL or signature (32+ existing call sites). A task waiting on an
+exhausted label reports `wait_reason: "label_budget"` (cached per
+deployment per response, in the same `deploymentWait` struct the
+deployment-wide reason already uses) — distinct from `"budget"`, since
+only *its own* work is held back, not the deployment's.
 
 **Hub leader**: several Hub replicas can serve the API; exactly one is leader
 and runs the scheduler, autoscaler and triggers. Leadership is a Store row
@@ -207,9 +368,32 @@ Cron schedules are standard 5-field expressions or descriptors (`@hourly`,
 `@every 30s`), evaluated in UTC unless prefixed `CRON_TZ=<zone>`. A window
 fires if the leader evaluates it within a minute of its due time; older
 windows are `missed`, except that a trigger with `catchUp` fires the latest
-missed window once (`redelivered`). Firing is exactly-once: the task's
+missed window once (`redelivered`), unless it is older than `catchUpWindow`.
+`jitter` spreads firing within a duration after the window is due
+(deterministic per window, so re-evaluating it is idempotent). `overlap`
+(`skip`, `buffer_one`, default `allow`) and `minStartSpacing` refuse to fire
+a window while an earlier firing's task is unfinished, or too soon after the
+previous firing; such a window is recorded `skipped`, not `missed`. Firing is exactly-once: the task's
 idempotency key is `cron:<trigger>:<due>` and events are unique per trigger
-and due time. A webhook caller presents the trigger's secret
+and due time.
+
+**Random triggers** (2.6): `count` times a day, planned within a
+`window` ("HH:MM-HH:MM", in `zone`, default UTC), at least `minGap`
+apart, on `days` (default every day) — `plannedRandomTimes` is
+deterministic, seeded by namespace/deployment/trigger/date the same way
+`jitterOffset` seeds cron's own jitter, so showing a trigger's planned
+times (`next_due_at`, via `stampRandomTimes`) and actually firing them
+later always agree, with nothing new persisted. `FireRandomTriggers`
+checks yesterday's and today's planned times each tick (only yesterday's
+can still be due and unfired at the start of a day); a time before the
+trigger's own `active_since` never fires, same no-back-fill rule cron's
+own `ActiveSinceMs` already enforces. Firing reuses the exact same `fire`
+helper cron does (now parameterized by `kind`, `"cron"` or `"random"`,
+since the idempotency-key/source prefix must keep the two kinds from
+colliding): the task's idempotency key is `random:<trigger>:<due>`,
+exactly-once by the same construction.
+
+A webhook caller presents the trigger's secret
 (`CreateWebhookSecret`, `agen webhook-secret`; only a hash is stored) as a
 bearer token, or, with `auth.type: hmac`, signs the raw body with a platform
 secret the deployment is granted (header, prefix, sha256/sha1, hex/base64
@@ -218,7 +402,22 @@ input; the idempotency key (the `Idempotency-Key` header, or the header or
 JSON body field the trigger names) makes redeliveries return the same task;
 an optional conversation key and the trigger's labels go on the task.
 Rejected calls are recorded as `rejected` events; configuration errors are
-logged on the deployment, not returned to the caller.
+logged on the deployment, not returned to the caller. Event triggers read the
+namespace's event log from a cursor per trigger (`trigger_cursors`, created
+at the newest event); each firing's idempotency key is `event:<trigger>:<seq>`,
+a trigger skips the events of its own tasks, `on.count` holds matching seqs
+until the count is reached within `on.within`, and a task records how many
+event triggers led to it (`event_chain`): at 5 the next firing is rejected. A
+held provider account keeps the cursor where it is.
+
+**Event coalescing** (M4, scenario S13): a trigger's `coalesce` (a Go
+duration, e.g. `"30s"`) merges a matching event that arrives while it
+already has a task queued in the target conversation into that task,
+instead of firing a separate one — the exact same
+`Store.MergeIntoQueuedConversationTask` mechanism "collect" queue mode
+uses, called from `fireEventTask` before it falls back to a plain
+`SubmitTask`. Unset (the default): every matching event still fires its
+own task, same as before this field existed.
 
 **Nest failure**: heartbeat missing for `nest_lost_after` → Nest marked `lost`,
 its Assignments are rescheduled, its task leases expire. Singleton sessions
@@ -277,7 +476,10 @@ instances it already reported keep reporting while they drain. Approval
 - `Hub.Resolve(ns/deployment)` returns the Gateway URLs of Nests assigned to it.
 - Gateway routes: `/a2a/<ns>/<deployment>` (JSON-RPC: `message/send`,
   `message/stream`, `tasks/get`) and
-  `/a2a/<ns>/<deployment>/.well-known/agent-card.json`.
+  `/a2a/<ns>/<deployment>/.well-known/agent-card.json`. The agent card
+  advertises A2A **1.0** (`gateway.A2AVersion`); the JSON-RPC methods and
+  the Task/Message/Part shapes this Gateway serves are unchanged from 0.3,
+  so an older client keeps working without a separate wire path.
 - A2A request metadata carries `traceparent`, `agen.depth`, `agen.root_run_id`,
   `agen.parent_run_id`, optional `agen.labels` and `agen.model_tier`, and the
   request carries the caller's call token (§10). Tasks carry the same lineage
@@ -288,31 +490,61 @@ instances it already reported keep reporting while they drain. Approval
   fails with "conversation already has an unfinished run".
 
 **Delegation** (sub-agents): an agent delegates only to another Deployment,
-either synchronously over A2A (`message/send`/`message/stream`, the
-`call_agent` tool) or asynchronously as a child Task
-(`NestService.SubmitChildTask`, lineage derived by the Hub; the `start_agent`
-tool). There are no hidden in-process sub-agents; skills cover in-agent specialisation. Limits
-(`Limits` on the Deployment): `max_delegation_depth` is checked by the receiving
-Gateway/Hub from `agen.depth`; `max_fan_out` is checked by the calling engine
-per run; `max_total_delegations` is an atomic counter per `root_run_id` in the
-Store, checked by the calling engine before each delegation.
+either unified through a child Task that `call_agent` itself waits on
+(3.2b, the default for a platform delegate) or synchronously over A2A
+(`message/send`/`message/stream`, `call_agent`'s own older path, kept for
+embedded/standalone agents, a delegate with a fixed `url`, or one with
+`via: "a2a"`), or asynchronously as a fire-and-forget child Task that the
+caller never waits on (`NestService.SubmitChildTask`, lineage derived by
+the Hub; the `start_agent` tool). There are no hidden in-process sub-agents;
+skills cover in-agent specialisation. Limits (`Limits` on the Deployment):
+`max_delegation_depth` is checked by the receiving Gateway/Hub from
+`agen.depth` (A2A) or by the Hub at submission (a child task); `max_fan_out`
+is checked by the calling engine per run; `max_total_delegations` is an
+atomic counter per `root_run_id` in the Store, checked by the calling engine
+before each delegation (once per call, by its `<run>.<step>.<call>` key, so
+a retry, resume or suspend/resume cycle is never counted twice).
 
 A bundle lists the deployments it may call in `x-agen/config.json`
-`delegates` (`name`, optional `namespace`, `url`, `description`); the engine
-exposes them through the `call_agent` tool (and `start_agent`, below).
-Without a fixed `url` the target is resolved through the Nest Manager's localhost `ManagerService.Resolve`
+`delegates` (`name`, optional `namespace`, `url`, `description`, `via`); the
+engine exposes them through the `call_agent` tool (and `start_agent`,
+below).
+
+**Unified delegation** (`call_agent`, 3.2b, the default for a platform
+delegate without a fixed `url` and without `via: "a2a"`): the same
+`ManagerService.StartTask` path as `start_agent` (below), but with no
+`reply_conversation_key` — the child's result comes back as this call's
+own result, not as a new message — and `call_agent` then waits on the
+child inline, up to `limits.inlineWait` (default 20s, `ManagerService.WaitTask`
+proxying the Hub's `NestService.WaitTask`, which polls like `GetTask`,
+capped at 60s per call). A child that finishes within the wait answers
+normally: its outcome's status and reason prefix the text (`[partial:
+max_turns] <report>`; nothing for a plain `done`), followed by its
+structured `data` if any — the same formatting the A2A path below has
+always used. A child that does not finish within the wait makes the whole
+run suspend (3.3) instead of blocking the instance for it. `call_agent`'s idempotency
+key for the child start is `call:<run>.<step>.<call>`, so re-checking it
+on resume (after a suspend, or a retry) always finds the same child rather
+than starting another one.
+
+**Synchronous A2A** (`call_agent`'s exception path: `url` set, embedded or
+standalone use, or `via: "a2a"`): without a fixed `url` the target is
+resolved through the Nest Manager's localhost `ManagerService.Resolve`
 (each instance gets `AGEN_MANAGER_URL` and its own `AGEN_MANAGER_TOKEN`), which
 asks the Hub (`NestService.Resolve`) and caches the answer, so delegation
-keeps working from the cache while the Hub is down. `Resolve` accepts a
-caller deployment that is assigned to the asking Nest or still has a live
-instance there (starting, ready, busy or draining), so a run on an instance
-draining after a scale-down or redeploy can keep delegating. The A2A message id is
-`<run>.<step>.<call>` and Gateways run a repeated message id as the same task,
-so `call_agent` is safe to repeat on retry or resume. `call_agent` waits up to
-75 min for an answer (a Gateway lets a call wait 10 min for an instance and
-run for 1 h). The callee's run continues the caller's trace (the traceparent
-names the caller's `agen.tool` span, which records the target as
-`agen.delegate.target`) and records `parent_run_id` / `root_run_id`.
+keeps working from the cache while the Hub is down — the reason this path
+still exists once 3.2b's unified path, which needs the Hub throughout, is
+the default. `Resolve` accepts a caller deployment that is assigned to the
+asking Nest or still has a live instance there (starting, ready, busy or
+draining), so a run on an instance draining after a scale-down or redeploy
+can keep delegating. The A2A message id is `<run>.<step>.<call>` and
+Gateways run a repeated message id as the same task, so this path is safe
+to repeat on retry or resume too. It waits up to 75 min for an answer (a
+Gateway lets a call wait 10 min for an instance and run for 1 h), blocking
+the instance for the whole wait — no suspension. The callee's run continues
+the caller's trace (the traceparent names the caller's `agen.tool` span,
+which records the target as `agen.delegate.target`) and records
+`parent_run_id` / `root_run_id`.
 
 **Async delegation** (`start_agent`, managed mode, delegates without a fixed
 `url`): the engine asks its Manager (`ManagerService.StartTask`), which
@@ -330,6 +562,271 @@ The idempotency key of the start is `start:<run>.<step>.<call>`, so a retried
 or resumed call returns the same task; `start_agent` counts against
 `max_fan_out` and `max_total_delegations` like `call_agent`.
 
+**Parent-close policy** (3.4, part): `Task.on_parent_end` ("cancel", the
+default and also what empty means, or "abandon") decides what happens to a
+task's own unfinished children when it ends (Temporal's term for the same
+idea). `taskFinished` (the Store hook every task-ending path already runs
+through, for events, locks and the parent's run_inbox) applies it: on
+"cancel" it finds the task's direct *joined* children (`reply_deployment`
+unset) still in `queued`, `leased`, `running` or `waiting`, cancels each one
+(ending its run the same way `CancelTask` does), and recurses into
+`taskFinished` for it — so a whole branch unwinds together, regardless of
+how deep it delegated. A child with `reply_deployment` set (every
+`start_agent` child today) is async by design — the whole point is to
+outlive the task that started it — so it is never cascaded, on either
+policy. "abandon"
+skips this and leaves them running with no parent left to report back to
+(their own `reply_deployment`/inbox target, if any, still applies). It is
+set on `SubmitTask`/`SubmitChildTask`/`agen run --on-parent-end`; neither
+`call_agent` nor `start_agent` expose it yet (their children keep the
+default).
+
+**Tree queries** (3.4, part): `Task.root_task_id` names the tree a task
+belongs to — a task with no parent is its own root; `SubmitTask` defaults
+it to the task's own id when a caller leaves it unset, and `linkToCaller`
+and `SubmitChildTask` both carry the parent's own `root_task_id` down
+rather than deriving it fresh, so it stays correct no matter how deep a
+chain delegates. Unlike `root_run_id` (empty until a run attaches to the
+task), it is always set, which is what makes `GetTaskTree(task_id)` able to
+resolve a whole tree from any task in it, including one still queued:
+it looks up that task, then returns every task sharing its `root_task_id`
+(`agen tree <task-id>`).
+
+**Tree-wide cancel** (3.4, part): `CancelTask(id, tree=true)` cancels every
+unfinished task of `id`'s whole tree, resolved through `root_task_id` the
+same way `GetTaskTree` does — one flat query, not a parent-by-parent walk.
+Unlike the parent-close policy's automatic cascade (which deliberately
+skips async children), this touches every task of the tree, including an
+async one: cancelling a whole tree on purpose is a different thing from a
+task quietly ending. It still runs through the same `taskFinished`, so a
+task the parent-close policy already cascaded onto while this walk was
+running (processed moments earlier in the same transaction) is picked up
+and reported too, not double-cancelled. Only hard cancel exists today
+(stopped at once, same as the single-task path) — a graceful mode (give
+each run a last report turn, the Hub finishing stragglers after a grace
+period) is not built yet, nor is `tree=true` wired into `agen cancel`'s A2A
+counterpart.
+
+**Progress and query** (3.4, part: 2.33's query half and 2.34): the
+built-in `report_progress(step, done?, total?, note?, artifacts?)` tool —
+registered unconditionally in `AgentBuilder::build()`, like `finish` and
+`save_artifact` — calls out to the Manager (`ManagerService.ReportProgress`
+→ `NestService.ReportProgress`, mirroring `WaitTask`'s engine-initiated
+round trip) when one is configured (`AgentBuilder::task_starter`; outside
+managed mode the tool no-ops with a friendly result instead of erroring).
+`NestAPI.ReportProgress` is deliberately low-stakes: unlike
+`CompleteTask`/`SuspendTask` there is no lease fencing (the engine has no
+lease id to send), just `requireNest` and a no-op on an already-terminal
+task, since the engine has no way to know that before calling. It stores
+the latest value on `Task.progress` and appends a `task.progress` event,
+rate-limited to one per 10-second bucket per task (`AppendEventOnce` with
+a `progress:<task>:<bucket>` dedupe key) — the event log is the history,
+the column only ever holds the latest. `QueryTask(id)` reads it back
+alongside a simplified cut of `GetActivity`'s own per-run activity
+(`model`/`tool`/`idle`/`approval`, from the task's open span and pending
+approval; not `agent` for one waiting on a delegate, and none of
+`GetActivity`'s fleet-wide warnings) and the outcome, without `GetTask`'s
+`wait_seconds` — a lighter read for a caller or a person checking in on
+long work.
+
+**Signals and queries** (3.4, part: 2.33): `signal_agent(task, message)`
+and `query_agent(task)` are the same idea as `start_agent`/`call_agent`
+but without going through delegation bookkeeping — a run checking in on,
+or sending a message to, a task it (directly or transitively) delegated
+to. Both are built-in, registered unconditionally like `report_progress`,
+and both reach the Hub through a *descendant-scoped* round trip:
+`ManagerService.{Query,Signal}ChildTask` → `NestService.{Query,Signal}ChildTask`,
+each carrying the calling task's own id (`ToolContext::task_id`) alongside
+the target's. `NestAPI.isDescendant` walks the target's `parent_task_id`
+chain up to the caller (bounded, generous next to any realistic
+`max_delegation_depth`) and refuses `PermissionDenied` if it never reaches
+it — "only your own descendants," not any task you happen to know the id
+of. `QueryChildTask` is `QueryTask`'s own logic (factored into
+`Hub.queryTaskProto`, shared by both RPCs) with that check in front.
+`SignalChildTask` writes a `run_inbox` row (`kind: "signal"`, `ref`: the
+caller's task id) and emits `task.signalled`, waking the target if it
+happens to be waiting on exactly this signal.
+
+**Draining the inbox into a running run** (3.4/3.9, part): the gap 3.3
+originally left — "turning a `run_inbox` row back into a tool result or a
+message is engine work, not implemented yet" — is now closed for rows
+other than `"child"`. Before each model call, `Agent::drive_inner` calls
+`AgentBuilder::task_starter`'s `drain_inbox(task_id)` (managed mode only;
+a no-op without a starter, or without a `task_id` — standalone/embedded
+runs have neither), which reaches `ManagerService.DrainInbox` →
+`NestService.DrainInbox` → `Store.DrainInbox`: claims (sets
+`consumed_ms`, atomically with the read) every unconsumed row of the
+task other than `"child"` — those stay the `call_agent` resume path's own
+business, never read generically — oldest first. A `"signal"` row becomes
+a new user message, `"[Signal from task <ref>] <payload>"`, folded into
+the very next request to the model; any other kind is claimed (so it
+does not pile up) but not yet turned into anything, ready for `"cancel"`
+(graceful tree cancel) or `"steer"` (queue mode) rows once those exist.
+Like `ReportProgress`, `NestAPI.DrainInbox` has no lease fencing
+(`requireNest` only) — low stakes, since claiming is idempotent and the
+worst case is a stale instance's drain racing a real one for the same
+row. A failed drain (the Hub unreachable, say) is logged and the turn
+goes on without it — this must never be the reason a run stalls, the
+same invariant the direct-Store write path protects for runs/spans.
+
+**Join** (3.4, part): `start_agent` without `detach: true` (the default,
+decided by the user 2026-10-23, §9 item 2 of the implementation plan — a
+deliberate behaviour change from every earlier version) ties the child to
+the caller's own task instead of replying into the conversation: no
+`reply_conversation_key` is sent, so `Task.reply_deployment` stays unset,
+the same signal the parent-close policy already uses to mean "joined."
+Two checks share one `TaskStarter::unfinished_children(task_id)` →
+`ManagerService.UnfinishedChildren` → `NestService.UnfinishedChildren` →
+`Store.CountUnfinishedChildren` round trip (counts only direct, unfinished,
+joined children — async ones and grandchildren never count): the built-in
+`finish` tool refuses a `done` call while it is positive (`"N child
+task(s) you started are still running; wait for them (query_agent) or
+cancel them, then call finish again"`, a normal tool error, not a run
+failure), and `Agent::drive_inner` checks it unconditionally at the same
+point it drains the inbox — before every model call, not only after
+`finish` is attempted — suspending with `wait_for: "children"` instead of
+asking the model again. Unlike `call_agent`'s inline-wait suspend, this
+one does not wait for the child to be slow at all: a run that starts a
+joined child and has nothing else pending suspends immediately. Waking
+reuses 3.3's own `run_inbox`/`taskFinished` wake-on-match, extended
+(`writeInboxRow`'s matching SQL) to also satisfy a `"children"` wait on
+*any* `"child"` kind row, not only an exact `"child:<id>"` — so whichever
+child finishes first wakes it, the model decides whether to keep working
+or try `finish` again. Neither check ever blocks or suspends on a failed
+RPC (the Hub unreachable, say) — only a confirmed positive count does,
+the same fail-open posture as every other platform-only check. Found by
+the real end-to-end test that was written specifically because this
+change was considered the riskiest of the session so far, not caught by
+any mock: `UnfinishedChildrenResponse.count` is an `int64`, which protojson
+renders as a JSON *string* (to avoid precision loss in JS) — the Rust
+client's first version read it with `Value::as_i64()`, which returns
+`None` for a JSON string, silently defaulting to 0 and never suspending.
+A positive count was never once detected outside of unit tests using a
+mock that skipped real JSON entirely. Fixed by accepting either a JSON
+number or a numeric string.
+
+**Hold** (3.4, part): `PauseTask(id, tree=false, until?, reason?)` /
+`ResumeTask(id, tree=false)` reuse join's own suspend mechanism rather than
+adding a new one. `Task` gains `held`, `held_until` and `hold_reason`;
+`LeaseTasks` skips a held, still-`queued` task lazily (its own `WHERE`
+clause, `held = 0 OR held_until_ms <= now`, needs no active sweep since
+the leasing query itself already looks at every queued task each tick).
+A `leased`/`running` task is not touched at hold time — the engine notices
+at its own next turn boundary, the same place it checks
+`unfinished_children`: `TaskStarter::is_held(task_id)` →
+`ManagerService.IsHeld` → `NestService.IsHeld` → `Store.IsHeld` (effective
+held: `held && (held_until_ms == 0 || held_until_ms > now)`, so a passed
+deadline reads as not-held without anything having to clear the stored
+flag first) and, if held, `drive_inner` returns `Outcome::Suspended("resume")`
+instead of calling the model again. `ResumeTask` is the only thing that
+wakes a task waiting specifically on `wait_for: "resume"` — unlike join's
+wait, nothing else would, since a hold is not an event anything else
+writes to `run_inbox` for. A `waiting` task's own deadline (if any) is
+woken by a new scheduler-tick sweep, `Store.WakeExpiredHolds`, mirroring
+`ExpireOverdueTasks`'s reason for existing: a waiting task holds no lease,
+so nothing else would notice its deadline passed. `PauseTree`/`ResumeTree`
+(like `CancelTree`) touch every task of the whole tree by `root_task_id`,
+including async ones — an explicit hold is not the automatic
+`on_parent_end` cascade. `is_held` returns a bare bool rather than the
+deadline itself: a deadline is the Hub's job to act on (lazily or via the
+sweep), not the engine's, and a bool sidesteps the int64/protojson string
+pitfall `unfinished_children` hit entirely.
+
+**Deployment-wide hold** (2.8): `PauseDeployment(ref, paused=true, hold_runs=true, until?, reason?)`
+also holds every currently unfinished task of the deployment —
+`Store.HoldDeployment`/`ResumeDeploymentHold` apply the exact same
+`held`/`held_until_ms`/`hold_reason` columns `PauseTask`/`PauseTree`
+already use, just scoped by namespace+deployment instead of a single
+task or `root_task_id`. No engine change was needed: a leased/running
+task's own `is_held` check (above) already notices the flag at its next
+turn boundary regardless of who set it. A resume (`paused: false`)
+always clears any hold this put in place, whether or not that call also
+asks for `hold_runs`. Exposed via `agen stop --hold-runs [--at|--in]
+[--reason]`; `agen start` resumes both the pause and any hold.
+
+**Graceful cancel** (3.4, part): `CancelTask(id, tree=false, mode="hard"|"graceful", grace_period_seconds?)`.
+`mode: "graceful"` gives every task of the scope (just `id`, or the whole
+tree with `tree=true`) that is currently `leased` or `running` a last
+turn before `CancelTask`/`CancelTree`'s existing hard stop reaches it:
+`Hub.gracefulCancel` writes each one a `"cancel"`-kind `run_inbox` entry
+(`Store.WriteInbox`, the same table/mechanism `signal_agent` and drain
+already use) and then blocks — polling, the same `h.Poll`-interval
+pattern `GetTask`'s `wait_seconds` uses — until either all of them reach
+a terminal state or `grace_period_seconds` passes (default 20s, capped at
+5 minutes), before falling through to the unchanged hard
+`CancelTask`/`CancelTree` call, which only has an effect on whatever is
+still unfinished. A `queued` or `waiting` task has no live turn to give a
+last chance to, so it is always stopped at once regardless of mode — only
+`leased`/`running` tasks get the cancel entry. On the engine side,
+`drive_inner`'s existing inbox drain (built for `signal_agent`) now also
+turns a `"cancel"`-kind entry into a user message asking the model to
+call `finish` with whatever it has, phrased so the model understands it
+will be stopped shortly either way; this needed no new engine mechanism,
+only a second case in the same `kind` match the drain already had.
+Exposed via `agen cancel --mode graceful --grace <duration>` and
+`CancelTask.mode`/`.grace_period_seconds` (feature `tasks.cancel-graceful`).
+No new Task columns, no new sweep: the grace period is enforced entirely
+by `CancelTask`'s own call blocking, so a caller's response already
+carries the final outcome (`SUCCEEDED`/`FAILED`/etc. if the run wrapped up
+in time, `CANCELLED` otherwise) with no further polling needed on the
+caller's side either.
+
+**`steer`/`interrupt` queue modes** (3.9, part): `conversations.queueMode`'s
+remaining two values, alongside `followup` (default) and `collect`.
+`steer` delivers a new submission into the conversation's currently
+`leased`/`running` task as a `"steer"`-kind `run_inbox` entry
+(`Store.RunningConversationTask` finds it; conversation ordering
+guarantees at most one) instead of queuing it separately — the
+drive_inner's inbox drain turns it into a user message
+(`"[New input for this conversation] <input>"`) before the run's next
+model call. This is deliberately shaped like a Temporal Signal rather
+than an Update: fire-and-forget, no independent result of its own (the
+`SubmitTaskResponse` is the running task itself, the same way `collect`
+returns the task it merged into rather than a new one); a caller after a
+result should query that task, not treat the steer submission as having
+one. `steer`'s own idempotency-key gap stands (a repeated steer delivers
+its payload again); `collect`'s is now closed, see below. `interrupt` reuses graceful cancel's own mechanism
+(`Hub.gracefulCancelReason`) on the conversation's running task — a new
+`Hub.InterruptGrace` field (default `defaultGracePeriod`, since
+`SubmitTask` has no field of its own for a longer one, unlike
+`CancelTask`'s request-level override) — then queues the new submission
+as its own, independent task once the old one ends, one way or the
+other. This mirrors Temporal's own cancellation model: cooperative (the
+run decides how to respond, same "cancel" inbox entry/wrap-up-and-finish
+path graceful cancel uses) and a run that finishes on its own within the
+grace period ends however it finished, not cancelled — only a survivor
+past the deadline is hard-stopped. Neither mode needed a new Task column,
+proto field, or RPC: both are entirely `SubmitTask`-side branches on the
+existing `conversations.queueMode` string and `Store.WriteInbox`/
+`Hub.gracefulCancel`, which already existed for signal_agent and graceful
+cancel respectively. With nothing running in the conversation right now
+(it's idle, queued, or suspended waiting on something else), both modes
+fall through and queue normally, same as `followup`.
+
+**`collect`'s idempotency-key gap, closed**: a merge now checks a new
+`task_merge_keys` table (namespace, deployment, idempotency_key → task_id)
+before merging, in `Store.MergeIntoQueuedConversationTask` — a submission
+whose key was already used, either as some task's own original
+`idempotency_key` or recorded here by an earlier merge, returns that same
+task instead of merging a second time; a successful merge then records
+its own key there, if it has one. Event-trigger coalescing (above) shares
+this same merge call, and the same fix, for free.
+
+**`SubmitTask.delivery`** (3.9, part): overrides `conversations.queueMode`
+for one submission, when the deployment allows a mode that reaches it
+(any value, including `""`/`followup`, which always falls through to a
+plain queued submission regardless of the deployment's own policy) —
+`Hub.SubmitTask` picks `req.Msg.Delivery` over `PolicyOf(d).Conversations`
+when it is set, then runs the exact same `collect`/`steer`/`interrupt`
+branches as before. Lets a `followup` deployment still have one urgent
+submission interrupt or steer the running conversation without changing
+the deployment's default for everyone else. `agen run --delivery MODE`.
+
+The rest of the "Tree" design is otherwise done; 3.9's queue modes are
+now all four built. These eight (parent-close, `GetTaskTree`, tree-wide
+cancel, progress/query, signals/queries, join, hold, graceful cancel) are
+3.4's pieces so far.
+
 ## 7. Engine model
 
 Agent → Session → Conversation → Run → Span.
@@ -346,6 +843,61 @@ Agent → Session → Conversation → Run → Span.
   reads the same tables for the fleet view, logs and daily budgets. If the
   Store is unreachable, new runs fail fast and in-flight runs stop at their next
   checkpoint write.
+- **Cassettes and `agen replay`** (3.6, part): a deployment whose
+  `x-agen/config.json` sets `recordInteractions` has its real provider
+  wrapped in `RecordingProvider` (`from_harness`, which already builds the
+  "fake"/"replay"/"openrouter"/"openai" providers from the same file —
+  this was the only new wiring needed, since `ReplayProvider` itself
+  already existed, built for hand-authored test cassettes via
+  `harness.json`'s own `{"provider": "replay", "cassette": "..."}`, just
+  never driven by a production run's own recording before). Once a run
+  ends, `agent.rs` saves the wrapped provider's recorded interactions
+  (full prompts and tool-call payloads — a `ModelProvider::recorded_cassette()`
+  trait method, `None` for every other provider) straight to the Store, the
+  same direct write path as everything else here; off by default. `agen
+  replay <run>` (`GetCassette` + `GetDefinition`) reassembles the run's own
+  bundle with its `harness.json` rewritten to point at the saved cassette,
+  then drives it with `agen-host run`'s existing standalone path —
+  deterministic, offline, no Hub task. Cassettes age out with the same
+  retention sweep as spans and logs (`PruneObservability`), not a separate
+  setting. Resuming from a specific turn with a live model from there on
+  (`--turn`/`--model`) needs a provider that can switch mid-replay from the
+  cassette to a live call, which does not exist yet.
+- **`agen eval`** (§6 learning and testing, part): `agen eval <bundle-dir>
+  --scenarios DIR --runs N` runs every scenario file N times and reports
+  pass@1/pass^k. A scenario names an `input`, optional `mockedTools`
+  (tool name → canned response), optional `rules` (`mustContain` /
+  `mustNotContain` substring checks) and an optional `rubric` (`criteria`
+  plus `passThreshold`, scored 0–1 by one extra call to the bundle's own
+  model provider — a judge prompt, not a new provider). Mocking connects
+  to the bundle's real `mcp.json` servers once, to learn their tool specs,
+  then never calls them again: a mocked tool's call returns the scenario's
+  canned value directly, and any tool the scenario does not mock errors
+  instead of reaching a live server, so repeated eval runs stay
+  deterministic and side-effect free. All of this is local: `agen-host
+  eval` (new subcommand) does the run+score work per scenario file, `agen
+  eval` loops it the same way `agen replay` drives `agen-host` directly,
+  no Hub task or deployment involved.
+
+  **Eval history** (2.43, part): `eval_reports` (namespace, deployment,
+  definition_digest, the CLI's own per-scenario JSON report, created_ms)
+  persists every report `agen deploy --require-eval` runs, via
+  `RecordEvalReport`/`ListEvalReports` (the same write+list RPC shape
+  `RecordFeedback`/`ListFeedback` already use). `agen deploy
+  <bundle-dir> --require-eval [--scenarios DIR] [--eval-runs N]`: scenario
+  files default to `x-agen/evals/` inside the bundle (or `--scenarios`
+  explicitly); every one must pass^k or the deploy never happens — no
+  `CreateDeployment`/`UpdateDeployment` call is made at all. Once it
+  deploys, the report is recorded against the now-created/updated
+  deployment; a report already on file for that deployment is compared
+  against the new one first, printing one line per scenario that flipped
+  (`regressed: <name> now fails (passed last eval)` / `fixed: <name> now
+  passes (failed last eval)`) — silent for anything unchanged or new,
+  since only a change is worth a look. `agen eval history <deployment>`
+  reads the recorded reports back, newest first. `replay --turn N
+  [--model]` (replay recorded calls up to a point, then switch to a live
+  model) still needs a new replay-then-live composite provider, a
+  separate, meaningfully-sized piece of engine work — not attempted here.
 - **Run ownership**: every run has an `owner` and an `epoch`. Every
  checkpoint (message + progress, one transaction) and the final status write
  check the epoch; `resume` claims the run and increments it, so a previous
@@ -362,9 +914,11 @@ Agent → Session → Conversation → Run → Span.
   and the model is told `effect_unknown`.
 - **Model context**: history from earlier runs in the conversation is trimmed
  oldest-first to fit `context_tokens` (harness `contextTokens`, default
- 64000; always starting at a user turn). When the current run's own messages
+ 64000, lowered to half the model's window when OpenRouter reports a smaller
+ one; always starting at a user turn). When the current run's own messages
  exceed it, their oldest tool results (longer than 600 characters, except the
- latest four) are cut to their first 300 characters plus a note, in blocks of
+ latest four and `load_skill` results) are cut to their first 300 characters
+ plus a note naming the tool and turn, in blocks of
  eight, until the run fits in about two thirds of the budget; working in
  blocks makes the request prefix (and so the provider's prompt cache) change
  rarely. The Store keeps every message in full. Tool calls without a recorded result
@@ -374,20 +928,56 @@ Agent → Session → Conversation → Run → Span.
  description) to load with `load_skill`.
 - **Model turn**: the configured model, retried on rate limits and server
  errors, then each of `fallbackModels` in order. An empty answer (no text, no
- tool calls) is asked again once before moving on; if every model gives none,
- the run fails with `no_answer`. Account errors (HTTP 401/402/403) end the turn
- at once (§8). A model-call span records the served model
- (`gen_ai.response.model`), the model sent and `agen.fallback` when a fallback
- served it, and for routing models the tier (`agen.router.tier`) and the
- router's reported decision (`agen.router.*`).
+ tool calls) is asked again once before moving on, and an answer cut off at
+ the output limit with nothing usable is asked again once with twice the
+ limit; if every model gives none, the run fails with `no_answer`. Account errors (HTTP 401/402/403) end the turn
+ at once (§8), **unless `harness.fallbackProviders` names another provider
+ (2.30)**: each one is a full, separate account (its own provider, model,
+ fallbackModels, baseUrl, apiKeySecret), tried in order only on an account
+ error — never a transient one, and never just because a model on the
+ current provider kept failing (that's what `fallbackModels` is for).
+ Built the exact same way the primary is (`from_harness` against a bundle
+ clone with only the harness swapped), so a fallback entry gets script/
+ cassette path resolution, `${SECRET}` expansion and the api-key-secret
+ env-var fallback for free, with no second config surface. A model-call
+ span records the served model (`gen_ai.response.model`), the model sent
+ and `agen.fallback` when a fallback model served it, `gen_ai.provider.name`
+ and `agen.fallback_provider` when a fallback *provider* served it instead,
+ and for routing models the tier (`agen.router.tier`) and the router's
+ reported decision (`agen.router.*`).
 - **Budgets**: token budgets always apply; USD budgets only when the provider
  reports cost (OpenRouter does, direct OpenAI does not).
+- **Guards**: tools a static `deny` rule matches are left out of the model's
+ tool list; the same call failing with the same error 3 times in a row is
+ refused; `limits.stuckRepeats` identical turns (calls and results) get one
+ nudge, then the report call with reason `stuck`. Direct OpenAI requests send
+ `max_completion_tokens` instead of `max_tokens`.
+- **Outcome**: every finished run stores an outcome (`runs.outcome`, JSON:
+ status, reason, summary, data, artifacts, inputFrom) and the Manager copies
+ it to the task (`CompleteTask.outcome`, `tasks.outcome`). The engine's
+ built-in `finish` tool sets it (checked against harness `result.schema`; it
+ bypasses permissions); its accepted call is recognised from the stored turn,
+ so a resumed run ends the same way. A plain answer is `done`. At
+ `maxTurns`, `maxRunDuration` or a run budget the engine adds a user note and
+ makes one call with `tool_choice: none` and `limits.reportTokens` output, and
+ the run ends `partial` with that report (`reportTokens: 0`: it fails as
+ before). Work ended by the Hub (cancel, lease expiry) or by older hosts gets
+ the outcome its state implies in API responses. The Gateway maps
+ `needs_input`/`rejected` to A2A `input-required`/`rejected` and adds
+ `agen.outcome` metadata and a data part.
 - **MCP server isolation**: stdio servers get a cleared environment
   (a small allowlist such as PATH/HOME/TEMP) plus only their declared `env`,
   never the host's credentials. They run in a Job Object (Windows) or process
   group with parent-death signal (Linux) so they die with the host. A dead
   server makes the host report `ready: false` in Health so the Manager
-  replaces it.
+  replaces it. **Reconnect in place** (2.13): independently of that
+  whole-host replacement, a single tool call whose own server died
+  retries once, against a freshly reconnected server, for a call safe to
+  repeat (idempotent, or read-only in the first place) — `ServerConn`
+  holds the one live connection per server, shared `Weak` (so it never
+  keeps the server alive on its own, the same property a `Peer` clone
+  always had) across every tool of that server, so a reconnect replaces
+  what all of them see, not just the one that noticed first.
 - **Host callbacks**: a running agent reaches the platform only through its
   Manager's localhost `ManagerService` (approvals, platform secrets, resolve
   with call tokens). Hosts never call the Hub.
@@ -413,7 +1003,50 @@ Agent → Session → Conversation → Run → Span.
   call order.
 - Every MCP call carries `_meta` keys `agen/namespace`, `agen/deployment`,
   `agen/taskId`, `agen/runId`, `agen/rootRunId`, `agen/conversationId`,
-  `agen/conversationKey`, `agen/labels` and the `traceparent`.
+  `agen/conversationKey`, `agen/labels`, `agen/trust` (2.12, part — the
+  calling run's current trust, already lowered by any taint, so a tool
+  server can decide for itself whether a sensitive action fits the
+  caller), `agen/workspace` (2.45, part — the run's workspace directory,
+  empty when the bundle sets no `workspace`), `agen/locks` (1.5, part —
+  every lock the run currently holds, name -> fencing token, omitted when
+  it holds none) and the `traceparent`.
+
+**A tool server submitting its own task** (2.12, part — documented, not
+built further): a tool server reached via `_meta` already has everything
+it needs to submit a *same-conversation* task today, with its own public
+API token, no new mechanism at all — pass `_meta`'s `agen/conversationKey`
+as `SubmitTaskRequest.conversation_key` (so it lands in the same thread,
+sharing memory and history) and `agen/trust` as `SubmitTaskRequest.trust`
+(narrowing never raising it, same as any other caller), copying
+`agen/labels` through if it wants them carried along. This is deliberately
+*not* a true tree-linked child task (no shared `root_task_id`, no tree
+budget narrowing, no automatic cascade-cancel when the calling run ends):
+`SubmitChildTask`, the RPC that gives those, is `NestService`-only,
+authenticated by a Nest's own mTLS credential — a tool server has none,
+and the public `SubmitTaskRequest` has no `parent_task_id` field at all.
+Giving a tool server real tree-linkage would need a new, security-
+sensitive mechanism first — some signed capability token proving a given
+call genuinely acts on behalf of a specific task before the Hub accepts
+a claimed linkage on the public API, comparable in sensitivity to the
+A2A call-token trust boundary (§3.7) — not a quick SDK addition, and not
+attempted here.
+
+**Task workspaces** (2.45): `config.json` `workspace: {mode, retain}`.
+`mode` is `per_task` (its own directory, removed when the run ends unless
+`retain`), `per_conversation` (shared by every task of one conversation,
+keyed by `conversation_key`, never auto-removed) or `shared` (one
+directory for the whole deployment, never auto-removed). The host
+creates it (`AGEN_WORKSPACE_ROOT`, default the OS temp directory's own
+`agen-workspaces`, namespaced by namespace/deployment) before the run's
+first model call, tells the model about it in the system prompt, and
+passes it to every MCP server via `_meta` `agen/workspace` — any tool
+server that wants to read or write files there reads that key itself;
+the host does not pass it any other way. A task or run id missing (the
+run has neither, e.g. standalone use) falls back to the run id, so
+`per_task`/`per_conversation` still get a directory of their own rather
+than colliding on an empty key. Directory creation and removal are both
+best-effort: a failure is logged, never fails the run over something
+optional.
 - A failed tool call's span carries `error.message` (redacted, at most 1000
   characters), so a trace explains the failure without the transcript.
 - A run's top-level span is written as `unfinished` when the run starts. On
@@ -433,6 +1066,89 @@ Agent → Session → Conversation → Run → Span.
   Approval arguments are redacted before they are persisted or shown. With
   `permissions.notify`, the Hub POSTs each new pending approval to that URL,
   signed with a granted platform secret if one is named.
+- Trust (3.7): every task has one (`operator` > `trusted` > `untrusted`), set
+  by its source (an API token's `trust`, default `trusted`; a webhook
+  trigger's, default `untrusted`; cron, always `trusted`) and narrowed, never
+  raised, by a child (`start_agent` sends the caller's current trust). A tool
+  marked `untrustedOutput` (bundle config, or an MCP server's `openWorldHint`)
+  drops the run's trust to `untrusted` for the rest of the run the first time
+  it is called, logged as `agen.trust.lowered` on the tool span. A permission
+  rule's `when` conditions it on the run's current trust and more (1.3),
+  evaluated alongside the plain deny → ask → allow match: `trust` /
+  `trustBelow` (the engine tracks the run's trust in memory; it is not
+  persisted, so a resumed run restarts from the task's original trust),
+  `args` (every named argument of the specific call must match — a glob, a
+  numeric `lt`/`lte`/`gt`/`gte`, or else an exact value; a call argument the
+  rule names but the call omits never matches, and a rule with an `args`
+  condition never narrows the tool list shown to the model, since no
+  specific call exists yet there), `labels` (every named label of the task
+  must equal this value) and `time` (a "HH:MM-HH:MM" UTC time-of-day window,
+  optionally also limited to `days`; no time zone database dependency).
+  `rate`, a count in a window, is not yet implemented — it needs its own
+  persistent counter, a bigger piece than the others here.
+- Feedback: a judgement on how a task went (score 0.0-1.0, labels, a note, who
+  gave it), recorded by `RecordFeedback` and read back by `ListFeedback`.
+  `DecideApproval` records one too (`by: "approval"`, score 1.0/0.0), so
+  approvals and explicit ratings land in the same place.
+- Memory blocks (3.10, part): durable, namespace-scoped named text
+  (`memory_blocks`: namespace, id, label, description, value, limit_chars, a
+  version bumped on every update), attached in `x-agen/config.json` `memory`
+  (`block`, `mode`: `read` / `append` / `write`) and rendered into the system
+  prompt, read fresh from the Store on every model call — not just once at
+  the start of a run — so two parallel conversations of the same agent
+  already see each other's writes at their very next turn. With a
+  non-`read` attachment the engine registers a `memory_update` tool
+  (`replace` / `append` / `str_replace`, an optional `expectedVersion`
+  compare-and-set) so parallel conversations cannot silently overwrite each
+  other; `SetMemoryBlock` (people, via `agen memory set`) always replaces
+  the value outright. The same `memory` list also carries live context
+  sources (1.8): a `url` entry instead of `block` is fetched with a plain
+  HTTP GET before every model call (`maxChars`, default 4000; `timeoutSeconds`,
+  default 5), rendered after the durable blocks as `## Live: <url>`; any
+  failure (unreachable, non-2xx, timeout) just leaves it out of that turn's
+  prompt rather than failing the run — it is read-only, so `memory_update`
+  never lists it. An `mcp` live source (reading an MCP resource instead of
+  a URL) is not yet implemented — this engine has no MCP resources/read
+  client at all yet, today it only calls tools.
+
+**Rollover** (1.8, part), `x-agen/config.json` `rollover: {prompt}`, off
+by default (no key at all: the exact old trimming behavior, nothing
+changes). `request_messages` already trims a conversation's own history
+oldest-first once it no longer fits `context_tokens`; with rollover on,
+the chunk about to be dropped is folded into a running summary — one
+extra call to the agent's own model provider, the same one-off-call
+pattern `agen eval`'s judge uses — instead of just disappearing.
+`conversations.summary`/`summarized_through` (how many of the
+conversation's own messages, oldest first, are already folded in) persist
+it; a message past that point is never resent raw again, but stays in
+`messages`, fully readable by anyone reading the conversation back
+directly — rollover only changes what reaches the model, never what the
+Store keeps. The summary is prepended to what's sent as a plain user
+note, `[Earlier conversation summary]`, every turn it's non-empty, not
+only the turn a cut just happened on. A failed summarization call logs a
+warning and drops the chunk without one, same as before rollover existed,
+rather than failing the run over something optional.
+- Artifacts (3.8, part): named, content-addressed text (`artifacts`:
+  namespace, id = `sha256:<hex>` of content, name, media_type, size, content,
+  task_id, run_id) an agent saves with the built-in `save_artifact` tool
+  and reads back with `read_artifact` (paged by `offset`/`length`), or
+  people read with `GetArtifact`/`ListArtifacts` (`agen artifacts`). Like
+  `finish`, both tools are available to every agent and bypass the
+  bundle's permissions and any task overrides entirely (storage mechanics,
+  not an action on the outside world). Saving the same bytes again in a
+  namespace returns the existing row. Limits: 25 MB per artifact, 500 MB
+  per namespace. **Tool-result cap** (2.23/2.36, part): `harness.maxToolResultChars`
+  (default 32000 characters, 0 off) is applied in `Agent::invoke` to every
+  successful tool call's result, after redaction — MCP tools, `call_agent`/
+  `start_agent`/`query_agent` (delegate answers reach here the same way any
+  other tool's result does, no separate mechanism needed) and
+  `save_artifact`/`read_artifact` themselves alike. An over-cap result is
+  saved as its own artifact (the redacted text, so a secret never reaches
+  durable storage unmasked; identical content dedupes to the artifact
+  already saved) and replaced with a preview plus the artifact id and a
+  `read_artifact` call for the rest. Carrying an artifact id over A2A, in
+  `finish`'s own text, and Hub tools returning compact rows by default are
+  not yet implemented.
 - Secrets: resolved by name (env or the platform secret store; the OS keychain
   is reserved). Values
   are registered with a redactor that scrubs logs, spans, stored messages and
@@ -660,7 +1376,11 @@ One source: protobuf services in `spec/proto/agen/v1/`, served with Connect by t
 Hub, so the same handlers answer gRPC, Connect and plain JSON over HTTP
 (`POST /agen.v1.HubService/<Method>`). The MCP server at `/mcp` exposes the same
 RPCs as tools, generated from the proto descriptors, so REST, MCP and CLI
-cannot drift. The CLI and UI use the same API.
+cannot drift. The CLI and UI use the same API. `initialize` negotiates the
+MCP protocol revision: it echoes the client's `protocolVersion` back when
+this server still implements it (its `initialize`/`tools/list`/`tools/call`
+shape has not changed), else answers with its own latest
+(`mcpserver.ProtocolVersion`, **2025-11-25**).
 
 MCP transport is stateless streamable HTTP: JSON-RPC over `POST /mcp`
 (`initialize`, `ping`, `tools/list`, `tools/call`), answered with
@@ -675,6 +1395,24 @@ schemas and an example; `WhoAmI` returns the caller's scopes;
 `CreateDeployment`/`UpdateDeployment` with `validateOnly` check a bundle and
 return warnings without deploying. `GetTask` waits up to 300 s and returns
 early when the task starts waiting for an approval.
+
+**Event log**: the Store's `events` table holds one row per notable change
+(task queued/started/finished/needs_input, approvals, provider holds, missed
+triggers and rejected webhooks, deployment changes through the API), written
+in the same transaction as the change. Its `seq` comes from the single
+`event_seq` row, taken as the transaction's last write: the row lock keeps seq
+order equal to commit order, so a reader following a cursor never skips an
+event that commits late. `ListEvents` reads after a cursor with type, label,
+deployment and severity filters and an optional wait; the stream below
+carries the same events with `id: <seq>` and resumes from `Last-Event-ID`.
+Events are kept 7 days (pruned hourly by the leader); `agen migrate` copies
+them and the seq. Events announced once (budget thresholds, activity
+warnings, `task.stuck`) carry a unique dedupe key, so several Hubs or ticks
+write them once. The leader records `GetActivity` warnings every 30 s and
+delivers notification targets every tick: per target, in seq order from its
+stored cursor, one event at a time; a failure pauses the target (growing to
+5 min) with the error stored on it, and an event failing for an hour is
+dropped and counted.
 
 `GET /api/v1/events` streams change notices (server-sent events) for the
 caller's namespaces: tasks, runs, approvals, instances and deployments, and

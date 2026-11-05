@@ -27,7 +27,9 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
-  agen cancel <task-id>           cancel a task (a running one stops)
+  agen cancel <task-id>           cancel a task (a running one stops; --mode graceful gives it a last turn first)
+  agen pause <task-id>             hold a task (a running one suspends at its next model call)
+  agen resume <task-id>            end a hold started by agen pause
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks (--scheduled: waiting for their start time)
   agen providers [resume ACCT]    provider accounts held after an account error
@@ -35,7 +37,18 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
+  agen tree <task-id>              every task of the tree it belongs to
+  agen query <task-id>             its progress, current activity and outcome, without waiting on it
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
+  agen replay <run>                re-run a recorded run offline, from its saved cassette (needs recordInteractions on)
+  agen eval <bundle-dir>           run scenario files against a bundle with mocked tools, report pass@1/pass^k
+  agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
+  agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
+  agen feedback ls [name]         feedback, newest first (--label, --since)
+  agen memory set <id>            durable text an agent reads and updates (value on stdin)
+  agen memory ls                  memory blocks in the namespace
+  agen artifacts get <id>         an artifact an agent saved with save_artifact
+  agen artifacts ls [task]        artifacts in the namespace, or one task's
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -207,6 +220,10 @@ Usage of init:
 Usage of deploy:
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -eval-runs int
+    	runs per scenario for --require-eval (default 1)
+  -host-bin string
+    	agen-host executable, for --require-eval (default: next to agen, $AGEN_HOST_BIN, or on PATH)
   -hub string
     	Hub URL
   -json
@@ -217,6 +234,10 @@ Usage of deploy:
     	deployment name (default: bundle name)
   -replicas int
     	desired instances after deploying (default -1)
+  -require-eval
+    	run the bundle's eval scenarios first (agen eval) and refuse to deploy unless every one passes (2.43)
+  -scenarios string
+    	eval scenarios directory for --require-eval (default: x-agen/evals inside the bundle, if present)
   -token string
     	API token
   -validate
@@ -283,14 +304,22 @@ Usage of logs:
 
 ```text
 Usage of stop:
+  -at agen start
+    	hold-runs only: end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for agen start
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -hold-runs
+    	also hold every unfinished task of the deployment, not just stop leasing new ones
   -hub string
     	Hub URL
+  -in duration
+    	hold-runs only: end the hold this long from now (e.g. 30m)
   -json
     	print the API response as JSON
   -n string
     	namespace (default "default")
+  -reason string
+    	hold-runs only: why, for anyone who looks at a held task later
   -token string
     	API token
 ```
@@ -299,14 +328,22 @@ Usage of stop:
 
 ```text
 Usage of start:
+  -at agen start
+    	hold-runs only: end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for agen start
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -hold-runs
+    	also hold every unfinished task of the deployment, not just stop leasing new ones
   -hub string
     	Hub URL
+  -in duration
+    	hold-runs only: end the hold this long from now (e.g. 30m)
   -json
     	print the API response as JSON
   -n string
     	namespace (default "default")
+  -reason string
+    	hold-runs only: why, for anyone who looks at a held task later
   -token string
     	API token
 ```
@@ -337,6 +374,10 @@ Usage of run:
     	pin the Hub CA of an https Hub
   -conversation string
     	continue the conversation of earlier tasks with this key
+  -delivery string
+    	override the conversation's queue mode for this submission only: followup, collect, steer or interrupt
+  -expires-in duration
+    	fail as expired if still queued this long from now, instead of waiting indefinitely
   -hub string
     	Hub URL
   -idempotency-key string
@@ -347,16 +388,26 @@ Usage of run:
     	print the API response as JSON
   -label value
     	label the task, key=value (repeatable)
+  -lock value
+    	wait until this (and every other --lock) is free, then hold it until the task ends (repeatable)
   -n string
     	namespace (default "default")
   -no-wait
     	print the task id and return
+  -on-parent-end string
+    	what happens to this task's own children when it ends: cancel (default) or abandon
+  -priority string
+    	lease order within the deployment's queue: urgent, high, normal or background
+  -schedule-key string
+    	at most one queued task per deployment and key; submitting again with the same key cancels the queued one
   -tier string
     	cost tier for a routing model: low, medium, high, xhigh or max
   -timeout duration
     	how long to wait for the result (0: no limit); the task keeps running after it (default 10m0s)
   -token string
     	API token
+  -trust string
+    	a trust at most this high: operator, trusted or untrusted (default: the token's own)
 ```
 
 ## agen wait
@@ -383,6 +434,52 @@ Usage of wait:
 Usage of cancel:
   -ca-hash string
     	pin the Hub CA of an https Hub
+  -grace duration
+    	mode=graceful only: how long to wait for a last turn before stopping anyway (default 20s, capped at 5m)
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -mode string
+    	hard (default): stop at once. graceful: give each run a last turn to call finish before stopping it
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+  -tree
+    	cancel every unfinished task of its whole tree (its root and every descendant), not just this one
+```
+
+## agen pause
+
+```text
+Usage of pause:
+  -at agen resume
+    	end the hold at this time (RFC 3339, e.g. 2026-10-18T09:00:00Z), instead of waiting for agen resume
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -in duration
+    	end the hold this long from now (e.g. 30m)
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -reason string
+    	why, for anyone who looks at the task later
+  -token string
+    	API token
+  -tree
+    	hold every unfinished task of its whole tree (its root and every descendant), not just this one
+```
+
+## agen resume
+
+```text
+Usage of resume:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
   -hub string
     	Hub URL
   -json
@@ -391,6 +488,8 @@ Usage of cancel:
     	namespace (default "default")
   -token string
     	API token
+  -tree
+    	end the hold on every task of its whole tree, not just this one
 ```
 
 ## agen call
@@ -499,6 +598,38 @@ Usage of trace:
     	API token
 ```
 
+## agen tree
+
+```text
+Usage of tree:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen query
+
+```text
+Usage of query:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
 ## agen transcript
 
 ```text
@@ -517,6 +648,85 @@ Usage of transcript:
     	also the system prompt
   -token string
     	API token
+```
+
+## agen replay
+
+```text
+Usage of replay:
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -host-bin string
+    	agen-host executable (default: next to agen, $AGEN_HOST_BIN, or on PATH)
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -n string
+    	namespace (default "default")
+  -token string
+    	API token
+```
+
+## agen eval
+
+```text
+Usage of eval:
+  -host-bin string
+    	agen-host executable (default: next to agen, $AGEN_HOST_BIN, or on PATH)
+  -json
+    	print the full JSON report instead of a table
+  -runs int
+    	runs per scenario (default 1)
+  -scenarios string
+    	directory of scenario JSON files (required)
+  -store string
+    	store URL for the eval runs (default: a scratch SQLite database, removed after)
+```
+
+## agen events
+
+```text
+Usage of events:
+  -after int
+    	only events after this seq
+  -ca-hash string
+    	pin the Hub CA of an https Hub
+  -f	keep printing new events
+  -hub string
+    	Hub URL
+  -json
+    	print the API response as JSON
+  -label value
+    	only events with this key=value label (repeatable)
+  -limit int
+    	events (default 50)
+  -n string
+    	namespace (default "default")
+  -severity string
+    	only events at least this severe: info, warning or critical
+  -token string
+    	API token
+  -type value
+    	only this type (repeatable; "task." matches every task event)
+```
+
+## agen feedback
+
+```text
+usage: agen feedback record <task> --score S [--note TEXT] [--label k=v] | agen feedback ls [name] [--label k=v] [--since D]
+```
+
+## agen memory
+
+```text
+usage: agen memory set <id> [--title T] [--description D] [--limit-chars N] (value on stdin) | agen memory ls
+```
+
+## agen artifacts
+
+```text
+usage: agen artifacts get <id> | agen artifacts ls [task]
 ```
 
 ## agen triggers
@@ -612,7 +822,7 @@ Usage of approvals:
 ## agen notify
 
 ```text
-usage: agen notify set <name> <url> [--event E]... | agen notify ls | agen notify rm <name>
+usage: agen notify set <name> <url> [--event E]... [--deployment D] [--label k=v] [--severity S] | agen notify ls | agen notify rm <name>
 ```
 
 ## agen join-token
@@ -655,6 +865,8 @@ Usage of token create:
     	scope (repeatable)
   -token string
     	API token
+  -trust string
+    	trust tasks submitted with this token get: operator, trusted (default) or untrusted
   -ttl duration
     	validity (0 = no expiry)
 ```

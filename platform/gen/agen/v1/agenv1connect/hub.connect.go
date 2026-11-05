@@ -67,6 +67,14 @@ const (
 	HubServiceListTasksProcedure = "/agen.v1.HubService/ListTasks"
 	// HubServiceCancelTaskProcedure is the fully-qualified name of the HubService's CancelTask RPC.
 	HubServiceCancelTaskProcedure = "/agen.v1.HubService/CancelTask"
+	// HubServiceGetTaskTreeProcedure is the fully-qualified name of the HubService's GetTaskTree RPC.
+	HubServiceGetTaskTreeProcedure = "/agen.v1.HubService/GetTaskTree"
+	// HubServiceQueryTaskProcedure is the fully-qualified name of the HubService's QueryTask RPC.
+	HubServiceQueryTaskProcedure = "/agen.v1.HubService/QueryTask"
+	// HubServicePauseTaskProcedure is the fully-qualified name of the HubService's PauseTask RPC.
+	HubServicePauseTaskProcedure = "/agen.v1.HubService/PauseTask"
+	// HubServiceResumeTaskProcedure is the fully-qualified name of the HubService's ResumeTask RPC.
+	HubServiceResumeTaskProcedure = "/agen.v1.HubService/ResumeTask"
 	// HubServiceResolveProcedure is the fully-qualified name of the HubService's Resolve RPC.
 	HubServiceResolveProcedure = "/agen.v1.HubService/Resolve"
 	// HubServiceRequestWakeProcedure is the fully-qualified name of the HubService's RequestWake RPC.
@@ -102,12 +110,16 @@ const (
 	// HubServiceGetTranscriptProcedure is the fully-qualified name of the HubService's GetTranscript
 	// RPC.
 	HubServiceGetTranscriptProcedure = "/agen.v1.HubService/GetTranscript"
+	// HubServiceGetCassetteProcedure is the fully-qualified name of the HubService's GetCassette RPC.
+	HubServiceGetCassetteProcedure = "/agen.v1.HubService/GetCassette"
 	// HubServiceGetMetricsProcedure is the fully-qualified name of the HubService's GetMetrics RPC.
 	HubServiceGetMetricsProcedure = "/agen.v1.HubService/GetMetrics"
 	// HubServiceGetActivityProcedure is the fully-qualified name of the HubService's GetActivity RPC.
 	HubServiceGetActivityProcedure = "/agen.v1.HubService/GetActivity"
 	// HubServiceGetLogsProcedure is the fully-qualified name of the HubService's GetLogs RPC.
 	HubServiceGetLogsProcedure = "/agen.v1.HubService/GetLogs"
+	// HubServiceListEventsProcedure is the fully-qualified name of the HubService's ListEvents RPC.
+	HubServiceListEventsProcedure = "/agen.v1.HubService/ListEvents"
 	// HubServiceListProviderHoldsProcedure is the fully-qualified name of the HubService's
 	// ListProviderHolds RPC.
 	HubServiceListProviderHoldsProcedure = "/agen.v1.HubService/ListProviderHolds"
@@ -145,6 +157,28 @@ const (
 	// HubServiceDeleteNotificationTargetProcedure is the fully-qualified name of the HubService's
 	// DeleteNotificationTarget RPC.
 	HubServiceDeleteNotificationTargetProcedure = "/agen.v1.HubService/DeleteNotificationTarget"
+	// HubServiceRecordFeedbackProcedure is the fully-qualified name of the HubService's RecordFeedback
+	// RPC.
+	HubServiceRecordFeedbackProcedure = "/agen.v1.HubService/RecordFeedback"
+	// HubServiceListFeedbackProcedure is the fully-qualified name of the HubService's ListFeedback RPC.
+	HubServiceListFeedbackProcedure = "/agen.v1.HubService/ListFeedback"
+	// HubServiceSetMemoryBlockProcedure is the fully-qualified name of the HubService's SetMemoryBlock
+	// RPC.
+	HubServiceSetMemoryBlockProcedure = "/agen.v1.HubService/SetMemoryBlock"
+	// HubServiceListMemoryBlocksProcedure is the fully-qualified name of the HubService's
+	// ListMemoryBlocks RPC.
+	HubServiceListMemoryBlocksProcedure = "/agen.v1.HubService/ListMemoryBlocks"
+	// HubServiceGetArtifactProcedure is the fully-qualified name of the HubService's GetArtifact RPC.
+	HubServiceGetArtifactProcedure = "/agen.v1.HubService/GetArtifact"
+	// HubServiceListArtifactsProcedure is the fully-qualified name of the HubService's ListArtifacts
+	// RPC.
+	HubServiceListArtifactsProcedure = "/agen.v1.HubService/ListArtifacts"
+	// HubServiceRecordEvalReportProcedure is the fully-qualified name of the HubService's
+	// RecordEvalReport RPC.
+	HubServiceRecordEvalReportProcedure = "/agen.v1.HubService/RecordEvalReport"
+	// HubServiceListEvalReportsProcedure is the fully-qualified name of the HubService's
+	// ListEvalReports RPC.
+	HubServiceListEvalReportsProcedure = "/agen.v1.HubService/ListEvalReports"
 )
 
 // HubServiceClient is a client for the agen.v1.HubService service.
@@ -175,6 +209,17 @@ type HubServiceClient interface {
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
 	// Cancel a task that has not finished; a running run is stopped.
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
+	// Every task in the tree a given task belongs to (its root's descendants,
+	// including the root itself), oldest first (3.4, part).
+	GetTaskTree(context.Context, *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error)
+	// A task's progress, current activity and outcome, without waiting on it
+	// like GetTask's wait_seconds does (3.4, part).
+	QueryTask(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Hold a task: a queued one is skipped by leasing, a running one suspends
+	// at its next model call (3.4, part).
+	PauseTask(context.Context, *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error)
+	// End a hold started by PauseTask, now or early.
+	ResumeTask(context.Context, *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error)
 	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
 	// Start a sleeping deployment (scale it to at least 1).
@@ -203,12 +248,18 @@ type HubServiceClient interface {
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
 	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
 	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
+	// A run's recorded interactions (3.6, part: `agen replay`), if its
+	// deployment had recordInteractions on when it ran. Not found: it
+	// never recorded one.
+	GetCassette(context.Context, *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error)
 	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
 	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+	ListEvents(context.Context, *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error)
 	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
 	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
 	// End a provider hold now (e.g. after fixing the key or adding credit).
@@ -236,6 +287,27 @@ type HubServiceClient interface {
 	ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error)
 	// Remove a notification target.
 	DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error)
+	// Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+	RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error)
+	// Feedback, filtered by deployment, labels and time, newest first.
+	ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error)
+	// Replace a memory block's value outright, creating it if it does not
+	// exist yet (3.10). Agents change one through the memory_update tool
+	// instead, which compares versions first.
+	SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error)
+	// A namespace's memory blocks, newest-updated first.
+	ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error)
+	// One artifact by id (3.8, part): named, content-addressed text an
+	// agent saved during a run with the save_artifact tool.
+	GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error)
+	// A namespace's artifacts, newest first; optionally one task's.
+	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
+	// Records an `agen eval` report against a deployment (2.43, part: eval
+	// history), so a later `agen deploy --require-eval` can compare
+	// against it.
+	RecordEvalReport(context.Context, *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error)
+	// A deployment's eval reports, newest first (2.43, part).
+	ListEvalReports(context.Context, *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error)
 }
 
 // NewHubServiceClient constructs a client for the agen.v1.HubService service. By default, it uses
@@ -327,6 +399,30 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("CancelTask")),
 			connect.WithClientOptions(opts...),
 		),
+		getTaskTree: connect.NewClient[v1.GetTaskTreeRequest, v1.GetTaskTreeResponse](
+			httpClient,
+			baseURL+HubServiceGetTaskTreeProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetTaskTree")),
+			connect.WithClientOptions(opts...),
+		),
+		queryTask: connect.NewClient[v1.QueryTaskRequest, v1.QueryTaskResponse](
+			httpClient,
+			baseURL+HubServiceQueryTaskProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("QueryTask")),
+			connect.WithClientOptions(opts...),
+		),
+		pauseTask: connect.NewClient[v1.PauseTaskRequest, v1.PauseTaskResponse](
+			httpClient,
+			baseURL+HubServicePauseTaskProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("PauseTask")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeTask: connect.NewClient[v1.ResumeTaskRequest, v1.ResumeTaskResponse](
+			httpClient,
+			baseURL+HubServiceResumeTaskProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ResumeTask")),
+			connect.WithClientOptions(opts...),
+		),
 		resolve: connect.NewClient[v1.ResolveRequest, v1.ResolveResponse](
 			httpClient,
 			baseURL+HubServiceResolveProcedure,
@@ -411,6 +507,12 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("GetTranscript")),
 			connect.WithClientOptions(opts...),
 		),
+		getCassette: connect.NewClient[v1.GetCassetteRequest, v1.GetCassetteResponse](
+			httpClient,
+			baseURL+HubServiceGetCassetteProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetCassette")),
+			connect.WithClientOptions(opts...),
+		),
 		getMetrics: connect.NewClient[v1.GetMetricsRequest, v1.GetMetricsResponse](
 			httpClient,
 			baseURL+HubServiceGetMetricsProcedure,
@@ -427,6 +529,12 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+HubServiceGetLogsProcedure,
 			connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
+			connect.WithClientOptions(opts...),
+		),
+		listEvents: connect.NewClient[v1.ListEventsRequest, v1.ListEventsResponse](
+			httpClient,
+			baseURL+HubServiceListEventsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListEvents")),
 			connect.WithClientOptions(opts...),
 		),
 		listProviderHolds: connect.NewClient[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse](
@@ -507,6 +615,54 @@ func NewHubServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(hubServiceMethods.ByName("DeleteNotificationTarget")),
 			connect.WithClientOptions(opts...),
 		),
+		recordFeedback: connect.NewClient[v1.RecordFeedbackRequest, v1.RecordFeedbackResponse](
+			httpClient,
+			baseURL+HubServiceRecordFeedbackProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("RecordFeedback")),
+			connect.WithClientOptions(opts...),
+		),
+		listFeedback: connect.NewClient[v1.ListFeedbackRequest, v1.ListFeedbackResponse](
+			httpClient,
+			baseURL+HubServiceListFeedbackProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListFeedback")),
+			connect.WithClientOptions(opts...),
+		),
+		setMemoryBlock: connect.NewClient[v1.SetMemoryBlockRequest, v1.SetMemoryBlockResponse](
+			httpClient,
+			baseURL+HubServiceSetMemoryBlockProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("SetMemoryBlock")),
+			connect.WithClientOptions(opts...),
+		),
+		listMemoryBlocks: connect.NewClient[v1.ListMemoryBlocksRequest, v1.ListMemoryBlocksResponse](
+			httpClient,
+			baseURL+HubServiceListMemoryBlocksProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListMemoryBlocks")),
+			connect.WithClientOptions(opts...),
+		),
+		getArtifact: connect.NewClient[v1.GetArtifactRequest, v1.GetArtifactResponse](
+			httpClient,
+			baseURL+HubServiceGetArtifactProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("GetArtifact")),
+			connect.WithClientOptions(opts...),
+		),
+		listArtifacts: connect.NewClient[v1.ListArtifactsRequest, v1.ListArtifactsResponse](
+			httpClient,
+			baseURL+HubServiceListArtifactsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListArtifacts")),
+			connect.WithClientOptions(opts...),
+		),
+		recordEvalReport: connect.NewClient[v1.RecordEvalReportRequest, v1.RecordEvalReportResponse](
+			httpClient,
+			baseURL+HubServiceRecordEvalReportProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("RecordEvalReport")),
+			connect.WithClientOptions(opts...),
+		),
+		listEvalReports: connect.NewClient[v1.ListEvalReportsRequest, v1.ListEvalReportsResponse](
+			httpClient,
+			baseURL+HubServiceListEvalReportsProcedure,
+			connect.WithSchema(hubServiceMethods.ByName("ListEvalReports")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -525,6 +681,10 @@ type hubServiceClient struct {
 	getTask                  *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
 	listTasks                *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
 	cancelTask               *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
+	getTaskTree              *connect.Client[v1.GetTaskTreeRequest, v1.GetTaskTreeResponse]
+	queryTask                *connect.Client[v1.QueryTaskRequest, v1.QueryTaskResponse]
+	pauseTask                *connect.Client[v1.PauseTaskRequest, v1.PauseTaskResponse]
+	resumeTask               *connect.Client[v1.ResumeTaskRequest, v1.ResumeTaskResponse]
 	resolve                  *connect.Client[v1.ResolveRequest, v1.ResolveResponse]
 	requestWake              *connect.Client[v1.RequestWakeRequest, v1.RequestWakeResponse]
 	listApprovals            *connect.Client[v1.ListApprovalsRequest, v1.ListApprovalsResponse]
@@ -539,9 +699,11 @@ type hubServiceClient struct {
 	listRuns                 *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	getTrace                 *connect.Client[v1.GetTraceRequest, v1.GetTraceResponse]
 	getTranscript            *connect.Client[v1.GetTranscriptRequest, v1.GetTranscriptResponse]
+	getCassette              *connect.Client[v1.GetCassetteRequest, v1.GetCassetteResponse]
 	getMetrics               *connect.Client[v1.GetMetricsRequest, v1.GetMetricsResponse]
 	getActivity              *connect.Client[v1.GetActivityRequest, v1.GetActivityResponse]
 	getLogs                  *connect.Client[v1.GetLogsRequest, v1.GetLogsResponse]
+	listEvents               *connect.Client[v1.ListEventsRequest, v1.ListEventsResponse]
 	listProviderHolds        *connect.Client[v1.ListProviderHoldsRequest, v1.ListProviderHoldsResponse]
 	resumeProvider           *connect.Client[v1.ResumeProviderRequest, v1.ResumeProviderResponse]
 	createJoinToken          *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
@@ -555,6 +717,14 @@ type hubServiceClient struct {
 	setNotificationTarget    *connect.Client[v1.SetNotificationTargetRequest, v1.SetNotificationTargetResponse]
 	listNotificationTargets  *connect.Client[v1.ListNotificationTargetsRequest, v1.ListNotificationTargetsResponse]
 	deleteNotificationTarget *connect.Client[v1.DeleteNotificationTargetRequest, v1.DeleteNotificationTargetResponse]
+	recordFeedback           *connect.Client[v1.RecordFeedbackRequest, v1.RecordFeedbackResponse]
+	listFeedback             *connect.Client[v1.ListFeedbackRequest, v1.ListFeedbackResponse]
+	setMemoryBlock           *connect.Client[v1.SetMemoryBlockRequest, v1.SetMemoryBlockResponse]
+	listMemoryBlocks         *connect.Client[v1.ListMemoryBlocksRequest, v1.ListMemoryBlocksResponse]
+	getArtifact              *connect.Client[v1.GetArtifactRequest, v1.GetArtifactResponse]
+	listArtifacts            *connect.Client[v1.ListArtifactsRequest, v1.ListArtifactsResponse]
+	recordEvalReport         *connect.Client[v1.RecordEvalReportRequest, v1.RecordEvalReportResponse]
+	listEvalReports          *connect.Client[v1.ListEvalReportsRequest, v1.ListEvalReportsResponse]
 }
 
 // CreateDeployment calls agen.v1.HubService.CreateDeployment.
@@ -620,6 +790,26 @@ func (c *hubServiceClient) ListTasks(ctx context.Context, req *connect.Request[v
 // CancelTask calls agen.v1.HubService.CancelTask.
 func (c *hubServiceClient) CancelTask(ctx context.Context, req *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error) {
 	return c.cancelTask.CallUnary(ctx, req)
+}
+
+// GetTaskTree calls agen.v1.HubService.GetTaskTree.
+func (c *hubServiceClient) GetTaskTree(ctx context.Context, req *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error) {
+	return c.getTaskTree.CallUnary(ctx, req)
+}
+
+// QueryTask calls agen.v1.HubService.QueryTask.
+func (c *hubServiceClient) QueryTask(ctx context.Context, req *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return c.queryTask.CallUnary(ctx, req)
+}
+
+// PauseTask calls agen.v1.HubService.PauseTask.
+func (c *hubServiceClient) PauseTask(ctx context.Context, req *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error) {
+	return c.pauseTask.CallUnary(ctx, req)
+}
+
+// ResumeTask calls agen.v1.HubService.ResumeTask.
+func (c *hubServiceClient) ResumeTask(ctx context.Context, req *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error) {
+	return c.resumeTask.CallUnary(ctx, req)
 }
 
 // Resolve calls agen.v1.HubService.Resolve.
@@ -692,6 +882,11 @@ func (c *hubServiceClient) GetTranscript(ctx context.Context, req *connect.Reque
 	return c.getTranscript.CallUnary(ctx, req)
 }
 
+// GetCassette calls agen.v1.HubService.GetCassette.
+func (c *hubServiceClient) GetCassette(ctx context.Context, req *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error) {
+	return c.getCassette.CallUnary(ctx, req)
+}
+
 // GetMetrics calls agen.v1.HubService.GetMetrics.
 func (c *hubServiceClient) GetMetrics(ctx context.Context, req *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error) {
 	return c.getMetrics.CallUnary(ctx, req)
@@ -705,6 +900,11 @@ func (c *hubServiceClient) GetActivity(ctx context.Context, req *connect.Request
 // GetLogs calls agen.v1.HubService.GetLogs.
 func (c *hubServiceClient) GetLogs(ctx context.Context, req *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return c.getLogs.CallUnary(ctx, req)
+}
+
+// ListEvents calls agen.v1.HubService.ListEvents.
+func (c *hubServiceClient) ListEvents(ctx context.Context, req *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error) {
+	return c.listEvents.CallUnary(ctx, req)
 }
 
 // ListProviderHolds calls agen.v1.HubService.ListProviderHolds.
@@ -772,6 +972,46 @@ func (c *hubServiceClient) DeleteNotificationTarget(ctx context.Context, req *co
 	return c.deleteNotificationTarget.CallUnary(ctx, req)
 }
 
+// RecordFeedback calls agen.v1.HubService.RecordFeedback.
+func (c *hubServiceClient) RecordFeedback(ctx context.Context, req *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error) {
+	return c.recordFeedback.CallUnary(ctx, req)
+}
+
+// ListFeedback calls agen.v1.HubService.ListFeedback.
+func (c *hubServiceClient) ListFeedback(ctx context.Context, req *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error) {
+	return c.listFeedback.CallUnary(ctx, req)
+}
+
+// SetMemoryBlock calls agen.v1.HubService.SetMemoryBlock.
+func (c *hubServiceClient) SetMemoryBlock(ctx context.Context, req *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error) {
+	return c.setMemoryBlock.CallUnary(ctx, req)
+}
+
+// ListMemoryBlocks calls agen.v1.HubService.ListMemoryBlocks.
+func (c *hubServiceClient) ListMemoryBlocks(ctx context.Context, req *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error) {
+	return c.listMemoryBlocks.CallUnary(ctx, req)
+}
+
+// GetArtifact calls agen.v1.HubService.GetArtifact.
+func (c *hubServiceClient) GetArtifact(ctx context.Context, req *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error) {
+	return c.getArtifact.CallUnary(ctx, req)
+}
+
+// ListArtifacts calls agen.v1.HubService.ListArtifacts.
+func (c *hubServiceClient) ListArtifacts(ctx context.Context, req *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error) {
+	return c.listArtifacts.CallUnary(ctx, req)
+}
+
+// RecordEvalReport calls agen.v1.HubService.RecordEvalReport.
+func (c *hubServiceClient) RecordEvalReport(ctx context.Context, req *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error) {
+	return c.recordEvalReport.CallUnary(ctx, req)
+}
+
+// ListEvalReports calls agen.v1.HubService.ListEvalReports.
+func (c *hubServiceClient) ListEvalReports(ctx context.Context, req *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error) {
+	return c.listEvalReports.CallUnary(ctx, req)
+}
+
 // HubServiceHandler is an implementation of the agen.v1.HubService service.
 type HubServiceHandler interface {
 	// Deploy a bundle (files in bundleFiles or bundleText) as a new deployment. With validateOnly, only check it and return warnings.
@@ -800,6 +1040,17 @@ type HubServiceHandler interface {
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
 	// Cancel a task that has not finished; a running run is stopped.
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
+	// Every task in the tree a given task belongs to (its root's descendants,
+	// including the root itself), oldest first (3.4, part).
+	GetTaskTree(context.Context, *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error)
+	// A task's progress, current activity and outcome, without waiting on it
+	// like GetTask's wait_seconds does (3.4, part).
+	QueryTask(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// Hold a task: a queued one is skipped by leasing, a running one suspends
+	// at its next model call (3.4, part).
+	PauseTask(context.Context, *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error)
+	// End a hold started by PauseTask, now or early.
+	ResumeTask(context.Context, *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error)
 	// A2A endpoints of a deployment and a short-lived call token for them.
 	Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error)
 	// Start a sleeping deployment (scale it to at least 1).
@@ -828,12 +1079,18 @@ type HubServiceHandler interface {
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
 	// A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
 	GetTranscript(context.Context, *connect.Request[v1.GetTranscriptRequest]) (*connect.Response[v1.GetTranscriptResponse], error)
+	// A run's recorded interactions (3.6, part: `agen replay`), if its
+	// deployment had recordInteractions on when it ran. Not found: it
+	// never recorded one.
+	GetCassette(context.Context, *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error)
 	// Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
 	GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error)
 	// What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
 	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
 	// Operational log lines of a deployment: runs, instance and task lifecycle.
 	GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error)
+	// The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+	ListEvents(context.Context, *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error)
 	// Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
 	ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error)
 	// End a provider hold now (e.g. after fixing the key or adding credit).
@@ -861,6 +1118,27 @@ type HubServiceHandler interface {
 	ListNotificationTargets(context.Context, *connect.Request[v1.ListNotificationTargetsRequest]) (*connect.Response[v1.ListNotificationTargetsResponse], error)
 	// Remove a notification target.
 	DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error)
+	// Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+	RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error)
+	// Feedback, filtered by deployment, labels and time, newest first.
+	ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error)
+	// Replace a memory block's value outright, creating it if it does not
+	// exist yet (3.10). Agents change one through the memory_update tool
+	// instead, which compares versions first.
+	SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error)
+	// A namespace's memory blocks, newest-updated first.
+	ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error)
+	// One artifact by id (3.8, part): named, content-addressed text an
+	// agent saved during a run with the save_artifact tool.
+	GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error)
+	// A namespace's artifacts, newest first; optionally one task's.
+	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
+	// Records an `agen eval` report against a deployment (2.43, part: eval
+	// history), so a later `agen deploy --require-eval` can compare
+	// against it.
+	RecordEvalReport(context.Context, *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error)
+	// A deployment's eval reports, newest first (2.43, part).
+	ListEvalReports(context.Context, *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error)
 }
 
 // NewHubServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -948,6 +1226,30 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("CancelTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceGetTaskTreeHandler := connect.NewUnaryHandler(
+		HubServiceGetTaskTreeProcedure,
+		svc.GetTaskTree,
+		connect.WithSchema(hubServiceMethods.ByName("GetTaskTree")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceQueryTaskHandler := connect.NewUnaryHandler(
+		HubServiceQueryTaskProcedure,
+		svc.QueryTask,
+		connect.WithSchema(hubServiceMethods.ByName("QueryTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServicePauseTaskHandler := connect.NewUnaryHandler(
+		HubServicePauseTaskProcedure,
+		svc.PauseTask,
+		connect.WithSchema(hubServiceMethods.ByName("PauseTask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceResumeTaskHandler := connect.NewUnaryHandler(
+		HubServiceResumeTaskProcedure,
+		svc.ResumeTask,
+		connect.WithSchema(hubServiceMethods.ByName("ResumeTask")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceResolveHandler := connect.NewUnaryHandler(
 		HubServiceResolveProcedure,
 		svc.Resolve,
@@ -1032,6 +1334,12 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("GetTranscript")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceGetCassetteHandler := connect.NewUnaryHandler(
+		HubServiceGetCassetteProcedure,
+		svc.GetCassette,
+		connect.WithSchema(hubServiceMethods.ByName("GetCassette")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hubServiceGetMetricsHandler := connect.NewUnaryHandler(
 		HubServiceGetMetricsProcedure,
 		svc.GetMetrics,
@@ -1048,6 +1356,12 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		HubServiceGetLogsProcedure,
 		svc.GetLogs,
 		connect.WithSchema(hubServiceMethods.ByName("GetLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListEventsHandler := connect.NewUnaryHandler(
+		HubServiceListEventsProcedure,
+		svc.ListEvents,
+		connect.WithSchema(hubServiceMethods.ByName("ListEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
 	hubServiceListProviderHoldsHandler := connect.NewUnaryHandler(
@@ -1128,6 +1442,54 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(hubServiceMethods.ByName("DeleteNotificationTarget")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hubServiceRecordFeedbackHandler := connect.NewUnaryHandler(
+		HubServiceRecordFeedbackProcedure,
+		svc.RecordFeedback,
+		connect.WithSchema(hubServiceMethods.ByName("RecordFeedback")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListFeedbackHandler := connect.NewUnaryHandler(
+		HubServiceListFeedbackProcedure,
+		svc.ListFeedback,
+		connect.WithSchema(hubServiceMethods.ByName("ListFeedback")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceSetMemoryBlockHandler := connect.NewUnaryHandler(
+		HubServiceSetMemoryBlockProcedure,
+		svc.SetMemoryBlock,
+		connect.WithSchema(hubServiceMethods.ByName("SetMemoryBlock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListMemoryBlocksHandler := connect.NewUnaryHandler(
+		HubServiceListMemoryBlocksProcedure,
+		svc.ListMemoryBlocks,
+		connect.WithSchema(hubServiceMethods.ByName("ListMemoryBlocks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceGetArtifactHandler := connect.NewUnaryHandler(
+		HubServiceGetArtifactProcedure,
+		svc.GetArtifact,
+		connect.WithSchema(hubServiceMethods.ByName("GetArtifact")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListArtifactsHandler := connect.NewUnaryHandler(
+		HubServiceListArtifactsProcedure,
+		svc.ListArtifacts,
+		connect.WithSchema(hubServiceMethods.ByName("ListArtifacts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceRecordEvalReportHandler := connect.NewUnaryHandler(
+		HubServiceRecordEvalReportProcedure,
+		svc.RecordEvalReport,
+		connect.WithSchema(hubServiceMethods.ByName("RecordEvalReport")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hubServiceListEvalReportsHandler := connect.NewUnaryHandler(
+		HubServiceListEvalReportsProcedure,
+		svc.ListEvalReports,
+		connect.WithSchema(hubServiceMethods.ByName("ListEvalReports")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agen.v1.HubService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HubServiceCreateDeploymentProcedure:
@@ -1156,6 +1518,14 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceListTasksHandler.ServeHTTP(w, r)
 		case HubServiceCancelTaskProcedure:
 			hubServiceCancelTaskHandler.ServeHTTP(w, r)
+		case HubServiceGetTaskTreeProcedure:
+			hubServiceGetTaskTreeHandler.ServeHTTP(w, r)
+		case HubServiceQueryTaskProcedure:
+			hubServiceQueryTaskHandler.ServeHTTP(w, r)
+		case HubServicePauseTaskProcedure:
+			hubServicePauseTaskHandler.ServeHTTP(w, r)
+		case HubServiceResumeTaskProcedure:
+			hubServiceResumeTaskHandler.ServeHTTP(w, r)
 		case HubServiceResolveProcedure:
 			hubServiceResolveHandler.ServeHTTP(w, r)
 		case HubServiceRequestWakeProcedure:
@@ -1184,12 +1554,16 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceGetTraceHandler.ServeHTTP(w, r)
 		case HubServiceGetTranscriptProcedure:
 			hubServiceGetTranscriptHandler.ServeHTTP(w, r)
+		case HubServiceGetCassetteProcedure:
+			hubServiceGetCassetteHandler.ServeHTTP(w, r)
 		case HubServiceGetMetricsProcedure:
 			hubServiceGetMetricsHandler.ServeHTTP(w, r)
 		case HubServiceGetActivityProcedure:
 			hubServiceGetActivityHandler.ServeHTTP(w, r)
 		case HubServiceGetLogsProcedure:
 			hubServiceGetLogsHandler.ServeHTTP(w, r)
+		case HubServiceListEventsProcedure:
+			hubServiceListEventsHandler.ServeHTTP(w, r)
 		case HubServiceListProviderHoldsProcedure:
 			hubServiceListProviderHoldsHandler.ServeHTTP(w, r)
 		case HubServiceResumeProviderProcedure:
@@ -1216,6 +1590,22 @@ func NewHubServiceHandler(svc HubServiceHandler, opts ...connect.HandlerOption) 
 			hubServiceListNotificationTargetsHandler.ServeHTTP(w, r)
 		case HubServiceDeleteNotificationTargetProcedure:
 			hubServiceDeleteNotificationTargetHandler.ServeHTTP(w, r)
+		case HubServiceRecordFeedbackProcedure:
+			hubServiceRecordFeedbackHandler.ServeHTTP(w, r)
+		case HubServiceListFeedbackProcedure:
+			hubServiceListFeedbackHandler.ServeHTTP(w, r)
+		case HubServiceSetMemoryBlockProcedure:
+			hubServiceSetMemoryBlockHandler.ServeHTTP(w, r)
+		case HubServiceListMemoryBlocksProcedure:
+			hubServiceListMemoryBlocksHandler.ServeHTTP(w, r)
+		case HubServiceGetArtifactProcedure:
+			hubServiceGetArtifactHandler.ServeHTTP(w, r)
+		case HubServiceListArtifactsProcedure:
+			hubServiceListArtifactsHandler.ServeHTTP(w, r)
+		case HubServiceRecordEvalReportProcedure:
+			hubServiceRecordEvalReportHandler.ServeHTTP(w, r)
+		case HubServiceListEvalReportsProcedure:
+			hubServiceListEvalReportsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1277,6 +1667,22 @@ func (UnimplementedHubServiceHandler) CancelTask(context.Context, *connect.Reque
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.CancelTask is not implemented"))
 }
 
+func (UnimplementedHubServiceHandler) GetTaskTree(context.Context, *connect.Request[v1.GetTaskTreeRequest]) (*connect.Response[v1.GetTaskTreeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetTaskTree is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) QueryTask(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.QueryTask is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) PauseTask(context.Context, *connect.Request[v1.PauseTaskRequest]) (*connect.Response[v1.PauseTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.PauseTask is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ResumeTask(context.Context, *connect.Request[v1.ResumeTaskRequest]) (*connect.Response[v1.ResumeTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ResumeTask is not implemented"))
+}
+
 func (UnimplementedHubServiceHandler) Resolve(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.ResolveResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.Resolve is not implemented"))
 }
@@ -1333,6 +1739,10 @@ func (UnimplementedHubServiceHandler) GetTranscript(context.Context, *connect.Re
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetTranscript is not implemented"))
 }
 
+func (UnimplementedHubServiceHandler) GetCassette(context.Context, *connect.Request[v1.GetCassetteRequest]) (*connect.Response[v1.GetCassetteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetCassette is not implemented"))
+}
+
 func (UnimplementedHubServiceHandler) GetMetrics(context.Context, *connect.Request[v1.GetMetricsRequest]) (*connect.Response[v1.GetMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetMetrics is not implemented"))
 }
@@ -1343,6 +1753,10 @@ func (UnimplementedHubServiceHandler) GetActivity(context.Context, *connect.Requ
 
 func (UnimplementedHubServiceHandler) GetLogs(context.Context, *connect.Request[v1.GetLogsRequest]) (*connect.Response[v1.GetLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetLogs is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListEvents(context.Context, *connect.Request[v1.ListEventsRequest]) (*connect.Response[v1.ListEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListEvents is not implemented"))
 }
 
 func (UnimplementedHubServiceHandler) ListProviderHolds(context.Context, *connect.Request[v1.ListProviderHoldsRequest]) (*connect.Response[v1.ListProviderHoldsResponse], error) {
@@ -1395,4 +1809,36 @@ func (UnimplementedHubServiceHandler) ListNotificationTargets(context.Context, *
 
 func (UnimplementedHubServiceHandler) DeleteNotificationTarget(context.Context, *connect.Request[v1.DeleteNotificationTargetRequest]) (*connect.Response[v1.DeleteNotificationTargetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.DeleteNotificationTarget is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) RecordFeedback(context.Context, *connect.Request[v1.RecordFeedbackRequest]) (*connect.Response[v1.RecordFeedbackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.RecordFeedback is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListFeedback(context.Context, *connect.Request[v1.ListFeedbackRequest]) (*connect.Response[v1.ListFeedbackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListFeedback is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) SetMemoryBlock(context.Context, *connect.Request[v1.SetMemoryBlockRequest]) (*connect.Response[v1.SetMemoryBlockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.SetMemoryBlock is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListMemoryBlocks(context.Context, *connect.Request[v1.ListMemoryBlocksRequest]) (*connect.Response[v1.ListMemoryBlocksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListMemoryBlocks is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) GetArtifact(context.Context, *connect.Request[v1.GetArtifactRequest]) (*connect.Response[v1.GetArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.GetArtifact is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListArtifacts is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) RecordEvalReport(context.Context, *connect.Request[v1.RecordEvalReportRequest]) (*connect.Response[v1.RecordEvalReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.RecordEvalReport is not implemented"))
+}
+
+func (UnimplementedHubServiceHandler) ListEvalReports(context.Context, *connect.Request[v1.ListEvalReportsRequest]) (*connect.Response[v1.ListEvalReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agen.v1.HubService.ListEvalReports is not implemented"))
 }

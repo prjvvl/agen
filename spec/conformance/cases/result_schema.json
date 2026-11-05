@@ -1,0 +1,27 @@
+{
+  "name": "result_schema",
+  "description": "With harness result.schema, data that does not match is refused and the run ends with the corrected data.",
+  "features": [
+    "engine.outcome"
+  ],
+  "agent": {
+    "bundle": "spec/conformance/bundles/counter"
+  },
+  "runs": [
+    {
+      "input": "count the files"
+    }
+  ],
+  "expect": [
+    {
+      "status": "succeeded",
+      "output": "There are 3.",
+      "outcome": {
+        "status": "done",
+        "data": {
+          "count": 3
+        }
+      }
+    }
+  ]
+}

@@ -13,8 +13,9 @@ import (
 // instances, nests' enrolment is kept) is not copied.
 var CopyTables = []string{
 	"definitions", "deployments", "deployment_versions", "nests", "api_tokens", "join_tokens", "webhook_secrets",
-	"sessions", "conversations", "messages", "runs", "spans", "effects", "delegations", "delegation_calls", "logs",
-	"tasks", "approvals", "trigger_events", "platform_secrets", "notification_targets",
+	"sessions", "conversations", "messages", "runs", "spans", "effects", "delegations", "delegation_calls", "logs", "cassettes",
+	"tasks", "task_merge_keys", "approvals", "trigger_events", "platform_secrets", "notification_targets", "events", "trigger_cursors", "feedback",
+	"memory_blocks", "task_locks", "locks", "lock_fences", "artifacts", "run_inbox", "eval_reports",
 }
 
 // skipTables are deliberately not copied.
@@ -26,6 +27,7 @@ var skipTables = map[string]string{
 	"hub_ca":            "a new deployment has its own CA; Nests enrol again",
 	"hub_token_key":     "a new deployment signs call tokens with its own key (tokens are short-lived)",
 	"provider_holds":    "a provider account is held again if it still fails",
+	"event_seq":         "set to the source's last seq after the events are copied",
 }
 
 // CopyReport is the number of rows copied per table.
@@ -56,6 +58,14 @@ func (s *Store) CopyTo(ctx context.Context, dst *Store) (CopyReport, error) {
 			return report, fmt.Errorf("copy %s: %w", t, err)
 		}
 		report[t] = n
+	}
+	// New events continue after the copied ones, so cursors stay valid.
+	last, err := s.LastEventSeq(ctx)
+	if err != nil {
+		return report, err
+	}
+	if _, err := dst.db.ExecContext(ctx, "UPDATE event_seq SET seq = $1 WHERE id = 1", last); err != nil {
+		return report, err
 	}
 	if dst.dialect == Postgres {
 		// Copied explicit ids leave the serial behind.

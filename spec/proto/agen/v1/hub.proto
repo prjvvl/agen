@@ -39,6 +39,17 @@ service HubService {
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
   // Cancel a task that has not finished; a running run is stopped.
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+  // Every task in the tree a given task belongs to (its root's descendants,
+  // including the root itself), oldest first (3.4, part).
+  rpc GetTaskTree(GetTaskTreeRequest) returns (GetTaskTreeResponse);
+  // A task's progress, current activity and outcome, without waiting on it
+  // like GetTask's wait_seconds does (3.4, part).
+  rpc QueryTask(QueryTaskRequest) returns (QueryTaskResponse);
+  // Hold a task: a queued one is skipped by leasing, a running one suspends
+  // at its next model call (3.4, part).
+  rpc PauseTask(PauseTaskRequest) returns (PauseTaskResponse);
+  // End a hold started by PauseTask, now or early.
+  rpc ResumeTask(ResumeTaskRequest) returns (ResumeTaskResponse);
 
   // A2A endpoints of a deployment and a short-lived call token for them.
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
@@ -72,12 +83,18 @@ service HubService {
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
   // A run's conversation: the messages it sent and received (tool calls and results included) and the system prompt.
   rpc GetTranscript(GetTranscriptRequest) returns (GetTranscriptResponse);
+  // A run's recorded interactions (3.6, part: `agen replay`), if its
+  // deployment had recordInteractions on when it ran. Not found: it
+  // never recorded one.
+  rpc GetCassette(GetCassetteRequest) returns (GetCassetteResponse);
   // Runs, failures, duration percentiles, tokens and cost per deployment over a time window, who calls whom, and per served model.
   rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
   // What is happening now: every unfinished run with what it is doing (model, tool, waiting for an agent or an approval), queues, and warnings worth a look.
   rpc GetActivity(GetActivityRequest) returns (GetActivityResponse);
   // Operational log lines of a deployment: runs, instance and task lifecycle.
   rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+  // The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
 
   // Provider accounts held after an account error (invalid key, no credit): their deployments take no new work until one probe succeeds.
   rpc ListProviderHolds(ListProviderHoldsRequest) returns (ListProviderHoldsResponse);
@@ -108,6 +125,116 @@ service HubService {
   rpc ListNotificationTargets(ListNotificationTargetsRequest) returns (ListNotificationTargetsResponse);
   // Remove a notification target.
   rpc DeleteNotificationTarget(DeleteNotificationTargetRequest) returns (DeleteNotificationTargetResponse);
+
+  // Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+  rpc RecordFeedback(RecordFeedbackRequest) returns (RecordFeedbackResponse);
+  // Feedback, filtered by deployment, labels and time, newest first.
+  rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
+
+  // Replace a memory block's value outright, creating it if it does not
+  // exist yet (3.10). Agents change one through the memory_update tool
+  // instead, which compares versions first.
+  rpc SetMemoryBlock(SetMemoryBlockRequest) returns (SetMemoryBlockResponse);
+  // A namespace's memory blocks, newest-updated first.
+  rpc ListMemoryBlocks(ListMemoryBlocksRequest) returns (ListMemoryBlocksResponse);
+
+  // One artifact by id (3.8, part): named, content-addressed text an
+  // agent saved during a run with the save_artifact tool.
+  rpc GetArtifact(GetArtifactRequest) returns (GetArtifactResponse);
+  // A namespace's artifacts, newest first; optionally one task's.
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
+
+  // Records an `agen eval` report against a deployment (2.43, part: eval
+  // history), so a later `agen deploy --require-eval` can compare
+  // against it.
+  rpc RecordEvalReport(RecordEvalReportRequest) returns (RecordEvalReportResponse);
+  // A deployment's eval reports, newest first (2.43, part).
+  rpc ListEvalReports(ListEvalReportsRequest) returns (ListEvalReportsResponse);
+}
+
+message RecordFeedbackRequest {
+  string task_id = 1;
+  // 0.0 (worst) to 1.0 (best).
+  double score = 2;
+  map<string, string> labels = 3;
+  string note = 4;
+}
+message RecordFeedbackResponse {
+  Feedback feedback = 1;
+}
+message ListFeedbackRequest {
+  string namespace = 1;
+  string deployment = 2;
+  map<string, string> labels = 3;
+  // Only feedback recorded at or after this time.
+  google.protobuf.Timestamp since = 4;
+  int32 limit = 5;
+}
+message SetMemoryBlockRequest {
+  string namespace = 1;
+  string id = 2;
+  string label = 3;
+  string description = 4;
+  string value = 5;
+  // 0: no limit.
+  int64 limit_chars = 6;
+}
+message SetMemoryBlockResponse {
+  MemoryBlock block = 1;
+}
+message ListMemoryBlocksRequest {
+  string namespace = 1;
+}
+message ListMemoryBlocksResponse {
+  repeated MemoryBlock blocks = 1;
+}
+
+message GetArtifactRequest {
+  string namespace = 1;
+  string id = 2;
+}
+message GetArtifactResponse {
+  Artifact artifact = 1;
+}
+message ListArtifactsRequest {
+  string namespace = 1;
+  string task_id = 2;
+}
+message ListArtifactsResponse {
+  repeated Artifact artifacts = 1;
+}
+
+message EvalReport {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  // The deployed definition this report was run against, if known
+  // (empty for a report recorded before a deploy actually happens).
+  string definition_digest = 4;
+  // agen eval's own JSON report (scenario, runs, pass1, passK per
+  // scenario) -- opaque here, same shape it already prints today.
+  string report_json = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+message RecordEvalReportRequest {
+  DeploymentRef ref = 1;
+  string definition_digest = 2;
+  string report_json = 3;
+}
+message RecordEvalReportResponse {
+  EvalReport report = 1;
+}
+message ListEvalReportsRequest {
+  DeploymentRef ref = 1;
+  // 0: the default (20).
+  int32 limit = 2;
+}
+message ListEvalReportsResponse {
+  repeated EvalReport reports = 1;
+}
+
+message ListFeedbackResponse {
+  repeated Feedback feedback = 1;
 }
 
 message ListProviderHoldsRequest {}
@@ -147,10 +274,26 @@ message NotificationTarget {
   string name = 2;
   // http(s) URL that receives a signed JSON POST per event.
   string url = 3;
-  // Event types to send: approval.pending, task.failed, budget.exhausted.
-  // Empty means all.
+  // Event log types to send (or prefixes ending in "."), plus task.failed
+  // (a task that failed) and budget.exhausted (a daily budget used up).
+  // Empty: approval.pending, task.failed, budget.exhausted, provider.held
+  // and provider.resumed.
   repeated string events = 4;
   google.protobuf.Timestamp created_at = 5;
+  // Only events of this deployment.
+  string deployment = 6;
+  // Only events whose labels include all of these.
+  map<string, string> labels = 7;
+  // Only events at least this severe: info, warning or critical.
+  string severity = 8;
+  // Delivery state (read only): the last event seq handled, the last
+  // delivery, since when deliveries fail and why, and events given up on
+  // after failing for an hour.
+  int64 delivered_seq = 9;
+  google.protobuf.Timestamp last_delivered_at = 10;
+  google.protobuf.Timestamp failing_since = 11;
+  string last_error = 12;
+  int64 dropped = 13;
 }
 message SetNotificationTargetRequest {
   NotificationTarget target = 1;
@@ -182,6 +325,8 @@ message WhoAmIResponse {
   repeated string scopes = 3;
   // Empty means every namespace.
   repeated string namespaces = 4;
+  // The trust tasks submitted with this token get (3.7).
+  string trust = 5;
 }
 
 message GetBundleGuideRequest {}
@@ -211,6 +356,7 @@ message CreateDeploymentRequest {
   Budget budget = 7;
   Limits limits = 8;
   repeated Trigger triggers = 9;
+  ConversationPolicy conversations = 12;
 }
 message CreateDeploymentResponse {
   // Unset when validate_only.
@@ -232,6 +378,7 @@ message UpdateDeploymentRequest {
   Placement placement = 7;
   map<string, string> bundle_text = 9;
   bool validate_only = 8;
+  ConversationPolicy conversations = 10;
 }
 message UpdateDeploymentResponse {
   Deployment deployment = 1;
@@ -271,9 +418,22 @@ message PauseDeploymentRequest {
   DeploymentRef ref = 1;
   // false resumes.
   bool paused = 2;
+  // Also hold every currently unfinished task of the deployment (2.8),
+  // the deployment-wide form of PauseTask/PauseTree: a leased/running one
+  // suspends at its next model call, a queued/waiting one stays put.
+  // Ignored (nothing to hold) when paused is false; a resume (paused:
+  // false) always clears any hold this put in place, whether or not
+  // hold_runs is set on that call.
+  bool hold_runs = 3;
+  // hold_runs only: the hold's deadline. Unset: holds until explicitly
+  // resumed.
+  google.protobuf.Timestamp until = 4;
+  string reason = 5;
 }
 message PauseDeploymentResponse {
   Deployment deployment = 1;
+  // hold_runs only: the tasks it actually held.
+  repeated Task held = 2;
 }
 
 message ListInstancesRequest {
@@ -303,6 +463,32 @@ message SubmitTaskRequest {
   string model_tier = 6;
   // Run no earlier than this (a scheduled task); unset: as soon as possible.
   google.protobuf.Timestamp not_before = 7;
+  // Narrow what this task may do: tools, skills, a system prompt addendum,
+  // extra deny/ask rules and run limits.
+  TaskOverrides overrides = 8;
+  // Not leased after this time: fails as "expired" instead of waiting
+  // indefinitely for capacity.
+  google.protobuf.Timestamp not_after = 9;
+  // At most one queued task per (deployment, schedule_key); submitting
+  // again with the same key cancels the queued task that already has it.
+  string schedule_key = 10;
+  // Lease order within this deployment's queue: urgent, high, normal or
+  // background. Empty: normal.
+  string priority = 11;
+  // A trust at most this high (3.7): narrows the submitting principal's
+  // own trust, never raises it. Empty: the principal's trust as is.
+  string trust = 12;
+  // Extra locks this task needs, on top of the deployment's own `locks`
+  // config (3.11, part): it waits in the queue until it can take all of
+  // them at once, then holds them until it ends.
+  repeated string locks = 13;
+  // Temporal's parent-close policy for this task's own children (3.4,
+  // part): "cancel" (default, also empty) or "abandon". See Task.on_parent_end.
+  string on_parent_end = 14;
+  // Override the conversation's own conversations.queueMode (followup,
+  // collect, steer or interrupt) for this submission only. Empty: use the
+  // deployment's policy. Has no effect without conversation_key.
+  string delivery = 15;
 }
 message SubmitTaskResponse {
   Task task = 1;
@@ -316,6 +502,32 @@ message GetTaskRequest {
 }
 message GetTaskResponse {
   Task task = 1;
+}
+
+message GetTaskTreeRequest {
+  // Any task in the tree; the response covers its root and every one of
+  // the root's descendants.
+  string task_id = 1;
+}
+message GetTaskTreeResponse {
+  repeated Task tasks = 1;
+}
+
+message QueryTaskRequest {
+  string id = 1;
+}
+message QueryTaskResponse {
+  string id = 1;
+  TaskState state = 2;
+  Outcome outcome = 3;
+  TaskProgress progress = 4;
+  // "model", "tool", "idle" or "approval"; unset if the task has no run
+  // currently going (queued, or already terminal).
+  string activity = 5;
+  // The tool name, for "tool".
+  string detail = 6;
+  google.protobuf.Timestamp activity_since = 7;
+  string pending_approval_id = 8;
 }
 
 message ListTasksRequest {
@@ -332,9 +544,54 @@ message ListTasksResponse {
 
 message CancelTaskRequest {
   string id = 1;
+  // Cancel every unfinished task of id's whole tree (its root and every
+  // descendant, found through root_task_id), not just id itself.
+  bool tree = 2;
+  // "" or "hard" (default): stop at once. "graceful": each task of id
+  // (or, with tree, of the whole tree) currently leased or running gets a
+  // "cancel" run_inbox entry first (surfaced to the model as a request to
+  // wrap up and call finish), and this call waits up to
+  // grace_period_seconds for all of them to end on their own before
+  // falling through to the same hard stop "hard" does for whatever is
+  // still unfinished. A queued or waiting task is always stopped at once,
+  // graceful or not: there is no live turn to give a last chance to.
+  string mode = 3;
+  // Only with mode "graceful". 0: a default (20s); capped at 5 minutes.
+  int32 grace_period_seconds = 4;
 }
 message CancelTaskResponse {
   Task task = 1;
+  // Set only when tree was asked for: every task it actually cancelled
+  // (already-finished tasks of the tree are left out).
+  repeated Task cancelled = 2;
+}
+
+message PauseTaskRequest {
+  string id = 1;
+  // Hold every unfinished task of id's whole tree (its root and every
+  // descendant, found through root_task_id), not just id itself. Mirrors
+  // CancelTask's tree, including async/detached children.
+  bool tree = 2;
+  // Unset: held until ResumeTask, with no deadline.
+  google.protobuf.Timestamp until = 3;
+  string reason = 4;
+}
+message PauseTaskResponse {
+  Task task = 1;
+  // Set only when tree was asked for: every task it actually held
+  // (already-finished tasks of the tree are left out).
+  repeated Task held = 2;
+}
+
+message ResumeTaskRequest {
+  string id = 1;
+  // End the hold on every task of id's whole tree, not just id itself.
+  bool tree = 2;
+}
+message ResumeTaskResponse {
+  Task task = 1;
+  // Set only when tree was asked for: every task it actually resumed.
+  repeated Task resumed = 2;
 }
 
 message ResolveRequest {
@@ -433,6 +690,19 @@ message GetTranscriptResponse {
   string system_prompt = 3;
 }
 
+message GetCassetteRequest {
+  // A run id: a task's runId (GetTask), or from ListRuns or GetTrace.
+  string run_id = 1;
+}
+message GetCassetteResponse {
+  Run run = 1;
+  // The recorded interactions, as JSON (the engine's own
+  // provider::replay::Cassette shape: {provider, interactions: [{fingerprint, request, response}]}) —
+  // opaque to the Hub, passed through as saved.
+  string cassette_json = 2;
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
 message GetMetricsRequest {
   // Empty: every namespace the caller may see.
   string namespace = 1;
@@ -458,6 +728,16 @@ message DeploymentMetrics {
   Usage usage = 8;
   // Oldest first, each bucket_seconds long.
   repeated MetricsBucket buckets = 9;
+  // Today's spend against each of the deployment's own
+  // budget.labelUsdPerDay rules (3.5, part), regardless of the window:
+  // label budgets reset daily, not by this call's own window/buckets.
+  repeated LabelBudgetMetric label_budgets = 10;
+}
+message LabelBudgetMetric {
+  // "key=value", same spelling as budget.labelUsdPerDay's own keys.
+  string label = 1;
+  double spent_usd = 2;
+  double limit_usd = 3;
 }
 message CallEdge {
   DeploymentRef from = 1;
@@ -503,6 +783,29 @@ message EntryEdge {
   DeploymentRef to = 3;
   int32 runs = 4;
   int32 failed = 5;
+}
+
+message ListEventsRequest {
+  // Empty: every namespace the caller may see.
+  string namespace = 1;
+  // Events after this seq (0: from the oldest kept).
+  int64 after_seq = 2;
+  // Only these types; a type ending in "." matches a prefix ("task.").
+  repeated string types = 3;
+  string deployment = 4;
+  // Only events whose labels include all of these.
+  map<string, string> labels = 5;
+  // Only events at least this severe: info, warning or critical.
+  string severity = 6;
+  // At most this many events (default 100, at most 1000).
+  int32 limit = 7;
+  // Wait up to this long (at most 300) for a first matching event.
+  int32 wait_seconds = 8;
+}
+message ListEventsResponse {
+  repeated Event events = 1;
+  // The cursor for the next call: the last seq looked at.
+  int64 next_seq = 2;
 }
 
 message GetActivityRequest {
@@ -664,6 +967,9 @@ message CreateApiTokenRequest {
   // with the scopes and namespaces that both this token and the task's
   // submitter hold. It can never decide approvals.
   bool on_behalf = 5;
+  // The trust tasks submitted with this token get (3.7): operator, trusted
+  // (default) or untrusted.
+  string trust = 6;
 }
 message CreateApiTokenResponse {
   ApiToken token = 1;

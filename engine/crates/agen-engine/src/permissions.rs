@@ -3,7 +3,7 @@
 //! tool as the agent registers it (`server.tool`) or as the model sees it
 //! (`server_tool`).
 
-use crate::bundle::{Action, Permissions};
+use crate::bundle::{Action, Permissions, Trust};
 
 /// Glob with `*` matching any run of characters (including dots).
 pub fn glob_match(pattern: &str, name: &str) -> bool {
@@ -30,14 +30,20 @@ pub fn glob_match(pattern: &str, name: &str) -> bool {
     true
 }
 
-pub fn evaluate(policy: &Permissions, tool: &str) -> Action {
+pub fn evaluate(
+    policy: &Permissions,
+    tool: &str,
+    trust: Trust,
+    args: &serde_json::Value,
+    labels: &std::collections::BTreeMap<String, String>,
+) -> Action {
     let wire = crate::provider::openai::wire_name(tool);
     for action in [Action::Deny, Action::Ask, Action::Allow] {
-        if policy
-            .rules
-            .iter()
-            .any(|r| r.action == action && (glob_match(&r.tool, tool) || glob_match(&r.tool, &wire)))
-        {
+        if policy.rules.iter().any(|r| {
+            r.action == action
+                && r.matches(trust, args, labels)
+                && (glob_match(&r.tool, tool) || glob_match(&r.tool, &wire))
+        }) {
             return action;
         }
     }
@@ -47,12 +53,25 @@ pub fn evaluate(policy: &Permissions, tool: &str) -> Action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bundle::PermissionRule;
+    use crate::bundle::{PermissionRule, When};
+
+    fn eval(p: &Permissions, tool: &str, trust: Trust) -> Action {
+        evaluate(p, tool, trust, &serde_json::Value::Null, &Default::default())
+    }
 
     fn rule(tool: &str, action: Action) -> PermissionRule {
         PermissionRule {
             tool: tool.into(),
             action,
+            when: None,
+        }
+    }
+
+    fn rule_when(tool: &str, action: Action, when: When) -> PermissionRule {
+        PermissionRule {
+            tool: tool.into(),
+            action,
+            when: Some(when),
         }
     }
 
@@ -77,16 +96,16 @@ mod tests {
                 rule("*.withdraw", Action::Deny),
             ],
         };
-        assert_eq!(evaluate(&p, "exchange.get_price"), Action::Allow);
-        assert_eq!(evaluate(&p, "exchange.place_order"), Action::Ask);
-        assert_eq!(evaluate(&p, "exchange.withdraw"), Action::Deny);
-        assert_eq!(evaluate(&p, "other.tool"), Action::Ask);
+        assert_eq!(eval(&p, "exchange.get_price", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "exchange.place_order", Trust::Trusted), Action::Ask);
+        assert_eq!(eval(&p, "exchange.withdraw", Trust::Trusted), Action::Deny);
+        assert_eq!(eval(&p, "other.tool", Trust::Trusted), Action::Ask);
         let open = Permissions {
             approval_timeout: None,
             default: Action::Allow,
             rules: vec![],
         };
-        assert_eq!(evaluate(&open, "x"), Action::Allow);
+        assert_eq!(eval(&open, "x", Trust::Trusted), Action::Allow);
     }
 
     #[test]
@@ -96,8 +115,56 @@ mod tests {
             default: Action::Allow,
             rules: vec![rule("exchange_place_order", Action::Deny), rule("bank_*", Action::Ask)],
         };
-        assert_eq!(evaluate(&p, "exchange.place_order"), Action::Deny);
-        assert_eq!(evaluate(&p, "bank.pay"), Action::Ask);
-        assert_eq!(evaluate(&p, "exchange.get_price"), Action::Allow);
+        assert_eq!(eval(&p, "exchange.place_order", Trust::Trusted), Action::Deny);
+        assert_eq!(eval(&p, "bank.pay", Trust::Trusted), Action::Ask);
+        assert_eq!(eval(&p, "exchange.get_price", Trust::Trusted), Action::Allow);
+    }
+
+    #[test]
+    fn trust_order_is_operator_above_trusted_above_untrusted() {
+        assert!(Trust::Untrusted < Trust::Trusted);
+        assert!(Trust::Trusted < Trust::Operator);
+    }
+
+    #[test]
+    fn a_rule_conditioned_on_trust_only_matches_that_trust() {
+        let p = Permissions {
+            approval_timeout: None,
+            default: Action::Allow,
+            rules: vec![rule_when(
+                "*",
+                Action::Ask,
+                When {
+                    trust: Some(Trust::Untrusted),
+                    trust_below: None,
+                    ..Default::default()
+                },
+            )],
+        };
+        assert_eq!(eval(&p, "x", Trust::Untrusted), Action::Ask);
+        assert_eq!(eval(&p, "x", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "x", Trust::Operator), Action::Allow);
+    }
+
+    #[test]
+    fn a_rule_conditioned_on_trust_below_matches_anything_lower() {
+        // The lethal-trifecta rule: ask before acting outward once a run
+        // has read untrusted content.
+        let p = Permissions {
+            approval_timeout: None,
+            default: Action::Allow,
+            rules: vec![rule_when(
+                "*",
+                Action::Ask,
+                When {
+                    trust: None,
+                    trust_below: Some(Trust::Trusted),
+                    ..Default::default()
+                },
+            )],
+        };
+        assert_eq!(eval(&p, "x", Trust::Untrusted), Action::Ask);
+        assert_eq!(eval(&p, "x", Trust::Trusted), Action::Allow);
+        assert_eq!(eval(&p, "x", Trust::Operator), Action::Allow);
     }
 }

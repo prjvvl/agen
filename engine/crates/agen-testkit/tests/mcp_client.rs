@@ -394,6 +394,7 @@ async fn calls_carry_task_context_and_hints() {
     assert_eq!(got["agen/conversationKey"], "api:chat");
     assert_eq!(got["agen/labels"]["project"], "apollo");
     assert_eq!(got["agen/deployment"], "d");
+    assert_eq!(got["agen/trust"], "trusted");
     assert_eq!(got["traceparent"], ctx.traceparent);
 
     // idempotentHint from the server, or config (by either name form).
@@ -454,4 +455,68 @@ async fn dead_server_gives_unknown_outcome_and_is_reported() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(closed, "dead server not reported");
+}
+
+// A tool safe to repeat (idempotent, or read-only in the first place)
+// retries once, against a freshly reconnected server, after the old
+// connection's transport failure (2.13) -- so a crashed-then-restarted
+// tool server does not sour every later call of a run already in
+// progress. A side-effecting, non-idempotent call is never retried:
+// an uncertain outcome stays uncertain rather than risking a repeat.
+#[tokio::test]
+async fn idempotent_and_read_only_calls_retry_after_the_server_dies() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut servers = BTreeMap::new();
+    servers.insert(
+        "t".to_string(),
+        serde_json::from_value(json!({"command": SERVER})).unwrap(),
+    );
+    let opts = McpOptions {
+        call_timeout: Duration::from_secs(5),
+        ..Default::default()
+    };
+    let (_conns, tools) = mcp::connect(
+        dir.path(),
+        &servers,
+        &BTreeMap::new(),
+        &Secrets::default(),
+        &Redactor::new(),
+        &opts,
+    )
+    .await
+    .unwrap();
+    let tool = |n: &str| tools.iter().find(|t| t.spec().name == n).unwrap().clone();
+    let ctx = || ToolContext {
+        run_id: "r".into(),
+        call_id: "c".into(),
+        secrets: Secrets::default(),
+        ..Default::default()
+    };
+
+    tool("t.die").call(json!({}), ctx()).await.unwrap_err();
+    assert_eq!(
+        tool("t.lookup")
+            .call(json!({"text": "still here"}), ctx())
+            .await
+            .unwrap(),
+        "still here",
+        "an idempotent call did not recover after the server died"
+    );
+
+    tool("t.die").call(json!({}), ctx()).await.unwrap_err();
+    assert_eq!(
+        tool("t.echo").call(json!({"text": "hi"}), ctx()).await.unwrap(),
+        "echo: hi",
+        "a read-only call did not recover after the server died"
+    );
+
+    tool("t.die").call(json!({}), ctx()).await.unwrap_err();
+    let e = tool("t.write_note")
+        .call(json!({"text": "should not retry"}), ctx())
+        .await
+        .unwrap_err();
+    assert!(
+        e.outcome_unknown,
+        "a non-idempotent, side-effecting call must not be silently retried: {e}"
+    );
 }

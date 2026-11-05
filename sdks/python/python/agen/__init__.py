@@ -169,6 +169,8 @@ class RunResult:
     error: str
     usage: Usage
     trace_id: str
+    # How the run ended: {"status", "reason", "summary", "data", ...}.
+    outcome: Optional[dict] = None
 
     @property
     def ok(self) -> bool:
@@ -187,6 +189,7 @@ class RunResult:
             error=d["error"],
             usage=Usage(u.get("inputTokens", 0), u.get("outputTokens", 0), u.get("costUsd", 0.0)),
             trace_id=d["traceId"],
+            outcome=d.get("outcome"),
         )
 
 

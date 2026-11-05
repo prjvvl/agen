@@ -171,6 +171,23 @@ type Result struct {
 	Error          string `json:"error"`
 	Usage          Usage  `json:"usage"`
 	TraceID        string `json:"traceId"`
+	// How the run ended (nil only for results of older engines).
+	Outcome *Outcome `json:"outcome"`
+}
+
+// Outcome says how a run ended, beyond its status.
+type Outcome struct {
+	// done, partial, needs_input, rejected, failed or cancelled.
+	Status string `json:"status"`
+	// Why a run stopped early: max_turns, budget, duration, cancelled,
+	// error, no_answer, ... Empty when it finished its work.
+	Reason string `json:"reason,omitempty"`
+	// The agent's report (its final answer when it did not call finish).
+	Summary   string          `json:"summary,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Artifacts []string        `json:"artifacts,omitempty"`
+	// needs_input: "caller" or "human".
+	InputFrom string `json:"inputFrom,omitempty"`
 }
 
 // Agent is an embedded agent. Run may be called concurrently; Close waits

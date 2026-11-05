@@ -1,0 +1,28 @@
+{
+  "name": "eval",
+  "description": "Record an eval report against a deployment and list it back, newest first (2.43, part: eval history).",
+  "features": ["eval"],
+  "bundles": {
+    "hello": { "from": "examples/bundles/hello" }
+  },
+  "steps": [
+    {
+      "call": "CreateDeployment",
+      "args": { "namespace": "$ns", "name": "evaled", "bundleText": "$bundle:hello" },
+      "expect": { "deployment.name": "evaled" }
+    },
+    {
+      "call": "RecordEvalReport",
+      "args": { "ref": { "namespace": "$ns", "name": "evaled" }, "definitionDigest": "sha256:test", "reportJson": "[{\"scenario\":\"a\",\"passK\":true}]" },
+      "expect": { "report.deployment": "evaled", "report.reportJson": "[{\"scenario\":\"a\",\"passK\":true}]" },
+      "save": { "r1": "report.id" },
+      "skip": { "cli": "the CLI only records a report as a side effect of agen deploy --require-eval, never standalone" }
+    },
+    {
+      "call": "ListEvalReports",
+      "args": { "ref": { "namespace": "$ns", "name": "evaled" } },
+      "expect": { "reports": { "has": { "id": "$r1", "definitionDigest": "sha256:test" } } },
+      "skip": { "cli": "depends on $r1 from the RecordEvalReport step above, itself skipped on cli; agen deploy --require-eval's own CLI tests exercise this end to end instead" }
+    }
+  ]
+}

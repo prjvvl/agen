@@ -126,6 +126,51 @@ command line. `--dsn-env` names the variable (default `DATABASE_URL`).
 - Read-only transactions stop writes, not expensive reads. For Postgres, also
   connect as a role that may only read what the agent should see.
 
+## Artifacts
+
+Every agent has two more built-in tools, not gated by any config and never
+denied, asked for or narrowed by permissions or a task's overrides (like
+`finish`): `save_artifact(name, content, mediaType?)` and
+`read_artifact(id, offset?, length?)`. Use them for a long result you do
+not need in context right away — a report, a large file's contents — so it
+does not crowd out everything else the model is holding onto.
+
+```json
+{ "name": "save_artifact", "arguments": { "name": "weekly-report", "content": "..." } }
+```
+
+- `save_artifact` returns the artifact's id (`sha256:<hex>` of its content);
+  saving the same bytes again in the same namespace returns the existing
+  one, so repeating a save is free.
+- `read_artifact` returns up to 4000 characters by default; page through a
+  longer one with `offset` and `length` (it tells you the next `offset`).
+- Limits: 25 MB per artifact, 500 MB of artifacts per namespace.
+- People read artifacts too: `agen artifacts ls [task]` and
+  `agen artifacts get <id>`, or `ListArtifacts` / `GetArtifact`.
+- Not yet implemented: an automatic tool-result cap that saves an
+  over-long result as an artifact on its own, and carrying artifacts over
+  A2A.
+
+## Progress
+
+Every agent in a fleet (not standalone or embedded use, which have no
+platform to report to) has a built-in `report_progress(step, done?,
+total?, note?, artifacts?)` tool, same as `save_artifact`: not gated by
+config or permissions. Use it for work with several steps or an
+open-ended duration, so whoever is watching the task sees more than
+"running".
+
+```json
+{ "name": "report_progress", "arguments": { "step": "reading page 3 of 12", "total": 12 } }
+```
+
+- Only the latest call is kept on the task; each call is also a
+  rate-limited `task.progress` event (at most one every 10 seconds), so
+  the event log has the history even though the task does not.
+- People read it with `agen query <task-id>` (progress, current activity
+  and outcome, without waiting like `agen wait` does) or `QueryTask`.
+- It does not end the run — keep working, or call `finish` when done.
+
 ## What a tool server is told
 
 Every call carries the work it belongs to in the MCP request's `_meta`, so a

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/prjvvl/agen/platform/internal/store"
@@ -18,6 +19,9 @@ import (
 // overwrite a newer leader's placement.
 type Scheduler struct {
 	Hub *Hub
+	// eventsPruned: when events past EventRetention were last dropped;
+	// warned: when activity warnings were last recorded as events.
+	eventsPruned, warned time.Time
 	// Holder identifies this Hub replica in the leader lease.
 	Holder    string
 	Tick      time.Duration
@@ -36,7 +40,16 @@ type Scheduler struct {
 	Retention time.Duration
 	pruned    time.Time
 	lastSweep time.Time
+	// bg tracks goroutines Step spawns and outlives its own return (task-end
+	// hooks, notification delivery, warning recording). Wait blocks until
+	// they finish, so a caller that is about to touch state they read (such
+	// as store.NowMs in tests) doesn't race with them.
+	bg sync.WaitGroup
 }
+
+// Wait blocks until every goroutine spawned by a Step call so far has
+// finished.
+func (s *Scheduler) Wait() { s.bg.Wait() }
 
 // Runs whose instance is gone are ended after orphanGrace (an instance
 // reports itself within seconds of starting), checked every orphanSweepEvery.
@@ -90,7 +103,22 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 		return epoch, err
 	}
 	for _, id := range failed {
+		s.bg.Add(1)
 		go func() {
+			defer s.bg.Done()
+			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			s.Hub.afterTaskEnded(c, id)
+		}()
+	}
+	expired, err := st.ExpireOverdueTasks(ctx)
+	if err != nil {
+		return epoch, err
+	}
+	for _, id := range expired {
+		s.bg.Add(1)
+		go func() {
+			defer s.bg.Done()
 			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			defer cancel()
 			s.Hub.afterTaskEnded(c, id)
@@ -98,6 +126,20 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	}
 	if _, err := st.ExpireApprovals(ctx); err != nil {
 		return epoch, err
+	}
+	if _, err := st.WakeExpiredHolds(ctx); err != nil {
+		return epoch, err
+	}
+	if time.Since(s.eventsPruned) > time.Hour {
+		s.eventsPruned = time.Now()
+		s.Hub.pruneEvents(ctx)
+	}
+	s.bg.Add(1)
+	go func() { defer s.bg.Done(); s.Hub.deliverTargets(context.WithoutCancel(ctx)) }()
+	if time.Since(s.warned) > warningEvery {
+		s.warned = time.Now()
+		s.bg.Add(1)
+		go func() { defer s.bg.Done(); s.Hub.recordWarnings(context.WithoutCancel(ctx)) }()
 	}
 	lost, err := st.MarkLostNests(ctx, store.NowMs()-s.LostAfter.Milliseconds())
 	if err != nil {
@@ -111,7 +153,13 @@ func (s *Scheduler) Step(ctx context.Context) (int64, error) {
 	}
 	// Triggers first: the tasks they queue are seen by the autoscaler in the
 	// same tick.
+	if err := s.FireEventTriggers(ctx); err != nil {
+		return epoch, err
+	}
 	if err := s.FireTriggers(ctx, epoch); err != nil {
+		return epoch, err
+	}
+	if err := s.FireRandomTriggers(ctx); err != nil {
 		return epoch, err
 	}
 	if time.Since(s.lastSweep) >= orphanSweepEvery {

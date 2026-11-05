@@ -34,7 +34,7 @@ RUN_KEYS = {"input", "options", "sameSession", "cancelAfterMs", "cancelBeforeSta
 OPTION_KEYS = {"taskId", "modelTier"}
 EXPECT_KEYS = {
     "status", "output", "minDeltas", "deltasEqualOutput", "toolCalls", "approvalsAsked", "toolCancelled",
-    "sameConversationAsPrevious", "sameRunAsPrevious", "maxWallMs", "traceIncludes",
+    "sameConversationAsPrevious", "sameRunAsPrevious", "maxWallMs", "traceIncludes", "outcome",
 }
 
 
@@ -109,7 +109,7 @@ def run_once(agent: Agent, run: dict, prev):
         threading.Timer(run["closeAfterMs"] / 1000, agent.close).start()
     r = agent.run(run["input"], on_delta=deltas.append, on_reset=deltas.clear, cancel=scope, **kw)
     return {"status": r.status, "output": r.output, "runId": r.run_id, "sessionId": r.session_id,
-            "conversationId": r.conversation_id, "traceId": r.trace_id, "deltas": deltas}
+            "conversationId": r.conversation_id, "traceId": r.trace_id, "outcome": r.outcome, "deltas": deltas}
 
 
 def check(agent, exp, got, prev, state, calls_before, approvals_before, single):
@@ -128,6 +128,8 @@ def check(agent, exp, got, prev, state, calls_before, approvals_before, single):
         assert state.tool_cancelled.wait(3), "tool never saw the cancel"
     if exp.get("sameConversationAsPrevious"):
         assert got["conversationId"] == prev["conversationId"]
+    for k, v in (exp.get("outcome") or {}).items():
+        assert (got["outcome"] or {}).get(k) == v, (k, got["outcome"])
     if exp.get("sameRunAsPrevious"):
         assert got["runId"] == prev["runId"]
     if "traceIncludes" in exp:

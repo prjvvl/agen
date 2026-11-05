@@ -23,11 +23,11 @@ import (
 // method fails TestMCPScopeMatrix until it is classified here.
 var expectedScope = map[string]string{
 	"ListDeployments": ScopeViewer, "GetDeployment": ScopeViewer, "ListInstances": ScopeViewer, "ListNests": ScopeViewer,
-	"GetTask": ScopeViewer, "ListTasks": ScopeViewer, "Resolve": ScopeViewer, "ListDefinitions": ScopeViewer,
+	"GetTask": ScopeViewer, "ListTasks": ScopeViewer, "GetTaskTree": ScopeViewer, "QueryTask": ScopeViewer, "Resolve": ScopeViewer, "ListDefinitions": ScopeViewer,
 	"GetDefinition": ScopeViewer, "ListTriggerEvents": ScopeViewer, "ListRuns": ScopeViewer, "GetTrace": ScopeViewer, "GetLogs": ScopeViewer,
-	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer, "ListProviderHolds": ScopeViewer, "GetActivity": ScopeViewer, "ResumeProvider": ScopeOperator,
+	"WhoAmI": ScopeViewer, "GetBundleGuide": ScopeViewer, "GetTranscript": ScopeViewer, "GetCassette": ScopeViewer, "GetMetrics": ScopeViewer, "ListTemplates": ScopeViewer, "ListProviderHolds": ScopeViewer, "GetActivity": ScopeViewer, "ListEvents": ScopeViewer, "ListFeedback": ScopeViewer, "ListMemoryBlocks": ScopeViewer, "GetArtifact": ScopeViewer, "ListArtifacts": ScopeViewer, "ListEvalReports": ScopeViewer, "ResumeProvider": ScopeOperator,
 	"CreateDeployment": ScopeOperator, "UpdateDeployment": ScopeOperator, "ScaleDeployment": ScopeOperator, "DeleteDeployment": ScopeOperator,
-	"PauseDeployment": ScopeOperator, "SubmitTask": ScopeOperator, "CancelTask": ScopeOperator, "RequestWake": ScopeOperator,
+	"PauseDeployment": ScopeOperator, "SubmitTask": ScopeOperator, "CancelTask": ScopeOperator, "PauseTask": ScopeOperator, "ResumeTask": ScopeOperator, "RequestWake": ScopeOperator, "RecordFeedback": ScopeOperator, "SetMemoryBlock": ScopeOperator, "RecordEvalReport": ScopeOperator,
 	"CreateWebhookSecret": ScopeOperator,
 	"ListApprovals":       ScopeApprover, "DecideApproval": ScopeApprover,
 	"SetSecret": ScopeAdmin, "ListSecrets": ScopeAdmin, "DeleteSecret": ScopeAdmin, "CreateJoinToken": ScopeAdmin,
@@ -38,7 +38,7 @@ var expectedScope = map[string]string{
 // Every MCP tool enforces exactly the scope its API call needs (MCP is a
 // thin layer over the authenticated API), namespace-limited tokens stay in
 // their namespaces, and nothing listed or returned carries secret values.
-// features[mcp]: access.tokens, deploy.lifecycle, observe.runs, secrets
+// features[mcp]: access.tokens, deploy.lifecycle, observe.runs, replay, secrets
 func TestMCPScopeMatrix(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

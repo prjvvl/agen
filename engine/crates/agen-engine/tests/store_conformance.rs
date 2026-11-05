@@ -44,6 +44,7 @@ fn run(session: &str, conv: &str, root: &str) -> RunRecord {
         ended_ms: None,
         requested_by: String::new(),
         labels: [("project".to_string(), "p1".to_string())].into(),
+        outcome: None,
     }
 }
 
@@ -107,6 +108,7 @@ async fn runs_lifecycle(s: &Store) {
     let u = Usage {
         input_tokens: 10,
         output_tokens: 5,
+        cached_input_tokens: 0,
         cost_usd: 0.25,
     };
     s.checkpoint(
@@ -143,11 +145,11 @@ async fn runs_lifecycle(s: &Store) {
         "fenced write must not append"
     );
     assert!(matches!(
-        s.finish_run(&r.id, epoch, RunStatus::Succeeded, "x", "", u).await,
+        s.finish_run(&r.id, epoch, RunStatus::Succeeded, "x", "", u, None).await,
         Err(StoreError::Fenced(_))
     ));
 
-    s.finish_run(&r.id, epoch2, RunStatus::Succeeded, "done", "", u)
+    s.finish_run(&r.id, epoch2, RunStatus::Succeeded, "done", "", u, None)
         .await
         .unwrap();
     let got = s.get_run(&r.id).await.unwrap();
@@ -407,6 +409,86 @@ async fn agent_run_persists_everything(s: &Store) {
     assert!(store.dump_text("effects").await.unwrap().contains(&r.run_id));
 }
 
+async fn memory_blocks(s: &Store) {
+    use agen_engine::store::MemoryOp;
+    let ns = format!("mb-{}", new_id());
+    // A never-written block does not exist yet.
+    assert!(s.get_memory_block(&ns, "notes").await.unwrap().is_none());
+    // SetMemoryBlock (the API) creates it outright.
+    let b = s
+        .set_memory_block(&ns, "notes", "Notes", "scratch", "hello", 0)
+        .await
+        .unwrap();
+    assert_eq!((b.value.as_str(), b.version), ("hello", 1));
+    // update_memory_block (the tool): append, then str_replace.
+    let b = s
+        .update_memory_block(&ns, "notes", &MemoryOp::Append(" world".into()), None)
+        .await
+        .unwrap();
+    assert_eq!((b.value.as_str(), b.version), ("hello world", 2));
+    let b = s
+        .update_memory_block(
+            &ns,
+            "notes",
+            &MemoryOp::StrReplace {
+                old: "world".into(),
+                new: "there".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(b.value, "hello there");
+    // str_replace refuses an "old" that does not occur exactly once.
+    let err = s
+        .update_memory_block(
+            &ns,
+            "notes",
+            &MemoryOp::StrReplace {
+                old: "xyz".into(),
+                new: "q".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, StoreError::Invalid(_)), "{err}");
+    // expected_version: a stale caller is refused, a fresh one succeeds.
+    let stale = s
+        .update_memory_block(&ns, "notes", &MemoryOp::Replace("new".into()), Some(1))
+        .await
+        .unwrap_err();
+    assert!(matches!(stale, StoreError::Conflict(_)), "{stale}");
+    let fresh = s
+        .update_memory_block(&ns, "notes", &MemoryOp::Replace("new".into()), Some(3))
+        .await
+        .unwrap();
+    assert_eq!((fresh.value.as_str(), fresh.version), ("new", 4));
+    // update_memory_block creates a block (version 0 -> 1) on first write
+    // too, not only SetMemoryBlock.
+    let created = s
+        .update_memory_block(&ns, "fresh-block", &MemoryOp::Append("x".into()), None)
+        .await
+        .unwrap();
+    assert_eq!((created.value.as_str(), created.version), ("x", 1));
+    // A character limit is enforced.
+    let over = s
+        .update_memory_block(&ns, "capped", &MemoryOp::Replace("abc".into()), None)
+        .await
+        .unwrap();
+    assert_eq!(over.version, 1);
+    s.set_memory_block(&ns, "capped", "", "", "abc", 3).await.unwrap();
+    let too_big = s
+        .update_memory_block(&ns, "capped", &MemoryOp::Append("d".into()), None)
+        .await
+        .unwrap_err();
+    assert!(matches!(too_big, StoreError::Invalid(_)), "{too_big}");
+    // ListMemoryBlocks lists only this namespace's blocks.
+    let listed = s.list_memory_blocks(&ns).await.unwrap();
+    assert_eq!(listed.len(), 3, "{listed:?}");
+    assert!(s.list_memory_blocks(&format!("{ns}-other")).await.unwrap().is_empty());
+}
+
 macro_rules! conformance {
     ($($name:ident),*) => {
         mod sqlite_backend {
@@ -432,7 +514,8 @@ conformance!(
     runs_lifecycle,
     effect_ledger,
     concurrent_effects_only_one_proceeds,
-    spans_delegations_logs
+    spans_delegations_logs,
+    memory_blocks
 );
 
 #[tokio::test]

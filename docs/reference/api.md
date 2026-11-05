@@ -19,6 +19,9 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/CancelTask` · MCP tool: `c
 | Field | Type | Description |
 |---|---|---|
 | `id` | string |  |
+| `tree` | bool | Cancel every unfinished task of id's whole tree (its root and every descendant, found through root_task_id), not just id itself. |
+| `mode` | string | "" or "hard" (default): stop at once. "graceful": each task of id (or, with tree, of the whole tree) currently leased or running gets a "cancel" run_inbox entry first (surfaced to the model as a request to wrap up and call finish), and this call waits up to grace_period_seconds for all of them to end on their own before falling through to the same hard stop "hard" does for whatever is still unfinished. A queued or waiting task is always stopped at once, graceful or not: there is no live turn to give a last chance to. |
+| `gracePeriodSeconds` | int32 | Only with mode "graceful". 0: a default (20s); capped at 5 minutes. |
 
 ## CreateApiToken
 
@@ -33,6 +36,7 @@ Scope: `admin` · REST: `POST /agen.v1.HubService/CreateApiToken` · MCP tool: `
 | `namespaces` | list of string |  |
 | `ttlSeconds` | int32 |  |
 | `onBehalf` | bool | For an agent that works for people (the assistant): each MCP call must name the task it serves (_meta agen/taskId, which Agen sets), and runs with the scopes and namespaces that both this token and the task's submitter hold. It can never decide approvals. |
+| `trust` | string | The trust tasks submitted with this token get (3.7): operator, trusted (default) or untrusted. |
 
 ## CreateDeployment
 
@@ -53,6 +57,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/CreateDeployment` · MCP to
 | `budget` | Budget |  |
 | `limits` | Limits |  |
 | `triggers` | list of Trigger |  |
+| `conversations` | ConversationPolicy |  |
 
 ## CreateJoinToken
 
@@ -128,11 +133,32 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetActivity` · MCP tool: `ge
 |---|---|---|
 | `namespace` | string | Empty: every namespace the caller may see. |
 
+## GetArtifact
+
+One artifact by id (3.8, part): named, content-addressed text an agent saved during a run with the save_artifact tool.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetArtifact` · MCP tool: `get_artifact`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `id` | string |  |
+
 ## GetBundleGuide
 
 How bundles are laid out, the JSON Schema of every bundle file and a complete example bundle.
 
 Scope: `viewer` · REST: `POST /agen.v1.HubService/GetBundleGuide` · MCP tool: `get_bundle_guide`
+
+## GetCassette
+
+A run's recorded interactions (3.6, part: `agen replay`), if its deployment had recordInteractions on when it ran. Not found: it never recorded one.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetCassette` · MCP tool: `get_cassette`
+
+| Field | Type | Description |
+|---|---|---|
+| `runId` | string | A run id: a task's runId (GetTask), or from ListRuns or GetTrace. |
 
 ## GetDefinition
 
@@ -190,6 +216,16 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTask` · MCP tool: `get_ta
 | `id` | string |  |
 | `waitSeconds` | int32 | Wait up to this many seconds (at most 300) for the task to finish; the task is returned as it is when the wait ends. |
 
+## GetTaskTree
+
+Every task in the tree a given task belongs to (its root's descendants, including the root itself), oldest first (3.4, part).
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/GetTaskTree` · MCP tool: `get_task_tree`
+
+| Field | Type | Description |
+|---|---|---|
+| `taskId` | string | Any task in the tree; the response covers its root and every one of the root's descendants. |
+
 ## GetTrace
 
 The spans of a trace: model calls, tool calls and delegations across agents.
@@ -228,6 +264,17 @@ Scope: `approver` · REST: `POST /agen.v1.HubService/ListApprovals` · MCP tool:
 | `namespace` | string |  |
 | `state` | ApprovalState |  |
 
+## ListArtifacts
+
+A namespace's artifacts, newest first; optionally one task's.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListArtifacts` · MCP tool: `list_artifacts`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `taskId` | string |  |
+
 ## ListDefinitions
 
 Bundle versions (definitions), without their files.
@@ -249,6 +296,48 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListDeployments` · MCP tool:
 |---|---|---|
 | `namespace` | string | Empty means all namespaces the caller may see. |
 
+## ListEvalReports
+
+A deployment's eval reports, newest first (2.43, part).
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListEvalReports` · MCP tool: `list_eval_reports`
+
+| Field | Type | Description |
+|---|---|---|
+| `ref` | DeploymentRef |  |
+| `limit` | int32 | 0: the default (20). |
+
+## ListEvents
+
+The event log, oldest first after a cursor: tasks queued, started and finished (with their outcome), approvals, budget thresholds, provider holds, warnings, missed triggers, deployment changes. wait_seconds waits for the next event.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListEvents` · MCP tool: `list_events`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string | Empty: every namespace the caller may see. |
+| `afterSeq` | int64 | Events after this seq (0: from the oldest kept). |
+| `types` | list of string | Only these types; a type ending in "." matches a prefix ("task."). |
+| `deployment` | string |  |
+| `labels` | map&lt;string, string&gt; | Only events whose labels include all of these. |
+| `severity` | string | Only events at least this severe: info, warning or critical. |
+| `limit` | int32 | At most this many events (default 100, at most 1000). |
+| `waitSeconds` | int32 | Wait up to this long (at most 300) for a first matching event. |
+
+## ListFeedback
+
+Feedback, filtered by deployment, labels and time, newest first.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListFeedback` · MCP tool: `list_feedback`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `deployment` | string |  |
+| `labels` | map&lt;string, string&gt; |  |
+| `since` | Timestamp | Only feedback recorded at or after this time. |
+| `limit` | int32 |  |
+
 ## ListInstances
 
 Every instance on every Nest, with state, running tasks and loaded tools.
@@ -260,6 +349,16 @@ Scope: `viewer` · REST: `POST /agen.v1.HubService/ListInstances` · MCP tool: `
 | `namespace` | string |  |
 | `deployment` | string |  |
 | `nestId` | string |  |
+
+## ListMemoryBlocks
+
+A namespace's memory blocks, newest-updated first.
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/ListMemoryBlocks` · MCP tool: `list_memory_blocks`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
 
 ## ListNests
 
@@ -353,6 +452,57 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/PauseDeployment` · MCP too
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `paused` | bool | false resumes. |
+| `holdRuns` | bool | Also hold every currently unfinished task of the deployment (2.8), the deployment-wide form of PauseTask/PauseTree: a leased/running one suspends at its next model call, a queued/waiting one stays put. Ignored (nothing to hold) when paused is false; a resume (paused: false) always clears any hold this put in place, whether or not hold_runs is set on that call. |
+| `until` | Timestamp | hold_runs only: the hold's deadline. Unset: holds until explicitly resumed. |
+| `reason` | string |  |
+
+## PauseTask
+
+Hold a task: a queued one is skipped by leasing, a running one suspends at its next model call (3.4, part).
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/PauseTask` · MCP tool: `pause_task`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string |  |
+| `tree` | bool | Hold every unfinished task of id's whole tree (its root and every descendant, found through root_task_id), not just id itself. Mirrors CancelTask's tree, including async/detached children. |
+| `until` | Timestamp | Unset: held until ResumeTask, with no deadline. |
+| `reason` | string |  |
+
+## QueryTask
+
+A task's progress, current activity and outcome, without waiting on it like GetTask's wait_seconds does (3.4, part).
+
+Scope: `viewer` · REST: `POST /agen.v1.HubService/QueryTask` · MCP tool: `query_task`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string |  |
+
+## RecordEvalReport
+
+Records an `agen eval` report against a deployment (2.43, part: eval history), so a later `agen deploy --require-eval` can compare against it.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/RecordEvalReport` · MCP tool: `record_eval_report`
+
+| Field | Type | Description |
+|---|---|---|
+| `ref` | DeploymentRef |  |
+| `definitionDigest` | string |  |
+| `reportJson` | string |  |
+
+## RecordFeedback
+
+Record a judgement on how a task went (a person, a check, or a judge model); approval decisions are recorded this way too.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/RecordFeedback` · MCP tool: `record_feedback`
+
+| Field | Type | Description |
+|---|---|---|
+| `taskId` | string |  |
+| `score` | double | 0.0 (worst) to 1.0 (best). |
+| `labels` | map&lt;string, string&gt; |  |
+| `note` | string |  |
 
 ## RequestWake
 
@@ -385,6 +535,17 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/ResumeProvider` · MCP tool
 |---|---|---|
 | `account` | string |  |
 
+## ResumeTask
+
+End a hold started by PauseTask, now or early.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/ResumeTask` · MCP tool: `resume_task`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string |  |
+| `tree` | bool | End the hold on every task of id's whole tree, not just id itself. |
+
 ## RevokeApiToken
 
 Revoke an API token.
@@ -415,6 +576,21 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/ScaleDeployment` · MCP too
 |---|---|---|
 | `ref` | DeploymentRef |  |
 | `desired` | int32 |  |
+
+## SetMemoryBlock
+
+Replace a memory block's value outright, creating it if it does not exist yet (3.10). Agents change one through the memory_update tool instead, which compares versions first.
+
+Scope: `operator` · REST: `POST /agen.v1.HubService/SetMemoryBlock` · MCP tool: `set_memory_block`
+
+| Field | Type | Description |
+|---|---|---|
+| `namespace` | string |  |
+| `id` | string |  |
+| `label` | string |  |
+| `description` | string |  |
+| `value` | string |  |
+| `limitChars` | int64 | 0: no limit. |
 
 ## SetNotificationTarget
 
@@ -454,6 +630,14 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/SubmitTask` · MCP tool: `s
 | `labels` | map&lt;string, string&gt; | Free-form labels, copied to runs, tool calls and delegated tasks. |
 | `modelTier` | string | Cost tier for a routing model; see Task.model_tier. |
 | `notBefore` | Timestamp | Run no earlier than this (a scheduled task); unset: as soon as possible. |
+| `overrides` | TaskOverrides | Narrow what this task may do: tools, skills, a system prompt addendum, extra deny/ask rules and run limits. |
+| `notAfter` | Timestamp | Not leased after this time: fails as "expired" instead of waiting indefinitely for capacity. |
+| `scheduleKey` | string | At most one queued task per (deployment, schedule_key); submitting again with the same key cancels the queued task that already has it. |
+| `priority` | string | Lease order within this deployment's queue: urgent, high, normal or background. Empty: normal. |
+| `trust` | string | A trust at most this high (3.7): narrows the submitting principal's own trust, never raises it. Empty: the principal's trust as is. |
+| `locks` | list of string | Extra locks this task needs, on top of the deployment's own `locks` config (3.11, part): it waits in the queue until it can take all of them at once, then holds them until it ends. |
+| `onParentEnd` | string | Temporal's parent-close policy for this task's own children (3.4, part): "cancel" (default, also empty) or "abandon". See Task.on_parent_end. |
+| `delivery` | string | Override the conversation's own conversations.queueMode (followup, collect, steer or interrupt) for this submission only. Empty: use the deployment's policy. Has no effect without conversation_key. |
 
 ## UpdateDeployment
 
@@ -472,6 +656,7 @@ Scope: `operator` · REST: `POST /agen.v1.HubService/UpdateDeployment` · MCP to
 | `placement` | Placement |  |
 | `bundleText` | map&lt;string, string&gt; |  |
 | `validateOnly` | bool |  |
+| `conversations` | ConversationPolicy |  |
 
 ## WhoAmI
 

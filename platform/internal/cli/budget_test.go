@@ -32,8 +32,8 @@ func TestDailyBudgetEndToEnd(t *testing.T) {
 	if n := strings.Count(tasks, "  succeeded  "); n != 3 {
 		t.Fatalf("%d tasks ran; 3 x $0.40 reach the $1.00 budget:\n%s", n, tasks)
 	}
-	if n := strings.Count(tasks, "  queued  "); n != 3 {
-		t.Fatalf("remaining tasks must wait queued:\n%s", tasks)
+	if n := strings.Count(tasks, "  queued (budget)  "); n != 3 {
+		t.Fatalf("remaining tasks must wait queued, saying it is the budget:\n%s", tasks)
 	}
 	if strings.Contains(tasks, "  failed  ") {
 		t.Fatalf("no task may fail from the budget stop:\n%s", tasks)

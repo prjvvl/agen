@@ -4,6 +4,43 @@ An agent hands work to another agent by calling its deployment over A2A.
 There are no hidden sub-agents: every agent it can call is a deployment you
 can see, scale and trace on its own.
 
+## How a run ends
+
+Every finished run (and its task) has an **outcome**: a `status`, an optional
+`reason`, a `summary` (the agent's report), and optional `data`.
+
+| Status | Meaning |
+|---|---|
+| `done` | The work is complete. A run that just answers ends `done`, with its answer as the summary. |
+| `partial` | Only part of it. Runs stopped at a limit end `partial` with a `reason` (`max_turns`, `duration`, `budget`) and the report they wrote (see [Budgets and limits](budgets.md#stopping-at-a-limit)). |
+| `needs_input` | The agent needs an answer to go on; `inputFrom` says from whom (`caller` or `human`). |
+| `rejected` | The agent will not do this work. |
+| `failed` | It could not do it; the task fails with the summary as its error. |
+| `cancelled` | The task was cancelled. |
+
+Every agent has a built-in `finish` tool to end its run with one of these
+(`status`, `summary`, optional `data`, `artifacts` and `inputFrom`). It never
+needs an approval. To require a structured result, give `x-agen/harness.json`
+a schema:
+
+```json
+{ "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",
+  "result": { "schema": { "type": "object", "properties": { "count": { "type": "integer" } }, "required": ["count"] } } }
+```
+
+The agent must then end with `finish` and `data` that matches it: data that
+does not match is sent back for the model to fix, and an agent that answers
+without `finish` is asked once, then fails. A `failed` or `rejected` finish
+may leave `data` out.
+
+The outcome is on `GetTask` and `ListRuns` (`outcome`), printed by `agen run`
+and `agen wait` when it is not `done`, shown in the console, and returned to
+SDK callers (`result.outcome`). Over A2A, `needs_input` and `rejected` become
+the task states `input-required` and `rejected`, the outcome is in the task
+metadata (`agen.outcome`), and `data` is a data part. A delegating agent's
+`call_agent` result starts with the status when it is not `done`
+(`[partial: budget] ...`) and ends with the data (`data: {...}`).
+
 ## Delegates
 
 List the deployments an agent may call in its `x-agen/config.json`:
@@ -12,7 +49,8 @@ List the deployments an agent may call in its `x-agen/config.json`:
 {
   "delegates": [
     { "name": "researcher", "description": "Reads web pages and answers factual questions" },
-    { "name": "writer", "description": "Turns notes into a polished summary" }
+    { "name": "writer", "description": "Turns notes into a polished summary" },
+    { "name": "worker", "description": "A generic worker for one piece of work", "overrides": true }
   ],
   "limits": { "maxDelegationDepth": 2, "maxFanOut": 10, "maxTotalDelegations": 30 }
 }
@@ -24,15 +62,21 @@ arguments (see [below](#starting-work-without-waiting)). The descriptions are
 shown to the model, so write them for it. `agen deploy --validate` warns about
 a delegate that is not deployed in the namespace.
 
-- Delegates are resolved in the caller's namespace; a delegate with a fixed
-  `url` is called at that address instead.
-- A call wakes a sleeping delegate, waits for its answer and returns the
-  answer as the tool result. It waits up to 10 minutes for a free instance
-  of the delegate (asleep, starting, busy, or waiting for room on a full
-  Nest) and up to 75 minutes in all.
-- Repeating a call is safe: its A2A message id is derived from the run, the
-  turn and the call, so a retried or resumed call returns the same task
-  instead of running the delegate twice.
+- Delegates are resolved in the caller's namespace. `call_agent` starts the
+  delegate as a task and waits for it (in a fleet); a delegate with a fixed
+  `url`, or marked `"via": "a2a"`, is called directly instead over A2A.
+  Either way the model sees the same thing: a tool call that returns the
+  answer, however long the delegate took.
+- The unified path waits inline up to `limits.inlineWait` (default 20s); a
+  delegate slower than that does not time out — the caller's run pauses
+  (freeing its instance for other work, with no cost to the delegate's
+  own progress) and picks back up as soon as the delegate answers. The A2A
+  path instead waits up to 10 minutes for a free instance of the delegate
+  (asleep, starting, busy, or waiting for room on a full Nest) and 75
+  minutes in all, blocking the whole time.
+- Repeating a call is safe: it is keyed by the run, the turn and the call,
+  so a retried, resumed or paused-then-resumed call always finds the same
+  delegate task (or A2A task) instead of running the delegate twice.
 - The delegate's run joins the caller's trace (`agen trace` shows the whole
   tree) and inherits the task's labels.
 - The delegate's run is a fresh conversation each time; give it the context it
@@ -47,35 +91,100 @@ the researcher about all of them in the same turn."
 
 ## Starting work without waiting
 
-`call_agent` keeps the caller's run open until the delegate answers. For long
-work, `start_agent` queues a task on the delegate and returns at once with the
-task's id; the caller finishes its turn. When the task ends (succeeded,
-failed or cancelled), the Hub sends its result back into the caller's
-conversation as a new task, with input that starts
-`[Result of the task you started on <agent> (task <id>, <state>)]`, and the
-caller continues that conversation with it.
+`call_agent` waits for the delegate's answer (see above: it may pause the
+caller's run while it does, but the model still sees one ordinary tool
+call). For work the caller does not need an answer to before going on,
+`start_agent` queues a task on the delegate and returns at once with its
+id; the caller finishes its turn.
 
-| | `call_agent` | `start_agent` |
-|---|---|---|
-| The caller's run | waits for the answer | goes on and can finish |
-| The answer | the tool result | a new task in the caller's conversation (source `reply:<agent>`) |
-| The delegate's work | an A2A call | a queued task |
-| Which delegates | all | in a fleet, those without a fixed `url` |
+By default the task **joins** the caller's: the caller cannot finish
+`done` while it (or any other task started this way) is still running —
+calling `finish` then is refused with how many are still going, and the
+caller's run suspends right after starting one if it has nothing else to
+do, freeing its instance until one of them ends (whichever finishes
+first wakes it; it does not wait for all of them). There is no separate
+reply message — check on a joined task with `query_agent`, or just try
+`finish` again once woken.
 
-- The result goes to the conversation the call came from. If that
-  conversation has no key (for example a task without `--conversation`), it
-  gets one (`async:<session>`) so the result can find it.
+Pass `detach: true` for the old behaviour instead: the task does **not**
+join the caller's, finishing does not wait for it, and when it ends
+(succeeded, failed or cancelled) the Hub sends its result back into the
+caller's conversation as a new task, with input that starts
+`[Result of the task you started on <agent> (task <id>, <state>)]`, which
+the caller continues.
+
+| | `call_agent` | `start_agent` (joined, default) | `start_agent detach: true` |
+|---|---|---|---|
+| The caller's run | waits for the answer | goes on; suspends once it has nothing else to do while any are unfinished | goes on and can finish |
+| The answer | the tool result | check with `query_agent`; `finish` is refused meanwhile | a new task in the caller's conversation (source `reply:<agent>`) |
+| The delegate's work | a queued task it waits on (or an A2A call if `url`/`via: "a2a"`) | a queued task tied to the caller | a queued task the caller never waits on |
+| Which delegates | all | in a fleet, those without a fixed `url` | in a fleet, those without a fixed `url` |
+
+- `detach: true`'s result goes to the conversation the call came from. If
+  that conversation has no key (for example a task without
+  `--conversation`), it gets one (`async:<session>`) so the result can
+  find it.
 - Repeating a call is safe: a retried or resumed call returns the same task.
 - `start_agent` counts against the same limits as `call_agent`.
-- The started task joins the caller's trace; the result starts a trace of its
-  own. The console's fleet map draws started work as a dashed line and
-  results going back as a dotted one.
-- A failed or cancelled task's result says so, so tell the caller in its
-  system prompt what to do then.
+- The started task joins the caller's trace; a `detach: true` result
+  starts a trace of its own. The console's fleet map draws started work
+  as a dashed line and `detach: true` results going back as a dotted one.
+- A failed or cancelled task still counts as "finished" for joining — it
+  does not block the caller's `finish`; a `detach: true` result's failure
+  or cancellation says so in its input, so tell the caller in its system
+  prompt what to do then.
 
 A run started over A2A (no task of its own) can start tasks too: the Hub
 accepts its unfinished run as the parent and derives the depth from its
 lineage.
+
+## Checking in on a task you started
+
+`query_agent(task)` and `signal_agent(task, message)` work on a task you
+started yourself — directly, or one it in turn started — without the
+delegation bookkeeping `call_agent`/`start_agent` do. Use `query_agent`
+after `start_agent` to check in on long work instead of polling with
+`call_agent`; use `signal_agent` to tell it something while it runs
+(cancelling is still `agen cancel` or `CancelTask`, and holding a task is
+`agen pause`/`agen resume` or `PauseTask`/`ResumeTask`, not a signal).
+
+- `query_agent` returns the task's state, its current activity
+  (`model`/`tool`/`idle`/`approval`), its latest `report_progress` call if
+  any, and its outcome once it has one — without waiting or touching the
+  run, the same as a person's `agen query <task-id>`.
+- `signal_agent` writes the message for the target and returns at once;
+  the target picks it up as a new message right before its next model
+  call (a running run) or right after a wake (a suspended one), the same
+  as any other content delivered through its `run_inbox`.
+- Both refuse a task that is not actually yours: not any id you happen to
+  know, only something you (or something you started) started, however
+  many hops down.
+
+## Narrowing a worker's brief
+
+A delegate marked `"overrides": true` is a generic worker: `start_agent`
+can narrow what it may do for this one piece of work, on top of its own
+bundle.
+
+```json
+{"agent": "worker", "message": "Count the .py files under src/", "tools": ["workspace.list"],
+ "budget": {"maxTokens": 5000, "maxDuration": "5m"}, "modelTier": "low"}
+```
+
+- `tools`: only these of the worker's tools (`finish` and `load_skill` are
+  always there); `skills`: skills of its bundle to preload; `budget`: run
+  limits (`maxTokens`, `maxUsd`, `maxTurns`, `maxDuration`).
+- These can only narrow what the worker's own bundle and permissions
+  already allow, never widen them: a tool left out stays hidden from the
+  model, and a budget field can only be smaller than the bundle's own.
+  `start_agent` on a delegate without `overrides: true` refuses any of
+  these arguments.
+- A worker that delegates again passes its own overrides on: a
+  grandchild's effective overrides are its parent's combined with its
+  own (tool and skill lists intersect, budgets take the smaller value), so
+  restrictions carry all the way down a tree.
+- Submitting a task directly (`SubmitTask`, `agen run`) takes the same
+  `overrides` shape, for any deployment, not only delegation.
 
 ## Limits
 
@@ -87,6 +196,11 @@ lineage.
 
 Set a limit to `0` to turn it off. `call_agent` and `start_agent` count
 alike.
+
+`limits.inlineWait` (default `20s`) is how long `call_agent`'s unified path
+waits for a delegate inline before pausing the caller's run instead (see
+[above](#delegates)); it does not apply to a delegate called over A2A
+(fixed `url` or `via: "a2a"`), which always blocks for the whole call.
 
 Each delegate's own budget still applies to its runs.
 

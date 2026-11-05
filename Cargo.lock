@@ -45,6 +45,7 @@ dependencies = [
  "agen-engine",
  "agen-testkit",
  "anyhow",
+ "async-trait",
  "axum",
  "clap",
  "reqwest",

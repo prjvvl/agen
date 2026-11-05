@@ -58,7 +58,9 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen rm <name>                  delete a deployment
   agen run <name> <input>         submit a task and wait for its result
   agen wait <task-id>             wait for a task submitted earlier and print its result
-  agen cancel <task-id>           cancel a task (a running one stops)
+  agen cancel <task-id>           cancel a task (a running one stops; --mode graceful gives it a last turn first)
+  agen pause <task-id>             hold a task (a running one suspends at its next model call)
+  agen resume <task-id>            end a hold started by agen pause
   agen call <name> <text>         A2A message to the deployment (wakes it if asleep)
   agen tasks [name]               recent tasks (--scheduled: waiting for their start time)
   agen providers [resume ACCT]    provider accounts held after an account error
@@ -66,7 +68,18 @@ Fleet (client of the Hub; --hub/--token or AGEN_HUB/AGEN_TOKEN, else the local c
   agen mcp sql [--dsn-env NAME]  a built-in MCP tool server: read-only SQL
   agen runs [name]                recent runs (--roots: one per trace, --status, --label)
   agen trace <task-id|trace-id>   span tree of a trace, across agents
+  agen tree <task-id>              every task of the tree it belongs to
+  agen query <task-id>             its progress, current activity and outcome, without waiting on it
   agen transcript <run|task>      what a run sent to the model and got back, tool calls included
+  agen replay <run>                re-run a recorded run offline, from its saved cassette (needs recordInteractions on)
+  agen eval <bundle-dir>           run scenario files against a bundle with mocked tools, report pass@1/pass^k
+  agen events [name] [-f]         the event log: tasks, approvals, budgets, warnings (--type, --label)
+  agen feedback record <task> --score S   record a judgement on how a task went (0.0-1.0)
+  agen feedback ls [name]         feedback, newest first (--label, --since)
+  agen memory set <id>            durable text an agent reads and updates (value on stdin)
+  agen memory ls                  memory blocks in the namespace
+  agen artifacts get <id>         an artifact an agent saved with save_artifact
+  agen artifacts ls [task]        artifacts in the namespace, or one task's
   agen triggers <name>            trigger events (fired, missed, rejected)
   agen webhook-secret <name> <trigger>  create/rotate a webhook secret
   agen secret set|ls|rm           platform secrets (bundle secrets with source "platform")
@@ -96,9 +109,11 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	cmds := map[string]func(context.Context, []string) error{
 		"up": e.cmdUp, "down": e.cmdDown, "ui": e.cmdUI, "migrate": e.cmdMigrate, "store": e.cmdStore, "secret": e.cmdSecret, "hub": e.cmdHub, "nest": e.cmdNest,
 		"init": e.cmdInit, "deploy": e.cmdDeploy, "scale": e.cmdScale, "ps": e.cmdPs, "logs": e.cmdLogs, "stop": e.cmdStop, "start": e.cmdStart, "rm": e.cmdRm,
-		"run": e.cmdRun, "wait": e.cmdWait, "cancel": e.cmdCancel, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
+		"run": e.cmdRun, "wait": e.cmdWait, "cancel": e.cmdCancel, "pause": e.cmdPause, "resume": e.cmdResume, "call": e.cmdCall, "resolve": e.cmdResolve, "triggers": e.cmdTriggers, "trace": e.cmdTrace, "webhook-secret": e.cmdWebhookSecret, "tasks": e.cmdTasks, "nests": e.cmdNests, "approvals": e.cmdApprovals,
 		"approve": e.decide(true), "deny": e.decide(false), "join-token": e.cmdJoinToken, "token": e.cmdToken, "whoami": e.cmdWhoami,
 		"runs": e.cmdRuns, "providers": e.cmdProviders, "mcp": e.cmdMCP, "transcript": e.cmdTranscript, "notify": e.cmdNotify,
+		"events": e.cmdEvents, "feedback": e.cmdFeedback, "memory": e.cmdMemory, "artifacts": e.cmdArtifacts, "tree": e.cmdTree, "query": e.cmdQuery,
+		"replay": e.cmdReplay, "eval": e.cmdEval,
 	}
 	switch args[0] {
 	case "version", "--version":

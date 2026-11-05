@@ -1,7 +1,7 @@
 {
   "name": "tasks",
   "description": "Deploy an agent, run a task with a cost tier, conversation and labels, schedule one for later, list scheduled tasks, cancel it, and read the logs.",
-  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "observe.logs"],
+  "features": ["deploy.lifecycle", "agent.bundle", "tasks.run", "tasks.tier", "tasks.conversations", "tasks.schedule", "tasks.cancel", "tasks.cancel-graceful", "tasks.hold", "observe.logs", "tasks.tree", "tasks.progress"],
   "bundles": {
     "hello": { "from": "examples/bundles/hello" }
   },
@@ -13,8 +13,8 @@
     },
     {
       "call": "SubmitTask",
-      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hi", "modelTier": "high", "conversationKey": "c1", "labels": { "team": "a" } },
-      "expect": { "task.modelTier": "high", "task.conversationKey": { "contains": "c1" }, "task.labels.team": "a" },
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hi", "modelTier": "high", "priority": "high", "trust": "untrusted", "locks": ["repo:x"], "conversationKey": "c1", "labels": { "team": "a" } },
+      "expect": { "task.modelTier": "high", "task.priority": "high", "task.trust": "untrusted", "task.locks.0": "repo:x", "task.conversationKey": { "contains": "c1" }, "task.labels.team": "a" },
       "save": { "t1": "task.id" }
     },
     {
@@ -22,6 +22,16 @@
       "args": { "id": "$t1", "waitSeconds": 60 },
       "expect": { "task.state": "TASK_STATE_SUCCEEDED", "task.output": "Hello! Nice to meet you.", "task.modelTier": "high" },
       "retry": 120
+    },
+    {
+      "call": "GetTaskTree",
+      "args": { "taskId": "$t1" },
+      "expect": { "tasks": { "has": { "id": "$t1", "rootTaskId": "$t1" } } }
+    },
+    {
+      "call": "QueryTask",
+      "args": { "id": "$t1" },
+      "expect": { "id": "$t1", "state": "TASK_STATE_SUCCEEDED", "outcome.summary": "Hello! Nice to meet you." }
     },
     {
       "call": "SubmitTask",
@@ -40,14 +50,56 @@
       "expect": { "task.state": "TASK_STATE_CANCELLED" }
     },
     {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "later still", "notBefore": "$in:1h" },
+      "expect": { "task.state": "TASK_STATE_QUEUED" },
+      "save": { "t4": "task.id" }
+    },
+    {
+      "call": "CancelTask",
+      "args": { "id": "$t4", "mode": "graceful", "gracePeriodSeconds": 1 },
+      "expect": { "task.state": "TASK_STATE_CANCELLED" }
+    },
+    {
       "call": "ListTasks",
       "args": { "namespace": "$ns", "deployment": "greeter", "state": "TASK_STATE_SUCCEEDED" },
       "expect": { "tasks": { "has": { "id": "$t1" } } }
     },
     {
       "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "hold me", "notBefore": "$in:1h" },
+      "expect": { "task.state": "TASK_STATE_QUEUED" },
+      "save": { "t3": "task.id" }
+    },
+    {
+      "call": "PauseTask",
+      "args": { "id": "$t3", "reason": "testing" },
+      "expect": { "task.held": true, "task.holdReason": "testing" }
+    },
+    {
+      "call": "ResumeTask",
+      "args": { "id": "$t3" },
+      "expect": { "task.held": { "exists": false } }
+    },
+    {
+      "call": "CancelTask",
+      "args": { "id": "$t3" },
+      "expect": { "task.state": "TASK_STATE_CANCELLED" }
+    },
+    {
+      "call": "SubmitTask",
       "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "x", "modelTier": "huge" },
       "error": "model_tier"
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "x", "priority": "whenever" },
+      "error": "priority"
+    },
+    {
+      "call": "SubmitTask",
+      "args": { "ref": { "namespace": "$ns", "name": "greeter" }, "input": "x", "trust": "whenever" },
+      "error": "trust"
     },
     {
       "call": "GetLogs",

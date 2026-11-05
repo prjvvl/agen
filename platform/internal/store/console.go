@@ -277,6 +277,10 @@ func (s *Store) PruneObservability(ctx context.Context, beforeMs int64) (int64, 
 	for _, q := range []string{
 		"DELETE FROM spans WHERE end_ms < $1 AND run_id IN (SELECT id FROM runs WHERE ended_ms IS NOT NULL AND ended_ms < $1)",
 		"DELETE FROM logs WHERE time_ms < $1",
+		// Cassettes (3.6, part: agen replay) hold full prompts and
+		// tool-call payloads, so they age out with the same retention as
+		// everything else here, not a separate setting.
+		"DELETE FROM cassettes WHERE created_ms < $1",
 		// Each trigger keeps its latest event: cron catch-up reads it.
 		"DELETE FROM trigger_events WHERE recorded_ms < $1 AND due_ms < (SELECT MAX(o.due_ms) FROM trigger_events o " +
 			"WHERE o.namespace = trigger_events.namespace AND o.deployment = trigger_events.deployment AND o.trigger_name = trigger_events.trigger_name)",
@@ -300,6 +304,25 @@ type NotificationTarget struct {
 	URL       string
 	Events    []string
 	CreatedMs int64
+	// Filter: only events of this deployment, with these labels, at least
+	// this severe.
+	Filter TargetFilter
+	// Delivery state: the last event seq handled (-1: start at the newest),
+	// when to try again after a failure, since when it fails and why, the
+	// last delivery, and events given up on.
+	CursorSeq       int64
+	RetryMs         int64
+	FailingSinceMs  int64
+	LastError       string
+	LastDeliveredMs int64
+	Dropped         int64
+}
+
+// TargetFilter narrows what a notification target receives.
+type TargetFilter struct {
+	Deployment string            `json:"deployment,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	Severity   string            `json:"severity,omitempty"`
 }
 
 // SetNotificationTarget stores (or replaces) a target with a new signing
@@ -314,21 +337,62 @@ func (s *Store) SetNotificationTarget(ctx context.Context, t NotificationTarget)
 		t.Events = []string{}
 	}
 	events, _ := json.Marshal(t.Events)
+	filter, _ := json.Marshal(t.Filter)
 	t.CreatedMs = NowMs()
 	err = s.inTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM notification_targets WHERE namespace = $1 AND name = $2", t.Namespace, t.Name); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "INSERT INTO notification_targets (namespace, name, url, events, secret, created_ms) VALUES ($1, $2, $3, $4, $5, $6)",
-			t.Namespace, t.Name, t.URL, string(events), sealed, t.CreatedMs)
+		// A new target starts with the events after now.
+		if err := tx.QueryRowContext(ctx, "SELECT seq FROM event_seq WHERE id = 1").Scan(&t.CursorSeq); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "INSERT INTO notification_targets (namespace, name, url, events, secret, created_ms, filter, cursor_seq) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+			t.Namespace, t.Name, t.URL, string(events), sealed, t.CreatedMs, string(filter), t.CursorSeq)
 		return err
 	})
 	return t, secret, err
 }
 
+// TargetDelivered moves a target's cursor on after delivering (or, with
+// dropped, giving up on) the events up to seq. It fails with ErrConflict
+// when the target was replaced or its cursor moved meanwhile.
+func (s *Store) TargetDelivered(ctx context.Context, ns, name string, from, seq int64, dropped bool) error {
+	q, args := "UPDATE notification_targets SET cursor_seq = $1, retry_ms = 0, failing_since_ms = 0, last_error = '', last_delivered_ms = $2 WHERE namespace = $3 AND name = $4 AND cursor_seq = $5",
+		[]any{seq, NowMs(), ns, name, from}
+	if dropped {
+		// The error stays, to show why the event was given up on.
+		q, args = "UPDATE notification_targets SET cursor_seq = $1, retry_ms = 0, failing_since_ms = 0, dropped = dropped + 1 WHERE namespace = $2 AND name = $3 AND cursor_seq = $4",
+			[]any{seq, ns, name, from}
+	}
+	res, err := s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// TargetFailed records a failed delivery and when to try again.
+func (s *Store) TargetFailed(ctx context.Context, ns, name, msg string, retryMs int64) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE notification_targets SET last_error = $1, retry_ms = $2, failing_since_ms = CASE WHEN failing_since_ms = 0 THEN $3 ELSE failing_since_ms END WHERE namespace = $4 AND name = $5",
+		msg, retryMs, NowMs(), ns, name)
+	return err
+}
+
+// StartTargetsAt sets the cursor of targets that have none (made before the
+// event log) to seq.
+func (s *Store) StartTargetsAt(ctx context.Context, seq int64) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE notification_targets SET cursor_seq = $1 WHERE cursor_seq < 0", seq)
+	return err
+}
+
 // ListNotificationTargets lists targets ("" = every namespace).
 func (s *Store) ListNotificationTargets(ctx context.Context, ns string) ([]NotificationTarget, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT namespace, name, url, events, created_ms FROM notification_targets WHERE ($1 = '' OR namespace = $1) ORDER BY namespace, name", ns)
+	rows, err := s.db.QueryContext(ctx, "SELECT namespace, name, url, events, created_ms, filter, cursor_seq, retry_ms, failing_since_ms, last_error, last_delivered_ms, dropped "+
+		"FROM notification_targets WHERE ($1 = '' OR namespace = $1) ORDER BY namespace, name", ns)
 	if err != nil {
 		return nil, err
 	}
@@ -336,11 +400,13 @@ func (s *Store) ListNotificationTargets(ctx context.Context, ns string) ([]Notif
 	var out []NotificationTarget
 	for rows.Next() {
 		var t NotificationTarget
-		var events string
-		if err := rows.Scan(&t.Namespace, &t.Name, &t.URL, &events, &t.CreatedMs); err != nil {
+		var events, filter string
+		if err := rows.Scan(&t.Namespace, &t.Name, &t.URL, &events, &t.CreatedMs, &filter, &t.CursorSeq, &t.RetryMs, &t.FailingSinceMs, &t.LastError,
+			&t.LastDeliveredMs, &t.Dropped); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(events), &t.Events)
+		_ = json.Unmarshal([]byte(filter), &t.Filter)
 		out = append(out, t)
 	}
 	return out, rows.Err()

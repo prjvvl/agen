@@ -37,12 +37,25 @@ message ScalePolicy {
   int32 idle_timeout_seconds = 4;
   // Tasks one instance may run at once.
   int32 max_concurrency = 5;
+  // Keep this many instances beyond what urgent/high priority load alone
+  // needs (2.46, part), so one arriving finds an instance free rather
+  // than waiting on a scale-up: desired is at least
+  // urgent_or_high_load + reserve whenever any is queued or running,
+  // still capped by max. 0 (default): no floor beyond the normal
+  // queue-depth target.
+  int32 reserve = 6;
 }
 
 message Budget {
   int64 max_tokens_per_run = 1;
   double max_usd_per_run = 2;
   double max_usd_per_day = 3;
+  // Per-label daily budgets (3.5, part), keyed "key=value" (one label, not
+  // a set): a candidate task carrying a label whose rule's spend today has
+  // reached its value is skipped at lease time, while the rest of the
+  // deployment's queue keeps going — unlike max_usd_per_day, which holds
+  // the whole deployment at zero instances once exhausted.
+  map<string, double> label_usd_per_day = 4;
 }
 
 // Fleet-side limits. In CreateDeployment and UpdateDeployment a field left
@@ -60,8 +73,19 @@ message Limits {
   int32 max_queued_tasks = 4;
 }
 
+// How a conversation's queue behaves when a new task arrives while an
+// earlier one of the same conversation is still unfinished (3.9, part).
+message ConversationPolicy {
+  // "followup" (default, also empty): queue it, run after the earlier
+  // one. "collect": merge it into the still-queued one if there is one,
+  // waiting debounce after the last merge before queueing it for real.
+  string queue_mode = 1;
+  // collect only: default 2s.
+  string debounce = 2;
+}
+
 message Trigger {
-  // "cron" or "webhook".
+  // "cron", "webhook" or "event".
   string type = 1;
   string name = 2;
   // Cron expression (cron triggers).
@@ -90,6 +114,70 @@ message Trigger {
   // with CRON_TZ=<zone>).
   google.protobuf.Timestamp next_due_at = 11;
   google.protobuf.Timestamp last_due_at = 12;
+  // Event triggers: which events of the namespace's event log submit a task.
+  EventMatch on = 13;
+  // Event triggers: the task's conversation key, from the event:
+  // {{event.taskId}}, {{event.parentTaskId}}, {{event.deployment}},
+  // {{event.type}} or {{event.labels.<key>}}. Empty: a new conversation.
+  string conversation = 14;
+  // Cron: spread firing by a random amount in [0, jitter) after the
+  // window is due (a Go duration, e.g. "30s"), so deployments sharing a
+  // schedule don't all fire at once. Empty: no jitter.
+  string jitter = 15;
+  // Cron: bounds how late the latest missed window may still be caught
+  // up (catch_up); beyond it, it is recorded missed instead. Empty: no
+  // bound (always catches up the latest missed window).
+  string catch_up_window = 16;
+  // Cron: what happens when a window is due while an earlier firing's
+  // task of this trigger is still queued, leased or running: "skip"
+  // (don't fire while one is unfinished), "buffer_one" (fire at most one
+  // more on top of one unfinished one), or "" / "allow" (fire regardless).
+  string overlap = 17;
+  // Cron: a fired window is at least this long (a Go duration) after the
+  // previous firing's; a closer window is skipped (recorded, not
+  // "missed"). Empty: no minimum.
+  string min_start_spacing = 18;
+  // Webhooks (3.7): the trust of tasks this trigger submits. Empty:
+  // untrusted. Cron tasks are always trusted; this has no effect there.
+  string trust = 19;
+  // Event triggers (3.9/3.6, event coalescing): a matching event that
+  // arrives while the target conversation already has a task queued from
+  // this trigger merges into it (Store.MergeIntoQueuedConversationTask,
+  // the same mechanism "collect" queue mode uses) instead of submitting a
+  // separate task, extending the still-queued task's not_before by this
+  // long (a Go duration, e.g. "30s"). Empty: every matching event fires
+  // its own task, same as before.
+  string coalesce = 20;
+  // Random triggers (2.6): how many times to fire per day, planned once a
+  // day within "window" (deterministically, by date, so re-evaluating a
+  // day already planned gives the same times).
+  int32 count = 21;
+  // Random triggers: the time-of-day range to plan within, in "zone",
+  // "HH:MM-HH:MM" (e.g. "02:00-06:00").
+  string window = 22;
+  // Random triggers: planned times are at least this far apart (a Go
+  // duration, e.g. "1h").
+  string min_gap = 23;
+  // Random triggers: IANA time zone the window and days are in. Empty: UTC.
+  string zone = 24;
+  // Random triggers: which days it plans on ("mon".."sun"). Empty: every day.
+  repeated string days = 25;
+}
+
+// Which events fire an event trigger.
+message EventMatch {
+  // Event types, or prefixes ending in "." (at least one).
+  repeated string types = 1;
+  // Only events of this deployment.
+  string deployment = 2;
+  // Only events whose labels include all of these.
+  map<string, string> labels = 3;
+  // Only events at least this severe: info, warning or critical.
+  string severity = 4;
+  // Fire once `count` matching events arrived within `within` (e.g. "10m"),
+  // with all of them in one task. Unset: every matching event fires.
+  int32 count = 5;
+  string within = 6;
 }
 
 message WebhookAuth {
@@ -124,6 +212,10 @@ enum TriggerEventState {
   // The trigger was due but could not fire (for example the Hub was down).
   TRIGGER_EVENT_STATE_MISSED = 2;
   TRIGGER_EVENT_STATE_REJECTED = 3;
+  // The window was due but intentionally not fired: an earlier firing's
+  // task was still unfinished (overlap), or it was too soon after the
+  // previous firing (min_start_spacing).
+  TRIGGER_EVENT_STATE_SKIPPED = 4;
 }
 
 message TriggerEvent {
@@ -173,6 +265,7 @@ message Deployment {
   // Set while the deployment's provider account is held after an account
   // error (invalid key, no credit): it takes no new work until it recovers.
   ProviderHold provider_hold = 19;
+  ConversationPolicy conversations = 20;
 }
 
 // A provider account (provider + API key) held after an account error.
@@ -270,6 +363,9 @@ enum TaskState {
   TASK_STATE_SUCCEEDED = 4;
   TASK_STATE_FAILED = 5;
   TASK_STATE_CANCELLED = 6;
+  // Suspended (3.3, part): holds no instance or lease and is not
+  // autoscaler load; wait_for says what it is waiting for. Not terminal.
+  TASK_STATE_WAITING = 7;
 }
 
 message Task {
@@ -318,6 +414,167 @@ message Task {
   // to reply_deployment with reply_conversation_key.
   string reply_deployment = 28;
   string reply_conversation_key = 29;
+  // How the task's run ended; unset until it ends.
+  Outcome outcome = 30;
+  // Why a queued task has not started (set in responses): not_before (its
+  // start time is later), paused, budget (the daily budget is used up),
+  // label_budget (3.5, part: one of its own labels' daily budget is used
+  // up — unlike budget, this does not hold the rest of the deployment's
+  // queue back), provider_held, conversation_busy (an older task of its
+  // conversation is queued or running), caller_running (an async result
+  // waits for the run that started the work), locks (one of its declared
+  // locks is held by another task), asleep (an instance is being woken),
+  // capacity (no Nest has room for an instance), starting (an instance is
+  // starting), busy (every instance is busy). Empty: it is about to be
+  // taken.
+  string wait_reason = 31;
+  // What this task may do, narrower than its bundle: the task's own
+  // overrides combined with every ancestor's. Unset: the bundle as is.
+  TaskOverrides overrides = 32;
+  // Not leased after this time: a still-queued task past it ends failed,
+  // reason "expired", instead of waiting indefinitely.
+  google.protobuf.Timestamp not_after = 33;
+  // At most one queued task per (deployment, schedule_key); submitting a
+  // task with the same key cancels the queued task that already has it.
+  string schedule_key = 34;
+  // Lease order within a deployment's queue: urgent, high, normal or
+  // background (default normal). Does not cross deployments or affect
+  // scheduling otherwise; a conversation's own ordering still applies first.
+  string priority = 35;
+  // operator, trusted or untrusted (3.7): set by the task's source (an API
+  // token's trust, a webhook trigger's, or trusted for cron), or for a
+  // child task, its caller's trust at the moment it started it (which may
+  // already be lower than the caller's own task, through taint). A caller
+  // may ask for a lower trust than its own; never higher.
+  string trust = 36;
+  // Declared locks (3.11, part): names this task must hold all of at once
+  // before it is leased (the deployment's own `locks` config, plus any
+  // named on submission), released when it ends.
+  repeated string locks = 37;
+  // What a TASK_STATE_WAITING task is waiting for (3.3, part): "<kind>:<ref>",
+  // e.g. "child:<task id>". Unlike wait_reason (why a queued task has not
+  // started), this is set only while suspended and cleared on resume.
+  string wait_for = 38;
+  // Temporal's parent-close policy (3.4, part): what happens to this task's
+  // own unfinished children when it ends. "cancel" (default, also empty):
+  // they are cancelled too, recursively down the tree. "abandon": left
+  // running on their own, with no parent to report back to.
+  string on_parent_end = 39;
+  // The tree's root task (3.4, part): a task with no parent is its own
+  // root; every descendant inherits its ancestor's. Unlike root_run_id
+  // (which names a run and is empty until that run starts), this is always
+  // set, so GetTaskTree can resolve a tree from any task in it right away.
+  string root_task_id = 40;
+  // The latest report_progress call (3.4, part); unset if the agent never
+  // called it.
+  TaskProgress progress = 41;
+  // Hold (3.4, part): a queued task is skipped by leasing and a running run
+  // suspends with wait_for "resume" at its next model call, until ResumeTask
+  // or held_until passes. Held is independent of state: it only gates
+  // queued/waiting, it does not itself change state.
+  bool held = 42;
+  // Unset: held indefinitely, until ResumeTask. Set: the scheduler clears
+  // the hold itself once this passes (lazily for a queued task, actively
+  // woken for a waiting one).
+  google.protobuf.Timestamp held_until = 43;
+  string hold_reason = 44;
+  // This task's own declared locks' current fencing tokens (1.5, part),
+  // name -> fence, as of the moment it was leased. A declared lock's
+  // fence never changes for the rest of this task's lease, so this is
+  // set once here rather than fetched again later. Locks acquired mid-run
+  // (acquire_lock) are not included; their own fence comes back from
+  // that call directly.
+  map<string, int64> lock_fences = 45;
+}
+
+// A task's self-reported progress (3.4, part), from the built-in
+// report_progress tool. Only the latest value is kept here; task.progress
+// events are the history.
+message TaskProgress {
+  string step = 1;
+  bool done = 2;
+  int32 total = 3;
+  string note = 4;
+  repeated string artifacts = 5;
+}
+
+// One claimed run_inbox row (3.4/3.9, part), drained into a run before its
+// next model call.
+message InboxEntry {
+  // "signal" (signal_agent) today; a future queue-steer or tree-cancel row
+  // would use its own kind.
+  string kind = 1;
+  // What the kind's ref names: for "signal", the task that sent it.
+  string ref = 2;
+  string payload = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// Per-task settings that can only narrow what the bundle allows. A child
+// task gets its own overrides combined with its parent's, so restrictions
+// pass down a tree.
+message TaskOverrides {
+  // Only these of the bundle's tools (exact names or globs, as permission
+  // rules write them). finish and load_skill are always there.
+  repeated string tools = 1;
+  // Skills (of the bundle) whose instructions are in the system prompt.
+  repeated string skills = 2;
+  // Text added after the system prompt.
+  string system_addendum = 3;
+  // Extra rules, deny or ask only, checked before the bundle's.
+  repeated OverrideRule permissions = 4;
+  // Run limits, at most the bundle's.
+  RunBudget budget = 5;
+}
+message OverrideRule {
+  string tool = 1;
+  // "deny" or "ask".
+  string action = 2;
+}
+// Limits for one run (0 or unset: the bundle's).
+message RunBudget {
+  int64 max_tokens = 1;
+  double max_usd = 2;
+  int32 max_turns = 3;
+  // e.g. "20m".
+  string max_duration = 4;
+}
+
+// One entry of the event log.
+message Event {
+  // Position in the log; increases in commit order.
+  int64 seq = 1;
+  string namespace = 2;
+  // task.queued, task.started, task.finished, task.needs_input, task.stuck,
+  // approval.pending, approval.decided, budget.threshold, provider.held,
+  // provider.resumed, activity.warning, trigger.missed, webhook.rejected,
+  // deployment.created, deployment.updated, deployment.deleted.
+  string type = 3;
+  string deployment = 4;
+  string task_id = 5;
+  string parent_task_id = 6;
+  map<string, string> labels = 7;
+  // info, warning or critical.
+  string severity = 8;
+  // Details per type (e.g. task.finished: state and outcome).
+  google.protobuf.Struct data = 9;
+  google.protobuf.Timestamp at = 10;
+}
+
+// How a run ended, beyond its state: what it reports and why it stopped.
+message Outcome {
+  // done, partial, needs_input, rejected, failed or cancelled.
+  string status = 1;
+  // Why a run stopped early: max_turns, budget, duration, stuck, cancelled,
+  // interrupted, error or no_answer. Empty for a run that finished its work.
+  string reason = 2;
+  // The agent's report (its final answer when it did not call finish).
+  string summary = 3;
+  // Structured result from finish (checked against harness result.schema).
+  google.protobuf.Value data = 4;
+  repeated string artifacts = 5;
+  // needs_input: who must answer, "caller" or "human".
+  string input_from = 6;
 }
 
 enum ApprovalState {
@@ -388,6 +645,58 @@ message ApiToken {
   bool revoked = 7;
   // Acts for whoever submitted the task it works on (see CreateApiToken).
   bool on_behalf = 8;
+  // The trust tasks submitted with this token get (3.7): operator, trusted
+  // (default) or untrusted.
+  string trust = 9;
+}
+
+// A judgement on how a task went: a person, a check, or a judge model.
+message Feedback {
+  string id = 1;
+  string namespace = 2;
+  string deployment = 3;
+  string task_id = 4;
+  // 0.0 (worst) to 1.0 (best).
+  double score = 5;
+  map<string, string> labels = 6;
+  string note = 7;
+  // Who gave it: a principal id, or "approval" for one recorded from an
+  // approval decision.
+  string by = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// Durable, named text an agent reads and updates across runs and
+// conversations (`x-agen/config.json` `memory`), namespace-scoped (3.10).
+message MemoryBlock {
+  string namespace = 1;
+  string id = 2;
+  string label = 3;
+  string description = 4;
+  string value = 5;
+  // 0: no limit.
+  int64 limit_chars = 6;
+  // Bumped on every update; the `memory_update` tool's `expectedVersion`
+  // is checked against it, so parallel conversations cannot silently
+  // overwrite each other.
+  int64 version = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// Named, content-addressed text an agent saved during a run with the
+// save_artifact tool (3.8, part), read back with read_artifact or the API.
+message Artifact {
+  string namespace = 1;
+  // "sha256:<hex>" of content.
+  string id = 2;
+  string name = 3;
+  string media_type = 4;
+  // Byte length of content.
+  int64 size = 5;
+  string content = 6;
+  string task_id = 7;
+  string run_id = 8;
+  google.protobuf.Timestamp created_at = 9;
 }
 
 message Run {
@@ -415,4 +724,6 @@ message Run {
   // (this run and every run it delegated to).
   Usage tree_usage = 20;
   int32 tree_runs = 21;
+  // How the run ended; unset while it runs.
+  Outcome outcome = 22;
 }

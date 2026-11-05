@@ -17,6 +17,8 @@ use std::sync::{Arc, Mutex};
 use agen_engine::agent::{Agent, AgentError, BundleOptions, RunOptions, RunResult};
 use agen_engine::bundle::Bundle;
 use agen_engine::store::{RunStatus, Store, StoreError};
+
+mod eval;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -74,6 +76,18 @@ enum Cmd {
         bundle: PathBuf,
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Run the agent against a scenario file N times, with its tools
+    /// mocked, and report pass@1/pass^k (rule checks plus one LLM-judge
+    /// call per run when the scenario has a rubric).
+    Eval {
+        bundle: PathBuf,
+        #[arg(long)]
+        scenario: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        runs: usize,
         #[command(flatten)]
         common: Common,
     },
@@ -153,6 +167,7 @@ fn result_json(r: &RunResult) -> Value {
         "error": r.error,
         "usage": {"inputTokens": r.usage.input_tokens, "outputTokens": r.usage.output_tokens, "costUsd": r.usage.cost_usd},
         "traceId": r.trace_id,
+        "outcome": r.outcome,
     })
 }
 
@@ -237,6 +252,24 @@ async fn real_main() -> anyhow::Result<i32> {
             let r = agent.resume(&run_id, stream_options(json, cancel_on_ctrl_c())).await?;
             Ok(finish(r, json))
         }
+        Cmd::Eval {
+            bundle,
+            scenario,
+            runs,
+            common,
+        } => {
+            let url = match &common.store {
+                Some(u) => u.clone(),
+                None => default_store()?,
+            };
+            let report = eval::run_scenario(&bundle, &scenario, runs, &url, &common).await?;
+            println!("{report}");
+            Ok(if report["passK"].as_bool().unwrap_or(false) {
+                0
+            } else {
+                1
+            })
+        }
         Cmd::Serve {
             bundle,
             listen,
@@ -311,6 +344,13 @@ struct TaskIn {
     attempts: u32,
     model_tier: String,
     budget_pressure: bool,
+    overrides: Option<agen_engine::overrides::TaskOverrides>,
+    /// "operator", "trusted" or "untrusted"; "" (an older caller) means
+    /// trusted.
+    trust: String,
+    /// This task's own declared locks' fencing tokens (1.5, part), name ->
+    /// fence, as of the moment it was leased.
+    lock_fences: std::collections::BTreeMap<String, i64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -550,6 +590,9 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         near_budget: req.task.budget_pressure,
         traceparent: (!traceparent.is_empty()).then_some(traceparent),
         cancel,
+        overrides: req.task.overrides,
+        trust: agen_engine::bundle::Trust::parse(&req.task.trust),
+        lock_fences: req.task.lock_fences,
         ..Default::default()
     };
     // Run detached from the request: if the caller disconnects, the run
@@ -565,6 +608,14 @@ async fn run_task(State(st): State<Arc<HostState>>, body: axum::body::Bytes) -> 
         agent.run(&input, opts).await
     });
     match handle.await {
+        // Not finished: the run gave up its instance slot to wait for
+        // something (3.3), rather than finishing or failing.
+        Ok(Ok(r)) if !r.wait_for.is_empty() => Json(json!({
+            "suspended": true,
+            "waitFor": r.wait_for,
+            "run": result_json(&r),
+        }))
+        .into_response(),
         Ok(Ok(r)) => Json(json!({
             "success": r.status == RunStatus::Succeeded,
             "output": r.output,

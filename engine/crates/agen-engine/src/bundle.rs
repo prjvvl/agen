@@ -73,10 +73,28 @@ pub struct Harness {
     pub context_tokens: Option<u64>,
     pub parallel_tool_calls: Option<bool>,
     pub trace_tool_arguments: Option<bool>,
+    /// A tool result longer than this many characters is saved as an
+    /// artifact instead of going into the conversation whole; the
+    /// conversation gets a preview plus the artifact id and how to read
+    /// the rest. 0: no cap. Default `default_limits::MAX_TOOL_RESULT_CHARS`.
+    pub max_tool_result_chars: Option<u32>,
     pub base_url: Option<String>,
     pub api_key_secret: Option<String>,
     pub script: Option<String>,
     pub cassette: Option<String>,
+    /// The structured result a run returns through `finish`.
+    pub result: Option<ResultSpec>,
+    /// Tried in order, each as its own full provider/account, only after
+    /// an account error (bad key, no credit) on the primary — never for a
+    /// transient one, and never just because a model on the primary kept
+    /// failing (that's what fallback_models is for). Off by default (2.30).
+    #[serde(default)]
+    pub fallback_providers: Vec<Harness>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ResultSpec {
+    pub schema: serde_json::Value,
 }
 
 /// OpenRouter request settings sent as given (`harness.json` `openrouter`).
@@ -95,10 +113,161 @@ pub enum Action {
     Deny,
 }
 
+/// A task's trust, fixed in this release as operator > trusted > untrusted.
+/// Set by its source (an API token's `trust`, default trusted; a webhook
+/// trigger's, default untrusted; cron, always trusted) and never raised by
+/// a child or by taint: `Ord` reflects this ranking directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Trust {
+    Untrusted,
+    #[default]
+    Trusted,
+    Operator,
+}
+
+impl Trust {
+    /// Parses a stored or wire trust string; "" and anything unrecognized
+    /// mean the default, trusted.
+    pub fn parse(s: &str) -> Trust {
+        match s {
+            "untrusted" => Trust::Untrusted,
+            "operator" => Trust::Operator,
+            _ => Trust::Trusted,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Trust::Untrusted => "untrusted",
+            Trust::Trusted => "trusted",
+            Trust::Operator => "operator",
+        }
+    }
+}
+
+/// A permission rule's extra condition (1.3; `rate`, a count in a window,
+/// is not yet implemented — it needs its own persistent counter, a bigger
+/// piece than the others here).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct When {
+    /// The run's current trust is exactly this.
+    pub trust: Option<Trust>,
+    /// The run's current trust is below this.
+    #[serde(rename = "trustBelow")]
+    pub trust_below: Option<Trust>,
+    /// Every named argument must match (missing from the call: never
+    /// matches). Checked only against a specific call's own arguments;
+    /// never narrows which tools are merely listed to the model.
+    #[serde(default)]
+    pub args: std::collections::BTreeMap<String, ArgMatch>,
+    /// Every named label of the task must equal this value.
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    /// A time-of-day/day-of-week window, in UTC (no time zone database
+    /// dependency here, unlike the Hub's own random triggers).
+    pub time: Option<TimeWindow>,
+}
+
+impl When {
+    fn matches(&self, trust: Trust, args: &Value, labels: &std::collections::BTreeMap<String, String>) -> bool {
+        self.trust.is_none_or(|t| t == trust)
+            && self.trust_below.is_none_or(|t| trust < t)
+            && self.args.iter().all(|(k, m)| m.matches(args.get(k)))
+            && self.labels.iter().all(|(k, v)| labels.get(k) == Some(v))
+            && self.time.as_ref().is_none_or(TimeWindow::now_within)
+    }
+}
+
+/// One `when.args` condition (1.3): an exact JSON value, or a tagged
+/// comparison. Tried in this order (an untagged enum uses the first
+/// variant that deserializes), so a bare value — a string, a number, a
+/// bool — always falls through to `Exact` once the tagged shapes above
+/// it don't match.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ArgMatch {
+    Glob { glob: String },
+    Lt { lt: f64 },
+    Lte { lte: f64 },
+    Gt { gt: f64 },
+    Gte { gte: f64 },
+    Exact(Value),
+}
+
+impl ArgMatch {
+    fn matches(&self, val: Option<&Value>) -> bool {
+        match self {
+            ArgMatch::Glob { glob } => val
+                .and_then(Value::as_str)
+                .is_some_and(|s| crate::permissions::glob_match(glob, s)),
+            ArgMatch::Lt { lt } => val.and_then(Value::as_f64).is_some_and(|n| n < *lt),
+            ArgMatch::Lte { lte } => val.and_then(Value::as_f64).is_some_and(|n| n <= *lte),
+            ArgMatch::Gt { gt } => val.and_then(Value::as_f64).is_some_and(|n| n > *gt),
+            ArgMatch::Gte { gte } => val.and_then(Value::as_f64).is_some_and(|n| n >= *gte),
+            ArgMatch::Exact(want) => val == Some(want),
+        }
+    }
+}
+
+/// `when.time` (1.3): a "HH:MM-HH:MM" UTC time-of-day window, optionally
+/// also limited to `days` ("mon".."sun"; empty: every day).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TimeWindow {
+    pub window: String,
+    #[serde(default)]
+    pub days: Vec<String>,
+}
+
+impl TimeWindow {
+    fn now_within(&self) -> bool {
+        self.contains(std::time::SystemTime::now())
+    }
+
+    fn contains(&self, now: std::time::SystemTime) -> bool {
+        let Some((from, to)) = parse_time_window(&self.window) else {
+            return false;
+        };
+        let secs = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if !self.days.is_empty() {
+            const NAMES: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+            // 1970-01-01 (epoch day 0) was a Thursday (index 4).
+            let weekday = NAMES[((secs / 86_400 + 4) % 7) as usize];
+            if !self.days.iter().any(|d| d == weekday) {
+                return false;
+            }
+        }
+        let sod = (secs % 86_400) as i64;
+        from <= sod && sod < to
+    }
+}
+
+/// Parses "HH:MM-HH:MM" into seconds-since-midnight bounds.
+fn parse_time_window(w: &str) -> Option<(i64, i64)> {
+    let (s, e) = w.split_once('-')?;
+    let parse_hm = |t: &str| -> Option<i64> {
+        let (h, m) = t.split_once(':')?;
+        Some(h.parse::<i64>().ok()? * 3600 + m.parse::<i64>().ok()? * 60)
+    };
+    let (from, to) = (parse_hm(s)?, parse_hm(e)?);
+    (to > from).then_some((from, to))
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PermissionRule {
     pub tool: String,
     pub action: Action,
+    #[serde(default)]
+    pub when: Option<When>,
+}
+
+impl PermissionRule {
+    pub fn matches(&self, trust: Trust, args: &Value, labels: &std::collections::BTreeMap<String, String>) -> bool {
+        self.when.as_ref().is_none_or(|w| w.matches(trust, args, labels))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -132,6 +301,10 @@ pub struct Budget {
     pub max_tokens_per_run: Option<u64>,
     pub max_usd_per_run: Option<f64>,
     pub max_usd_per_day: Option<f64>,
+    /// How much a cached input token counts against max_tokens_per_run
+    /// (2.21), relative to a fresh one. Default 0.1 (a cache hit costs a
+    /// tenth as much as a fresh prompt token).
+    pub cached_input_weight: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -149,6 +322,16 @@ pub struct Limits {
     /// How long one tool call may take ("10m"); delegated calls are bounded
     /// by the callee's own limits instead.
     pub tool_timeout: Option<String>,
+    /// Output limit of the report call a run gets when it stops at a limit
+    /// (0: no report call; the run fails as before).
+    pub report_tokens: Option<u32>,
+    /// The same step with the same result this many turns in a row counts as
+    /// stuck: the run is nudged once, then stops and reports (0: off).
+    pub stuck_repeats: Option<u32>,
+    /// How long `call_agent`'s unified delegation path (a platform delegate,
+    /// no fixed url, not `via: "a2a"`) waits for the child task's answer
+    /// before suspending the run instead of blocking on it ("20s").
+    pub inline_wait: Option<String>,
 }
 
 /// Limit values used when a bundle does not set them. A limit set to 0 is
@@ -163,7 +346,12 @@ pub mod default_limits {
     pub const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
     pub const TOOL_TIMEOUT: Duration = Duration::from_secs(600);
     pub const MAX_OUTPUT_TOKENS: u32 = 8192;
+    pub const MAX_TOOL_RESULT_CHARS: u32 = 32_000;
+    pub const CACHED_INPUT_WEIGHT: f64 = 0.1;
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 3600);
+    pub const REPORT_TOKENS: u32 = 1024;
+    pub const STUCK_REPEATS: u32 = 4;
+    pub const INLINE_WAIT: Duration = Duration::from_secs(20);
 }
 
 impl Limits {
@@ -182,9 +370,21 @@ impl Limits {
         self.max_identical_tool_calls
             .unwrap_or(default_limits::MAX_IDENTICAL_TOOL_CALLS)
     }
+    pub fn report_tokens(&self) -> u32 {
+        self.report_tokens.unwrap_or(default_limits::REPORT_TOKENS)
+    }
+    pub fn stuck_repeats(&self) -> u32 {
+        self.stuck_repeats.unwrap_or(default_limits::STUCK_REPEATS)
+    }
+    pub fn inline_wait(&self) -> std::time::Duration {
+        self.inline_wait
+            .as_deref()
+            .and_then(parse_duration)
+            .unwrap_or(default_limits::INLINE_WAIT)
+    }
 }
 
-/// Another deployment this agent may call (`call_agent`).
+/// Another deployment this agent may call (`call_agent`, `start_agent`).
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Delegate {
@@ -196,6 +396,24 @@ pub struct Delegate {
     pub url: Option<String>,
     /// Shown to the model.
     pub description: Option<String>,
+    /// Accept narrowing overrides from the caller's brief (default false:
+    /// only deployments meant as generic workers should set this).
+    #[serde(default)]
+    pub overrides: bool,
+    /// `"a2a"` opts a platform delegate (no fixed `url`) out of
+    /// `call_agent`'s unified delegation (child task + suspend/resume) back
+    /// into the plain synchronous A2A call it always had. A delegate with a
+    /// fixed `url` always uses A2A regardless of this.
+    pub via: Option<String>,
+}
+
+impl Delegate {
+    /// True if `call_agent` must use the old synchronous A2A call for this
+    /// delegate rather than the unified child-task path (3.2b): a fixed
+    /// endpoint has no task to start, and `via: "a2a"` opts out explicitly.
+    pub fn sync_a2a(&self) -> bool {
+        self.url.is_some() || self.via.as_deref() == Some("a2a")
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -203,13 +421,91 @@ pub struct Delegate {
 pub struct ToolMeta {
     pub side_effect: Option<bool>,
     pub idempotent: Option<bool>,
+    /// The result may contain content from outside the agent's control
+    /// (default: the MCP server's `openWorldHint`). A run that receives one
+    /// drops to untrusted for the rest of the run.
+    pub untrusted_output: Option<bool>,
+}
+
+/// `x-agen/config.json` `workspace` (2.45).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceConfig {
+    /// "per_task" (its own directory, cleaned up when the task ends
+    /// unless retain is set): "per_conversation" (shared by every task of
+    /// one conversation, never cleaned up here): "shared" (one directory
+    /// for the whole deployment, never cleaned up here).
+    pub mode: WorkspaceMode,
+    /// per_task only: keep the directory after the task ends instead of
+    /// removing it. Default false.
+    #[serde(default)]
+    pub retain: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceMode {
+    PerTask,
+    PerConversation,
+    Shared,
+}
+
+impl WorkspaceConfig {
+    /// The directory for one run (2.45): under `AGEN_WORKSPACE_ROOT`
+    /// (default the OS temp directory's own `agen-workspaces`), namespaced
+    /// by namespace/deployment, then keyed by mode — a task with no
+    /// task_id (standalone/embedded use) or no conversation_key falls
+    /// back to run_id, so per_task/per_conversation still give each run
+    /// its own directory rather than colliding on an empty key.
+    pub fn dir(
+        &self,
+        namespace: &str,
+        deployment: &str,
+        task_id: &str,
+        conversation_key: &str,
+        run_id: &str,
+    ) -> std::path::PathBuf {
+        let root = std::env::var_os("AGEN_WORKSPACE_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("agen-workspaces"));
+        let key = match self.mode {
+            WorkspaceMode::Shared => "shared".to_string(),
+            WorkspaceMode::PerConversation if !conversation_key.is_empty() => {
+                format!("conversation-{}", sanitize_key(conversation_key))
+            }
+            WorkspaceMode::PerConversation => format!("run-{run_id}"),
+            WorkspaceMode::PerTask if !task_id.is_empty() => format!("task-{task_id}"),
+            WorkspaceMode::PerTask => format!("run-{run_id}"),
+        };
+        root.join(sanitize_key(namespace))
+            .join(sanitize_key(deployment))
+            .join(key)
+    }
+}
+
+/// Keeps a key filesystem-safe: only ASCII letters, digits, `-` and `_`
+/// pass through; anything else (including `/`, which would otherwise
+/// escape the intended directory) becomes `_`.
+fn sanitize_key(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// `x-agen/config.json`. Platform-only sections (scale, triggers, kind) are
 /// kept as raw JSON; the platform owns their meaning.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
-    pub workspace: Option<String>,
+    /// A directory the host creates and shares with every MCP server
+    /// (via `_meta` `agen/workspace`) and the model (2.45). Unset: no
+    /// workspace directory at all.
+    pub workspace: Option<WorkspaceConfig>,
     #[serde(default)]
     pub permissions: Permissions,
     #[serde(default)]
@@ -224,6 +520,58 @@ pub struct Config {
     pub scale: Option<Value>,
     #[serde(default)]
     pub triggers: Vec<Value>,
+    #[serde(default)]
+    pub memory: Vec<MemoryAttachment>,
+    /// Rollover (1.8, part): once a conversation's history no longer
+    /// fits `maxContextTokens`, the part about to be dropped is folded
+    /// into a running summary instead of just disappearing. Unset: a
+    /// built-in prompt.
+    pub rollover: Option<RolloverConfig>,
+    /// Record every model call of every run as a replayable cassette
+    /// (3.6, part: `agen replay`). Off by default: a cassette holds full
+    /// prompts and tool-call payloads.
+    #[serde(default, rename = "recordInteractions")]
+    pub record_interactions: bool,
+}
+
+/// How much of a memory block (`x-agen/config.json` `memory`) an agent may
+/// do with it: see it, append, or fully rewrite it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryMode {
+    #[default]
+    Read,
+    Append,
+    Write,
+}
+
+/// `x-agen/config.json` `rollover` (1.8, part).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RolloverConfig {
+    /// Replaces the built-in summarization instruction.
+    pub prompt: Option<String>,
+}
+
+/// A memory block attached to this bundle, or a live context source
+/// (1.8): read-only content fetched fresh before each model call instead
+/// of coming from the Store. Exactly one of `block` or `url` is set —
+/// checked by `Bundle::load`, since an untagged shape can't enforce it on
+/// its own.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct MemoryAttachment {
+    pub block: Option<String>,
+    #[serde(default)]
+    pub mode: MemoryMode,
+    /// A plain HTTP(S) URL, fetched with GET (1.8). Skipped for this
+    /// turn, never an error, if the fetch fails or times out.
+    pub url: Option<String>,
+    /// At most this many characters of the fetched body (1.8); the rest
+    /// is dropped. Default 4000.
+    #[serde(rename = "maxChars")]
+    pub max_chars: Option<usize>,
+    /// How long to wait for the fetch before giving up (1.8). Default 5.
+    #[serde(rename = "timeoutSeconds")]
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -407,6 +755,15 @@ impl Bundle {
         let config: Config = config_raw
             .and_then(|c| v.typed("x-agen/config.json", c))
             .unwrap_or_default();
+        for (i, a) in config.memory.iter().enumerate() {
+            if a.block.is_some() == a.url.is_some() {
+                v.issue(
+                    "x-agen/config.json",
+                    &format!("/memory/{i}"),
+                    "exactly one of block or url is required".into(),
+                );
+            }
+        }
         let secrets: BTreeMap<String, SecretRef> = secrets_raw
             .and_then(|s| v.typed("x-agen/secrets.json", s))
             .unwrap_or_default();
@@ -842,6 +1199,37 @@ mod tests {
     }
 
     #[test]
+    fn a_memory_attachment_needs_exactly_one_of_block_or_url() {
+        let d = temp_hello();
+        std::fs::write(
+            d.path().join("x-agen/config.json"),
+            r#"{"memory": [{"block": "notes", "url": "https://example.com"}, {}]}"#,
+        )
+        .unwrap();
+        let err = Bundle::load(d.path()).unwrap_err();
+        let msgs: Vec<String> = err.issues.iter().map(|i| i.to_string()).collect();
+        assert_eq!(
+            msgs.iter()
+                .filter(|m| m.contains("exactly one of block or url"))
+                .count(),
+            2,
+            "{msgs:?}"
+        );
+    }
+
+    #[test]
+    fn rollover_prompt_parses_from_config_json() {
+        let d = temp_hello();
+        std::fs::write(
+            d.path().join("x-agen/config.json"),
+            r#"{"rollover": {"prompt": "Summarize briefly."}}"#,
+        )
+        .unwrap();
+        let b = Bundle::load(d.path()).unwrap();
+        assert_eq!(b.config.rollover.unwrap().prompt.as_deref(), Some("Summarize briefly."));
+    }
+
+    #[test]
     fn frontmatter_parsing() {
         assert_eq!(split_frontmatter("---\na: 1\n---\nbody"), Some(("a: 1\n", "body")));
         assert_eq!(
@@ -850,5 +1238,73 @@ mod tests {
         );
         assert_eq!(split_frontmatter("no frontmatter"), None);
         assert_eq!(split_frontmatter("---\nunterminated"), None);
+    }
+
+    #[test]
+    fn when_matches_against_specific_argument_values() {
+        let glob = When {
+            trust: None,
+            trust_below: None,
+            args: BTreeMap::from([("path".to_string(), ArgMatch::Glob { glob: "/tmp/*".into() })]),
+            labels: BTreeMap::new(),
+            time: None,
+        };
+        assert!(glob.matches(Trust::Trusted, &serde_json::json!({"path": "/tmp/x"}), &BTreeMap::new()));
+        assert!(!glob.matches(Trust::Trusted, &serde_json::json!({"path": "/etc/x"}), &BTreeMap::new()));
+
+        let threshold = When {
+            trust: None,
+            trust_below: None,
+            args: BTreeMap::from([("amount".to_string(), ArgMatch::Gt { gt: 100.0 })]),
+            labels: BTreeMap::new(),
+            time: None,
+        };
+        assert!(threshold.matches(Trust::Trusted, &serde_json::json!({"amount": 150}), &BTreeMap::new()));
+        assert!(!threshold.matches(Trust::Trusted, &serde_json::json!({"amount": 50}), &BTreeMap::new()));
+        assert!(
+            !threshold.matches(Trust::Trusted, &serde_json::json!({}), &BTreeMap::new()),
+            "a missing argument never matches"
+        );
+    }
+
+    #[test]
+    fn when_matches_against_task_labels() {
+        let w = When {
+            trust: None,
+            trust_below: None,
+            args: BTreeMap::new(),
+            labels: BTreeMap::from([("env".to_string(), "prod".to_string())]),
+            time: None,
+        };
+        assert!(w.matches(
+            Trust::Trusted,
+            &Value::Null,
+            &BTreeMap::from([("env".to_string(), "prod".to_string())])
+        ));
+        assert!(!w.matches(
+            Trust::Trusted,
+            &Value::Null,
+            &BTreeMap::from([("env".to_string(), "staging".to_string())])
+        ));
+        assert!(
+            !w.matches(Trust::Trusted, &Value::Null, &BTreeMap::new()),
+            "a missing label never matches"
+        );
+    }
+
+    #[test]
+    fn time_window_matches_within_bounds_and_day() {
+        let w = TimeWindow {
+            window: "09:00-17:00".into(),
+            days: vec!["wed".into()],
+        };
+        // Epoch day 6 (1970-01-07) is a Wednesday.
+        let within = std::time::UNIX_EPOCH + std::time::Duration::from_secs(6 * 86_400 + 10 * 3600);
+        assert!(w.contains(within));
+        let outside_hours = std::time::UNIX_EPOCH + std::time::Duration::from_secs(6 * 86_400 + 20 * 3600);
+        assert!(!w.contains(outside_hours));
+        // Epoch day 5 (1970-01-06) is a Tuesday, same time of day.
+        let wrong_day = std::time::UNIX_EPOCH + std::time::Duration::from_secs(5 * 86_400 + 10 * 3600);
+        assert!(!w.contains(wrong_day));
     }
 }

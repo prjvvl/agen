@@ -11,7 +11,7 @@ Budgets stop an agent from spending more than you meant it to. They are set in
 
 | Budget | Enforced by | What happens |
 |---|---|---|
-| `maxTokensPerRun` | the engine | The run fails with `budget_exceeded` once its input + output tokens reach the limit. |
+| `maxTokensPerRun` | the engine | Once the run's input + output tokens reach the limit, it stops and reports (see [below](#stopping-at-a-limit)). |
 | `maxUsdPerRun` | the engine | The same, by cost. Needs a provider that reports cost (OpenRouter does; direct OpenAI does not). |
 | `maxUsdPerDay` | the Hub | Once today's (UTC) spend of the deployment reaches it, no new work starts until the next UTC day: no task leases, no wake-ups, no scale-up (callers get 503 with the reset time). Runs already in flight finish. |
 
@@ -27,6 +27,25 @@ Budgets stop an agent from spending more than you meant it to. They are set in
   `maxTokensPerRun`. Keep `maxOutputTokens` modest for tight budgets.
 - `maxUsdPerDay` is checked when work starts, so the day's spend can overshoot
   by the runs already in flight (at most `maxUsdPerRun` × concurrency).
+
+## Stopping at a limit
+
+A run that reaches `maxTurns`, `maxRunDuration`, `maxTokensPerRun` or
+`maxUsdPerRun`, or keeps repeating itself (`stuckRepeats`), is not cut off
+empty-handed. It gets one more model call,
+without tools and with at most `limits.reportTokens` (default 1024) output
+tokens, asking it to report what it did, what it found and what is left. The
+run then ends `succeeded` with the outcome `partial` and a `reason`
+(`max_turns`, `duration`, `budget` or `stuck`), and the report is its output. That
+last call can take a run slightly past a token or cost budget (by its input
+plus `reportTokens`).
+
+Set `reportTokens` to `0` to have runs fail at a limit instead, with outcome
+`failed` and the same reason.
+
+The Hub records a `budget.threshold` [event](events.md) when a deployment
+has spent 50, 80 and 100% of `maxUsdPerDay`, each once per UTC day, so a
+[notification target](notifications.md) can hear about it.
 
 ## Budget pressure
 
@@ -62,10 +81,12 @@ to turn it off.
 
 | Limit | Where | Default | What happens |
 |---|---|---|---|
-| `maxTurns` | `x-agen/agent.md` | 16 | Model calls per run; the run fails past it. |
+| `maxTurns` | `x-agen/agent.md` | 16 | Model calls per run; past it the run [stops and reports](#stopping-at-a-limit). |
 | `maxOutputTokens` | `x-agen/harness.json` | 8192 | The most one model answer may produce. |
-| `maxRunDuration` | `limits` | `1h` | Working time of a run, not counting approval waits; the run fails past it. |
-| `maxIdenticalToolCalls` | `limits` | 5 | The same tool with the same arguments in one run; further identical calls are refused and the model is told to change course. |
+| `maxRunDuration` | `limits` | `1h` | Working time of a run, not counting approval waits; past it the run stops and reports. |
+| `reportTokens` | `limits` | 1024 | Output limit of the report call at a limit; `0`: no report, the run fails. |
+| `maxIdenticalToolCalls` | `limits` | 5 | The same tool with the same arguments in one run; further identical calls are refused and the model is told to change course. A call that failed 3 times in a row with the same error is refused the same way. |
+| `stuckRepeats` | `limits` | 4 | Turns in a row with the same calls and the same results count as stuck: the run is told once to change approach, and if it goes on repeating it [stops and reports](#stopping-at-a-limit) with reason `stuck`. |
 | `modelRequestTimeout` | `limits` | `10m` | One model request; it fails past it. |
 | `toolTimeout` | `limits` | `10m` | One tool call (not `call_agent`, which the callee's limits bound); the model gets a timeout error. |
 | `maxQueuedTasks` | `limits` | 1000 | Queued tasks per deployment; more are refused (`RESOURCE_EXHAUSTED`, webhooks get 429). |

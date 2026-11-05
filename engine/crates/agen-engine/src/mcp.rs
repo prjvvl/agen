@@ -9,13 +9,16 @@
 //!   safe to retry after an interruption if it marks them `idempotentHint`;
 //!   `x-agen/config.json` `tools.<server>.<tool>` `sideEffect` / `idempotent`
 //!   override.
-//! - Every call carries the task, run and conversation it belongs to, and the
-//!   task's labels, in `_meta` (`agen/…` keys) plus the W3C `traceparent`.
+//! - Every call carries the task, run and conversation it belongs to, the
+//!   task's labels, its current trust, and its workspace directory, in
+//!   `_meta` (`agen/…` keys) plus the W3C `traceparent` (2.12/2.45, part).
 //! - Every call has a timeout and honours run cancellation.
+//! - An idempotent or read-only call retries once, against a freshly
+//!   reconnected server, after an uncertain-outcome failure (2.13).
 //! - Server stderr is redacted and forwarded to the agent's log.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,7 +43,7 @@ pub enum McpError {
 
 /// Live connections; dropping this closes them and kills stdio servers.
 pub struct McpConnections {
-    services: Vec<(String, RunningService<RoleClient, ()>)>,
+    services: Vec<(String, Arc<ServerConn>)>,
 }
 
 impl McpConnections {
@@ -48,20 +51,65 @@ impl McpConnections {
         self.services.iter().map(|(n, _)| n.as_str()).collect()
     }
 
-    /// Servers whose connection has closed (e.g. the process died). The
-    /// host reports itself unhealthy so its Manager replaces it.
+    /// Servers whose connection has closed (e.g. the process died) and a
+    /// reconnect (2.13, part) has not yet replaced it. A momentary lock (a
+    /// call or reconnect already in flight) reads as "not closed" rather
+    /// than blocking this sync check.
     pub fn closed_servers(&self) -> Vec<&str> {
         self.services
             .iter()
-            .filter(|(_, s)| s.is_transport_closed())
+            .filter(|(_, s)| s.is_closed())
             .map(|(n, _)| n.as_str())
             .collect()
     }
 
     pub async fn close(self) {
-        for (_, s) in self.services {
-            let _ = s.cancel().await;
-        }
+        // RunningService's own Drop (KillOnDrop for a stdio child, closing
+        // an HTTP transport) already does this once every ServerConn here
+        // drops, which this consumes.
+    }
+}
+
+/// One MCP server's live connection, reconnectable in place (2.13): a
+/// tool's call retries once, against a fresh connection, after the
+/// server's transport closes (e.g. it crashed and its supervisor
+/// restarted it) — but only for a call safe to repeat (idempotent, or
+/// read-only in the first place). `McpConnections` holds the one strong
+/// `Arc` (so dropping the agent kills the server exactly as before: a
+/// `Peer` clone, like a `Weak` one, never keeps a connection alive on its
+/// own); every `McpTool` of this server holds a `Weak` reference instead,
+/// upgraded for the moment of a call, so a reconnect replaces the
+/// connection all of them see, not just the one that happened to notice
+/// it was gone.
+struct ServerConn {
+    name: String,
+    root: PathBuf,
+    cfg: McpServer,
+    secrets: Secrets,
+    redactor: Redactor,
+    current: tokio::sync::Mutex<RunningService<RoleClient, ()>>,
+}
+
+impl ServerConn {
+    async fn peer(&self) -> Peer<RoleClient> {
+        self.current.lock().await.peer().clone()
+    }
+
+    fn is_closed(&self) -> bool {
+        self.current
+            .try_lock()
+            .map(|g| g.is_transport_closed())
+            .unwrap_or(false)
+    }
+
+    /// Connects this server fresh and swaps it in, only once the new
+    /// connection is actually up — a failed attempt never drops a
+    /// connection that still works.
+    async fn reconnect(&self) -> Result<Peer<RoleClient>, McpError> {
+        let fresh = connect_one(&self.root, &self.name, &self.cfg, &self.secrets, &self.redactor).await?;
+        let peer = fresh.peer().clone();
+        *self.current.lock().await = fresh;
+        Ok(peer)
     }
 }
 
@@ -144,6 +192,14 @@ pub async fn connect(
             .await
             .map_err(|_| McpError::Connect(name.clone(), "timed out listing tools".into()))?
             .map_err(|e| McpError::Connect(name.clone(), format!("list tools: {e}")))?;
+        let conn = Arc::new(ServerConn {
+            name: name.clone(),
+            root: bundle_root.to_path_buf(),
+            cfg: cfg.clone(),
+            secrets: secrets.clone(),
+            redactor: redactor.clone(),
+            current: tokio::sync::Mutex::new(service),
+        });
         for t in listed {
             let qualified = format!("{name}.{}", t.name);
             let hints = t.annotations.as_ref();
@@ -156,6 +212,9 @@ pub async fn connect(
             let idempotent = meta
                 .and_then(|m| m.idempotent)
                 .unwrap_or(hints.and_then(|a| a.idempotent_hint).unwrap_or(false));
+            let untrusted_output = meta
+                .and_then(|m| m.untrusted_output)
+                .unwrap_or(hints.and_then(|a| a.open_world_hint).unwrap_or(false));
             tools.push(Arc::new(McpTool {
                 spec: ToolSpec {
                     name: qualified,
@@ -165,11 +224,12 @@ pub async fn connect(
                 remote_name: t.name.to_string(),
                 side_effect,
                 idempotent,
-                peer: service.peer().clone(),
+                untrusted_output,
+                conn: Arc::downgrade(&conn),
                 timeout: opts.call_timeout,
             }));
         }
-        services.push((name.clone(), service));
+        services.push((name.clone(), conn));
     }
     Ok((McpConnections { services }, tools))
 }
@@ -286,7 +346,8 @@ struct McpTool {
     remote_name: String,
     side_effect: bool,
     idempotent: bool,
-    peer: Peer<RoleClient>,
+    untrusted_output: bool,
+    conn: std::sync::Weak<ServerConn>,
     timeout: Duration,
 }
 
@@ -304,15 +365,48 @@ impl Tool for McpTool {
         self.idempotent.then(|| crate::agent::args_hash(args))
     }
 
+    fn untrusted_output(&self) -> bool {
+        self.untrusted_output
+    }
+
     async fn call(&self, args: Value, ctx: ToolContext) -> Result<String, ToolError> {
+        let Some(conn) = self.conn.upgrade() else {
+            // The agent (the sole strong owner, via McpConnections) is
+            // gone: nothing to call, no sense reconnecting.
+            return Err(ToolError::unknown("mcp server disconnected"));
+        };
+        let peer = conn.peer().await;
+        let result = self.try_call(&peer, args.clone(), &ctx).await;
+        // Retry after a tool-server restart (2.13): once, against a fresh
+        // connection, for an uncertain-outcome failure (a transport error
+        // or a timeout, never because the caller itself cancelled) — and
+        // only for a call safe to repeat, idempotent or read-only in the
+        // first place, so making it again can't double an effect that
+        // already landed. Reconnecting when the old connection actually
+        // still worked just replaces it with another one that also
+        // works; the cost is one extra connect, not a correctness risk.
+        match &result {
+            Err(e) if e.outcome_unknown && !ctx.cancel.is_cancelled() && (self.idempotent || !self.side_effect) => {
+                match conn.reconnect().await {
+                    Ok(peer) => self.try_call(&peer, args, &ctx).await,
+                    Err(_) => result,
+                }
+            }
+            _ => result,
+        }
+    }
+}
+
+impl McpTool {
+    async fn try_call(&self, peer: &Peer<RoleClient>, args: Value, ctx: &ToolContext) -> Result<String, ToolError> {
         let mut params = CallToolRequestParams::new(self.remote_name.clone());
-        params.meta = Some(rmcp::model::RequestMetaObject(rmcp::model::MetaObject(call_meta(&ctx))));
+        params.meta = Some(rmcp::model::RequestMetaObject(rmcp::model::MetaObject(call_meta(ctx))));
         match args {
             Value::Object(map) => params = params.with_arguments(map),
             Value::Null => {}
             other => return Err(ToolError::new(format!("arguments must be an object, got {other}"))),
         }
-        let call = self.peer.call_tool(params);
+        let call = peer.call_tool(params);
         let result = tokio::select! {
             r = tokio::time::timeout(self.timeout, call) => r.map_err(|_| ToolError::unknown(format!("timed out after {:?}", self.timeout)))?,
             _ = ctx.cancel.cancelled() => return Err(ToolError::unknown("cancelled")),
@@ -360,10 +454,24 @@ fn call_meta(ctx: &ToolContext) -> serde_json::Map<String, Value> {
     );
     put("agen/conversationId", &ctx.conversation_id);
     put("agen/conversationKey", &ctx.conversation_key);
+    // 2.12, part: a tool server can see the calling run's current trust
+    // (already lowered by any taint it picked up) to decide for itself
+    // whether a sensitive action is appropriate, the same information
+    // the engine's own permission rules act on.
+    put("agen/trust", ctx.trust.as_str());
+    put("agen/workspace", &ctx.workspace_dir);
     put("traceparent", &ctx.traceparent);
     if !ctx.labels.is_empty() {
         m.insert("agen/labels".into(), serde_json::json!(ctx.labels));
     }
+    // 1.5, part: every lock this run currently holds, with its fencing
+    // token, so a tool server that owns the actual resource can reject a
+    // write tagged with a token lower than the highest it has seen.
+    let fences = ctx.lock_fences.lock().unwrap();
+    if !fences.is_empty() {
+        m.insert("agen/locks".into(), serde_json::json!(*fences));
+    }
+    drop(fences);
     m
 }
 

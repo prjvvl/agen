@@ -178,7 +178,26 @@ export interface Task {
   replyDeployment?: string;
   replyConversationKey?: string;
   parentTaskId?: string;
+  /** The tree this task belongs to: itself, for a task with no parent. */
+  rootTaskId?: string;
   depth?: number;
+  /** How the task's run ended. */
+  outcome?: Outcome;
+  /** Why a queued task has not started. */
+  waitReason?: string;
+}
+
+/** How a run ended, beyond its state. */
+export interface Outcome {
+  /** done, partial, needs_input, rejected, failed or cancelled. */
+  status: string;
+  /** Why it stopped early: max_turns, budget, duration, cancelled, error, ... */
+  reason?: string;
+  summary?: string;
+  data?: unknown;
+  artifacts?: string[];
+  /** needs_input: "caller" or "human". */
+  inputFrom?: string;
 }
 
 export interface Usage {
@@ -192,6 +211,7 @@ export interface Run {
   namespace: string;
   deployment: string;
   status: string;
+  outcome?: Outcome;
   input?: string;
   output?: string;
   error?: string;
@@ -410,6 +430,15 @@ export interface NotificationTarget {
   url: string;
   events?: string[];
   createdAt?: string;
+  deployment?: string;
+  labels?: Record<string, string>;
+  severity?: string;
+  /** Delivery state. */
+  deliveredSeq?: Int;
+  lastDeliveredAt?: string;
+  failingSince?: string;
+  lastError?: string;
+  dropped?: Int;
 }
 
 export interface ApiToken {

@@ -133,9 +133,16 @@ func (e *changeFeed) watch(ctx context.Context) {
 	}
 }
 
-// EventsHandler serves GET /api/v1/events: a text/event-stream of change
-// events for the namespaces the caller may see (approvals only with the
-// approver scope). ?namespace= narrows it to one namespace.
+// EventsHandler serves GET /api/v1/events: a text/event-stream for the
+// namespaces the caller may see (approvals only with the approver scope).
+// ?namespace= narrows it to one namespace. It carries two kinds of message:
+//   - "change": something changed, refetch it (not kept; the console uses
+//     these);
+//   - the event log (event: <type>, id: <seq>), resumable with
+//     Last-Event-ID or ?after=, filtered by ?type=, ?deployment=, ?label=
+//     and ?severity=. Without a cursor it starts at the newest event.
+//
+// ?kinds=log sends only the event log, ?kinds=changes only changes.
 func (h *Hub) EventsHandler() (string, http.Handler) {
 	return "GET /api/v1/events", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, err := h.Auth.Authenticate(r.Context(), bearer(r.Header))
@@ -152,12 +159,42 @@ func (h *Hub) EventsHandler() (string, http.Handler) {
 			http.Error(w, "namespace "+only+" is not allowed for this token", http.StatusForbidden)
 			return
 		}
+		kinds := r.URL.Query().Get("kinds")
+		if kinds != "" && kinds != "log" && kinds != "changes" {
+			http.Error(w, "kinds must be log or changes", http.StatusBadRequest)
+			return
+		}
+		lf, err := logStreamFilter(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if lf, err = eventFilter(p, only, lf); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if r.URL.Query().Get("after") == "" && r.Header.Get("Last-Event-ID") == "" {
+			if lf.AfterSeq, err = h.Store.LastEventSeq(r.Context()); err != nil {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+		}
 		rc := http.NewResponseController(w)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Accel-Buffering", "no")
-		ch, done := h.feed().subscribe()
-		defer done()
+		var ch chan Event
+		if kinds != "log" {
+			var done func()
+			ch, done = h.feed().subscribe()
+			defer done()
+		}
+		var logTick <-chan time.Time
+		if kinds != "changes" {
+			t := time.NewTicker(min(time.Second, max(2*h.Poll, 50*time.Millisecond)))
+			defer t.Stop()
+			logTick = t.C
+		}
 		if _, err := fmt.Fprint(w, "event: ready\ndata: {}\n\n"); err != nil {
 			return
 		}
@@ -175,6 +212,17 @@ func (h *Hub) EventsHandler() (string, http.Handler) {
 				}
 				if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 					return
+				}
+			case <-logTick:
+				events, next, err := h.logEvents(r.Context(), p, lf)
+				if err != nil {
+					continue
+				}
+				lf.AfterSeq = next
+				for _, e := range events {
+					if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", e.Seq, e.Type, eventJSON(e)); err != nil {
+						return
+					}
 				}
 			case ev := <-ch:
 				if !p.AllowsNamespace(ev.Namespace) || (only != "" && ev.Namespace != only) || (ev.Kind == "approval" && !p.Can(ScopeApprover)) {

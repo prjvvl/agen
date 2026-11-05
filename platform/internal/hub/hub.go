@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -31,6 +32,10 @@ type Hub struct {
 	Auth  *Auth
 	// Poll is how often GetTask(wait_seconds) re-checks a task.
 	Poll time.Duration
+	// InterruptGrace is "interrupt" queue mode's grace period (3.9, part):
+	// SubmitTask has no field of its own for a longer one, unlike
+	// CancelTask's own mode="graceful". Defaults to defaultGracePeriod.
+	InterruptGrace time.Duration
 
 	// CA is set by EnableTLS: Nests then enrol with a CSR and must present
 	// their client certificate.
@@ -44,6 +49,8 @@ type Hub struct {
 
 	evOnce sync.Once
 	ev     *changeFeed
+	// delivering: a round of notification deliveries is going.
+	delivering atomic.Bool
 
 	// Log receives operational messages (default: slog.Default()).
 	Log *slog.Logger
@@ -58,7 +65,7 @@ func (h *Hub) logger() *slog.Logger {
 
 // New creates a Hub over a store; adminToken authenticates the admin.
 func New(s *store.Store, adminToken string) *Hub {
-	return &Hub{Store: s, Auth: &Auth{AdminToken: adminToken, Store: s}, Poll: 100 * time.Millisecond}
+	return &Hub{Store: s, Auth: &Auth{AdminToken: adminToken, Store: s}, Poll: 100 * time.Millisecond, InterruptGrace: defaultGracePeriod}
 }
 
 // Handler mounts HubService (Connect, gRPC and JSON) with authentication.
@@ -127,7 +134,16 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if len(m.Triggers) > 0 {
 		p.Triggers = m.Triggers
 	}
+	if m.Conversations != nil {
+		p.Conversations = m.Conversations
+	}
 	if err := validateScale(kind, p.Scale); err != nil {
+		return nil, err
+	}
+	if err := checkConversationPolicy(p.Conversations); err != nil {
+		return nil, err
+	}
+	if err := checkBudget(p.Budget); err != nil {
 		return nil, err
 	}
 	if err := validateTriggers(p.Triggers); err != nil {
@@ -150,6 +166,7 @@ func (h *Hub) CreateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	h.deploymentEvent(ctx, "deployment.created", d.Namespace, d.Name, map[string]any{"digest": d.DefinitionDigest, "kind": d.Kind})
 	return connect.NewResponse(&agenv1.CreateDeploymentResponse{Deployment: deploymentProto(d, 0), Warnings: warnings}), nil
 }
 
@@ -203,7 +220,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		kind := cur.Kind
 		if nb != nil {
 			bp := policyFromBundle(nb)
-			kind, p.Scale, p.Triggers = nb.Kind, bp.Scale, bp.Triggers
+			kind, p.Scale, p.Triggers, p.Conversations = nb.Kind, bp.Scale, bp.Triggers, bp.Conversations
 		}
 		if m.Scale != nil {
 			p.Scale = m.Scale
@@ -211,7 +228,13 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		if len(m.Triggers) > 0 {
 			p.Triggers = m.Triggers
 		}
+		if m.Conversations != nil {
+			p.Conversations = m.Conversations
+		}
 		if err := validateScale(kind, p.Scale); err != nil {
+			return nil, err
+		}
+		if err := checkConversationPolicy(p.Conversations); err != nil {
 			return nil, err
 		}
 		if err := validateTriggers(p.Triggers); err != nil {
@@ -227,7 +250,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 			// kept. Explicit request fields below still override.
 			bp := policyFromBundle(nb)
 			d.DefinitionDigest, d.Kind = nb.Digest, nb.Kind
-			p.Scale, p.Budget, p.Limits, p.Triggers = bp.Scale, bp.Budget, bp.Limits, bp.Triggers
+			p.Scale, p.Budget, p.Limits, p.Triggers, p.Conversations = bp.Scale, bp.Budget, bp.Limits, bp.Triggers, bp.Conversations
 		}
 		if m.Scale != nil {
 			p.Scale = m.Scale
@@ -244,7 +267,16 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 		if len(m.Triggers) > 0 {
 			p.Triggers = m.Triggers
 		}
+		if m.Conversations != nil {
+			p.Conversations = m.Conversations
+		}
 		if err := validateScale(d.Kind, p.Scale); err != nil {
+			return err
+		}
+		if err := checkConversationPolicy(p.Conversations); err != nil {
+			return err
+		}
+		if err := checkBudget(p.Budget); err != nil {
 			return err
 		}
 		if err := validateTriggers(p.Triggers); err != nil {
@@ -261,6 +293,7 @@ func (h *Hub) UpdateDeployment(ctx context.Context, req *connect.Request[agenv1.
 	if err != nil {
 		return nil, connectErr(err)
 	}
+	h.deploymentEvent(ctx, "deployment.updated", d.Namespace, d.Name, map[string]any{"digest": d.DefinitionDigest})
 	return connect.NewResponse(&agenv1.UpdateDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name))), Warnings: warnings}), nil
 }
 
@@ -365,6 +398,7 @@ func (h *Hub) DeleteDeployment(ctx context.Context, req *connect.Request[agenv1.
 			h.replyResult(ctx, t)
 		}
 	}
+	h.deploymentEvent(ctx, "deployment.deleted", ns, req.Msg.GetRef().GetName(), nil)
 	return connect.NewResponse(&agenv1.DeleteDeploymentResponse{}), nil
 }
 
@@ -430,9 +464,32 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	if err := checkTier(req.Msg.ModelTier); err != nil {
 		return nil, err
 	}
+	if err := checkPriority(req.Msg.Priority); err != nil {
+		return nil, err
+	}
+	if err := checkTrust(req.Msg.Trust); err != nil {
+		return nil, err
+	}
+	if err := validateOverrides(req.Msg.Overrides); err != nil {
+		return nil, invalid(err.Error())
+	}
+	if err := checkLocks(req.Msg.Locks); err != nil {
+		return nil, err
+	}
+	if err := checkOnParentEnd(req.Msg.OnParentEnd); err != nil {
+		return nil, err
+	}
+	if err := checkDelivery(req.Msg.Delivery); err != nil {
+		return nil, err
+	}
+	trust := PrincipalFrom(ctx).Trust
+	if req.Msg.Trust != "" {
+		trust = narrowTrust(trust, req.Msg.Trust)
+	}
 	task := store.Task{Namespace: ns, Deployment: name, Input: req.Msg.Input, IdempotencyKey: req.Msg.IdempotencyKey, Source: "api",
 		SubmittedBy: PrincipalFrom(ctx).ID, ConversationKey: scopedKey("api:", req.Msg.ConversationKey), Labels: req.Msg.Labels,
-		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier}
+		MaxQueued: int(PolicyOf(d).Limits.MaxQueuedTasks), ModelTier: req.Msg.ModelTier, Overrides: overridesFromProto(req.Msg.Overrides).JSON(),
+		ScheduleKey: req.Msg.ScheduleKey, Priority: req.Msg.Priority, Trust: trust, Locks: req.Msg.Locks, OnParentEnd: req.Msg.OnParentEnd}
 	if nb := req.Msg.GetNotBefore(); nb != nil {
 		at := nb.AsTime()
 		if at.After(time.Now().Add(maxScheduleAhead)) {
@@ -440,8 +497,80 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 		}
 		task.NotBeforeMs = at.UnixMilli()
 	}
+	if na := req.Msg.GetNotAfter(); na != nil {
+		at := na.AsTime()
+		if at.After(time.Now().Add(maxScheduleAhead)) {
+			return nil, invalid(fmt.Sprintf("not_after is more than %s ahead", maxScheduleAhead))
+		}
+		if at.Before(time.Now()) {
+			return nil, invalid("not_after is in the past")
+		}
+		if nb := req.Msg.GetNotBefore(); nb != nil && !at.After(nb.AsTime()) {
+			return nil, invalid("not_after must be after not_before")
+		}
+		task.NotAfterMs = at.UnixMilli()
+	}
 	if err := h.linkToCaller(ctx, req.Header(), d, &task); err != nil {
 		return nil, err
+	}
+	cp := PolicyOf(d).Conversations
+	mode := cp.QueueMode
+	// SubmitTask.delivery (3.9, part): overrides the deployment's own
+	// queueMode for this submission only. "followup" (or any value that
+	// matches none of the cases below) always falls through to a plain
+	// queued submission, regardless of the deployment's policy.
+	if req.Msg.Delivery != "" {
+		mode = req.Msg.Delivery
+	}
+	switch {
+	// "collect" queue mode (3.9, part): merge into the conversation's
+	// still-queued task instead of queuing a separate one. Idempotency-key
+	// aware (3.9, part): MergeIntoQueuedConversationTask itself returns the
+	// earlier task instead of merging again when this submission's key was
+	// already used, by this call or an earlier merge.
+	case mode == "collect" && task.ConversationKey != "":
+		merged, ok, err := h.Store.MergeIntoQueuedConversationTask(ctx, task, conversationDebounce(cp.Debounce).Milliseconds())
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		if ok {
+			_ = h.Store.TouchActivity(ctx, ns, name)
+			return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(merged)}), nil
+		}
+	// "steer" queue mode (3.9, part): deliver into the conversation's
+	// currently running task as a "steer" run_inbox entry instead of
+	// queuing a separate one, the same fire-and-forget shape as a signal
+	// (no independent result of its own — this submission's "outcome" is
+	// whatever the steered run ends with; a caller after its own result
+	// should query the returned task, not this submission). Same
+	// idempotency-key gap as before (not addressed here: a repeated steer
+	// delivers its payload again). Nothing running right now (queued,
+	// waiting, or idle): falls through and queues normally, same as
+	// followup.
+	case mode == "steer" && task.ConversationKey != "":
+		live, err := h.Store.RunningConversationTask(ctx, ns, name, task.ConversationKey)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		if live.ID != "" {
+			if _, err := h.Store.WriteInbox(ctx, store.InboxRow{Namespace: live.Namespace, TaskID: live.ID, RunID: live.RunID, Kind: "steer", Payload: task.Input}); err != nil {
+				return nil, connectErr(err)
+			}
+			_ = h.Store.TouchActivity(ctx, ns, name)
+			return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(live)}), nil
+		}
+	// "interrupt" queue mode (3.9, part): gracefully cancel the
+	// conversation's currently running task (the same mechanism
+	// CancelTask's own mode="graceful" uses, with the default grace
+	// period — SubmitTask has no field of its own for a longer one),
+	// then queue this submission normally once the conversation is free.
+	// A run that calls finish on its own within the grace period ends
+	// however it finished, not cancelled, same as graceful cancel always
+	// does; nothing running right now falls through the same as steer.
+	case mode == "interrupt" && task.ConversationKey != "":
+		if live, err := h.Store.RunningConversationTask(ctx, ns, name, task.ConversationKey); err == nil && live.ID != "" {
+			h.interruptRunningTask(ctx, live)
+		}
 	}
 	t, err := h.Store.SubmitTask(ctx, task)
 	if err != nil {
@@ -449,6 +578,98 @@ func (h *Hub) SubmitTask(ctx context.Context, req *connect.Request[agenv1.Submit
 	}
 	_ = h.Store.TouchActivity(ctx, ns, name)
 	return connect.NewResponse(&agenv1.SubmitTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// conversationDebounce parses ConversationPolicy.debounce ("" or
+// unparseable: the default).
+func conversationDebounce(s string) time.Duration {
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d
+	}
+	return 2 * time.Second
+}
+
+// GetTaskTree returns every task of the tree a given task belongs to,
+// oldest first (3.4, part): its root (found through RootTaskID, always set)
+// and every one of the root's descendants, across however many deployments
+// they delegated to within the namespace.
+func (h *Hub) GetTaskTree(ctx context.Context, req *connect.Request[agenv1.GetTaskTreeRequest]) (*connect.Response[agenv1.GetTaskTreeResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.TaskId)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	tasks, err := h.Store.ListTaskTree(ctx, t.Namespace, t.RootTaskID)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	out := make([]*agenv1.Task, len(tasks))
+	for i, tk := range tasks {
+		out[i] = TaskProto(tk)
+	}
+	if err := h.withTraceIDs(ctx, out); err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.GetTaskTreeResponse{Tasks: out}), nil
+}
+
+// QueryTask returns a task's progress, current activity and outcome
+// without waiting on it (3.4, part): a lighter read than GetTask's
+// wait_seconds for a caller or a person checking in on long work.
+// Activity is a simplified cut of GetActivity's own (model/tool/idle/
+// approval only; it does not cover a task waiting on a delegate, nor the
+// fleet-wide warnings GetActivity computes alongside it).
+func (h *Hub) QueryTask(ctx context.Context, req *connect.Request[agenv1.QueryTaskRequest]) (*connect.Response[agenv1.QueryTaskResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	out, err := h.queryTaskProto(ctx, t)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(out), nil
+}
+
+// queryTaskProto is QueryTask's core, shared with NestAPI.QueryChildTask
+// (query_agent): a task's progress, outcome and a simplified cut of
+// GetActivity's own activity (model/tool/idle/approval only; not a task
+// waiting on a delegate, nor GetActivity's fleet-wide warnings).
+func (h *Hub) queryTaskProto(ctx context.Context, t store.Task) (*agenv1.QueryTaskResponse, error) {
+	out := &agenv1.QueryTaskResponse{Id: t.ID, State: taskStates[t.State], Outcome: outcomeProto(t.Outcome, t.State, t.Output, t.Error),
+		Progress: taskProgressProto(t.Progress)}
+	if t.Terminal() || t.RunID == "" {
+		return out, nil
+	}
+	steps, err := h.Store.OpenSteps(ctx, []string{t.RunID})
+	if err != nil {
+		return nil, err
+	}
+	approvals, err := h.Store.PendingApprovalsByRun(ctx, []string{t.RunID})
+	if err != nil {
+		return nil, err
+	}
+	st := steps[t.RunID]
+	switch {
+	case approvals[t.RunID].ID != "":
+		ap := approvals[t.RunID]
+		out.Activity, out.PendingApprovalId = "approval", ap.ID
+		out.ActivitySince = ms(ap.CreatedMs)
+	case st.Name == "gen_ai.chat":
+		out.Activity = "model"
+		out.ActivitySince = ms(st.StartMs)
+	case st.Name == "agen.tool":
+		out.Activity, out.Detail = "tool", str(st.Attributes, "gen_ai.tool.name")
+		out.ActivitySince = ms(st.StartMs)
+	default:
+		out.Activity = "idle"
+	}
+	return out, nil
 }
 
 // RunHeader names the run of the agent making a call (with TaskHeader and
@@ -468,7 +689,15 @@ func (h *Hub) linkToCaller(ctx context.Context, hdr http.Header, d store.Deploym
 	if err != nil || parent.Terminal() || !PrincipalFrom(ctx).AllowsNamespace(parent.Namespace) {
 		return nil
 	}
-	t.ParentTaskID, t.Depth, t.RootRunID = parent.ID, parent.Depth+1, parent.RootRunID
+	t.ParentTaskID, t.Depth, t.RootRunID, t.RootTaskID = parent.ID, parent.Depth+1, parent.RootRunID, parent.RootTaskID
+	parentOv, _ := store.ParseOverrides(parent.Overrides)
+	childOv, _ := store.ParseOverrides(t.Overrides)
+	combined := h.narrowForTreeBudget(ctx, parent.RootTaskID, store.CombineOverrides(parentOv, childOv))
+	t.Overrides = combined.JSON()
+	// Never more trusted than the parent's own task (its stored trust; a
+	// live run further tainted mid-run reports that directly through
+	// start_agent/call_agent instead, which this header-based path is not).
+	t.Trust = narrowTrust(t.Trust, parent.Trust)
 	if runID := hdr.Get(RunHeader); runID != "" {
 		if run, err := h.Store.GetRun(ctx, runID); err == nil && run.TaskID == parent.ID {
 			t.ParentRunID, t.Traceparent = run.ID, hdr.Get("Traceparent")
@@ -529,6 +758,7 @@ func (h *Hub) GetTask(ctx context.Context, req *connect.Request[agenv1.GetTaskRe
 				return nil, connectErr(err)
 			}
 			out.PendingApprovalId = pending[t.ID]
+			out.WaitReason = h.waitReason(ctx, t, map[string]deploymentWait{})
 		}
 		// A task that starts waiting for an approval during the wait returns
 		// early: someone has to act. (One already waiting keeps waiting, so
@@ -590,8 +820,10 @@ func (h *Hub) ListTasks(ctx context.Context, req *connect.Request[agenv1.ListTas
 		return nil, connectErr(err)
 	}
 	out := &agenv1.ListTasksResponse{}
+	waits := map[string]deploymentWait{}
 	for _, t := range list {
 		pt := TaskProto(t)
+		pt.WaitReason = h.waitReason(ctx, t, waits)
 		pt.PendingApprovalId = pending[t.ID]
 		out.Tasks = append(out.Tasks, pt)
 	}
@@ -626,6 +858,11 @@ func listLimit(requested int32, def int) int {
 	return int(requested)
 }
 
+// defaultGracePeriod and maxGracePeriod bound CancelTask's mode="graceful"
+// grace_period_seconds.
+const defaultGracePeriod = 20 * time.Second
+const maxGracePeriod = 5 * time.Minute
+
 func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.CancelTaskRequest]) (*connect.Response[agenv1.CancelTaskResponse], error) {
 	t, err := h.Store.GetTask(ctx, req.Msg.Id)
 	if err != nil {
@@ -634,6 +871,36 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	if err := requireNamespace(ctx, t.Namespace); err != nil {
 		return nil, err
 	}
+	switch req.Msg.Mode {
+	case "", "hard", "graceful":
+	default:
+		return nil, invalid(`mode must be "", "hard" or "graceful"`)
+	}
+	if req.Msg.Tree {
+		if req.Msg.Mode == "graceful" {
+			if tasks, err := h.Store.ListTaskTree(ctx, t.Namespace, t.RootTaskID); err == nil {
+				h.gracefulCancel(ctx, tasks, graceDuration(req.Msg.GracePeriodSeconds))
+			}
+		}
+		cancelled, err := h.Store.CancelTree(ctx, t.RootTaskID)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		out := make([]*agenv1.Task, len(cancelled))
+		for i, ct := range cancelled {
+			// Each cancelled child still answers the run that started it.
+			h.replyResult(ctx, ct)
+			out[i] = TaskProto(ct)
+		}
+		t, err = h.Store.GetTask(ctx, req.Msg.Id)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t), Cancelled: out}), nil
+	}
+	if req.Msg.Mode == "graceful" {
+		h.gracefulCancel(ctx, []store.Task{t}, graceDuration(req.Msg.GracePeriodSeconds))
+	}
 	t, err = h.Store.CancelTask(ctx, req.Msg.Id)
 	if err != nil {
 		return nil, connectErr(err)
@@ -641,6 +908,141 @@ func (h *Hub) CancelTask(ctx context.Context, req *connect.Request[agenv1.Cancel
 	// A cancelled child still answers the run that started it.
 	h.replyResult(ctx, t)
 	return connect.NewResponse(&agenv1.CancelTaskResponse{Task: TaskProto(t)}), nil
+}
+
+func graceDuration(seconds int32) time.Duration {
+	if seconds <= 0 {
+		return defaultGracePeriod
+	}
+	return min(time.Duration(seconds)*time.Second, maxGracePeriod)
+}
+
+// gracefulCancel writes a "cancel" run_inbox entry to every leased or
+// running task of tasks, giving its run a last turn to call finish on its
+// own (the engine drains it into a message before its next model call,
+// the same path drain_inbox/signal_agent use), then waits up to grace for
+// all of them to reach a terminal state, whichever comes first. A queued
+// or waiting task has no live turn to give a last chance to, so it is
+// left alone here. This never cancels anything itself: the hard
+// CancelTask/CancelTree call right after it is what actually stops
+// whatever is still unfinished once the grace period passes.
+func (h *Hub) gracefulCancel(ctx context.Context, tasks []store.Task, grace time.Duration) {
+	h.gracefulCancelReason(ctx, tasks, grace, "its task tree is being cancelled")
+}
+
+func (h *Hub) gracefulCancelReason(ctx context.Context, tasks []store.Task, grace time.Duration, reason string) {
+	var waitIDs []string
+	for _, t := range tasks {
+		if t.State != "leased" && t.State != "running" {
+			continue
+		}
+		if _, err := h.Store.WriteInbox(ctx, store.InboxRow{Namespace: t.Namespace, TaskID: t.ID, RunID: t.RunID, Kind: "cancel", Payload: reason}); err != nil {
+			continue
+		}
+		waitIDs = append(waitIDs, t.ID)
+	}
+	if len(waitIDs) == 0 {
+		return
+	}
+	deadline := time.Now().Add(grace)
+	for {
+		done := true
+		for _, id := range waitIDs {
+			if tk, err := h.Store.GetTask(ctx, id); err == nil && !tk.Terminal() {
+				done = false
+				break
+			}
+		}
+		if done || time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(h.Poll):
+		}
+	}
+}
+
+// interruptRunningTask gracefully cancels t (the default grace period —
+// "interrupt" queue mode has no field of its own for a longer one) then
+// hard-stops it if it is still unfinished once that passes, same as
+// CancelTask(mode="graceful") does for a caller-named task; the new
+// submission that triggered this queues normally right after, once the
+// conversation is free. Errors are swallowed: a task this cannot act on
+// (already gone) simply queues the new submission straight away.
+func (h *Hub) interruptRunningTask(ctx context.Context, t store.Task) {
+	h.gracefulCancelReason(ctx, []store.Task{t}, h.InterruptGrace, "a new message is replacing it in its conversation")
+	if ct, err := h.Store.CancelTask(ctx, t.ID); err == nil {
+		h.replyResult(ctx, ct)
+	}
+}
+
+// PauseTask holds a task (3.4, part): a queued task is skipped by leasing,
+// a running one suspends at its next model call once the engine notices.
+func (h *Hub) PauseTask(ctx context.Context, req *connect.Request[agenv1.PauseTaskRequest]) (*connect.Response[agenv1.PauseTaskResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	var untilMs int64
+	if u := req.Msg.GetUntil(); u != nil {
+		untilMs = u.AsTime().UnixMilli()
+	}
+	if req.Msg.Tree {
+		held, err := h.Store.PauseTree(ctx, t.RootTaskID, untilMs, req.Msg.Reason)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		out := make([]*agenv1.Task, len(held))
+		for i, ht := range held {
+			out[i] = TaskProto(ht)
+		}
+		t, err = h.Store.GetTask(ctx, req.Msg.Id)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		return connect.NewResponse(&agenv1.PauseTaskResponse{Task: TaskProto(t), Held: out}), nil
+	}
+	t, err = h.Store.PauseTask(ctx, req.Msg.Id, untilMs, req.Msg.Reason)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.PauseTaskResponse{Task: TaskProto(t)}), nil
+}
+
+// ResumeTask ends a hold PauseTask started (3.4, part).
+func (h *Hub) ResumeTask(ctx context.Context, req *connect.Request[agenv1.ResumeTaskRequest]) (*connect.Response[agenv1.ResumeTaskResponse], error) {
+	t, err := h.Store.GetTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	if err := requireNamespace(ctx, t.Namespace); err != nil {
+		return nil, err
+	}
+	if req.Msg.Tree {
+		resumed, err := h.Store.ResumeTree(ctx, t.RootTaskID)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		out := make([]*agenv1.Task, len(resumed))
+		for i, rt := range resumed {
+			out[i] = TaskProto(rt)
+		}
+		t, err = h.Store.GetTask(ctx, req.Msg.Id)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		return connect.NewResponse(&agenv1.ResumeTaskResponse{Task: TaskProto(t), Resumed: out}), nil
+	}
+	t, err = h.Store.ResumeTask(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connectErr(err)
+	}
+	return connect.NewResponse(&agenv1.ResumeTaskResponse{Task: TaskProto(t)}), nil
 }
 
 // ---- addressing ----
@@ -765,7 +1167,29 @@ func (h *Hub) PauseDeployment(ctx context.Context, req *connect.Request[agenv1.P
 	if err != nil {
 		return nil, connectErr(err)
 	}
-	return connect.NewResponse(&agenv1.PauseDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name)))}), nil
+	h.deploymentEvent(ctx, "deployment.updated", ns, d.Name, map[string]any{"paused": d.Paused})
+	resp := &agenv1.PauseDeploymentResponse{Deployment: h.withBudget(ctx, d, deploymentProto(d, h.ready(ctx, ns, d.Name)))}
+	switch {
+	case !d.Paused:
+		// A resume always clears any hold this RPC put in place, whether
+		// or not this call asked for hold_runs.
+		if _, err := h.Store.ResumeDeploymentHold(ctx, ns, d.Name); err != nil {
+			return nil, connectErr(err)
+		}
+	case req.Msg.HoldRuns:
+		var untilMs int64
+		if u := req.Msg.GetUntil(); u != nil {
+			untilMs = u.AsTime().UnixMilli()
+		}
+		held, err := h.Store.HoldDeployment(ctx, ns, d.Name, untilMs, req.Msg.Reason)
+		if err != nil {
+			return nil, connectErr(err)
+		}
+		for _, t := range held {
+			resp.Held = append(resp.Held, TaskProto(t))
+		}
+	}
+	return connect.NewResponse(resp), nil
 }
 
 // ---- approvals ----
@@ -821,6 +1245,14 @@ func (h *Hub) DecideApproval(ctx context.Context, req *connect.Request[agenv1.De
 	}
 	if err != nil {
 		return nil, connectErr(err)
+	}
+	if decided.TaskID != "" {
+		score, note := 0.0, "denied: "+decided.Tool
+		if decided.State == "approved" {
+			score, note = 1.0, "approved: "+decided.Tool
+		}
+		_, _ = h.Store.RecordFeedback(ctx, store.Feedback{Namespace: decided.Namespace, Deployment: decided.Deployment, TaskID: decided.TaskID,
+			Score: score, Note: note, By: "approval"})
 	}
 	return connect.NewResponse(&agenv1.DecideApprovalResponse{Approval: h.approvalProto(decided, h.principalNames(ctx))}), nil
 }
@@ -906,7 +1338,8 @@ func (h *Hub) ListTriggerEvents(ctx context.Context, req *connect.Request[agenv1
 		}
 	}
 	states := map[agenv1.TriggerEventState]string{agenv1.TriggerEventState_TRIGGER_EVENT_STATE_FIRED: "fired",
-		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_MISSED: "missed", agenv1.TriggerEventState_TRIGGER_EVENT_STATE_REJECTED: "rejected"}
+		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_MISSED: "missed", agenv1.TriggerEventState_TRIGGER_EVENT_STATE_REJECTED: "rejected",
+		agenv1.TriggerEventState_TRIGGER_EVENT_STATE_SKIPPED: "skipped"}
 	var list []store.TriggerEvent
 	for _, ns := range nss {
 		part, err := h.Store.ListTriggerEvents(ctx, ns, req.Msg.GetRef().GetName(), states[req.Msg.State], int(req.Msg.Limit))
@@ -1009,7 +1442,10 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 	if !PrincipalFrom(ctx).AllowsAllOf(req.Msg.Namespaces) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("a token limited to namespaces can only create tokens limited to some of them"))
 	}
-	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf)
+	if err := checkTrust(req.Msg.Trust); err != nil {
+		return nil, err
+	}
+	t, secret, err := h.Store.CreateAPIToken(ctx, req.Msg.Name, req.Msg.Scopes, req.Msg.Namespaces, int64(req.Msg.TtlSeconds)*1000, req.Msg.OnBehalf, req.Msg.Trust)
 	if err != nil {
 		return nil, connectErr(err)
 	}
@@ -1017,7 +1453,7 @@ func (h *Hub) CreateApiToken(ctx context.Context, req *connect.Request[agenv1.Cr
 }
 
 func tokenProto(t store.APIToken) *agenv1.ApiToken {
-	return &agenv1.ApiToken{Id: t.ID, Name: t.Name, Scopes: t.Scopes, Namespaces: t.Namespaces, CreatedAt: ms(t.CreatedMs), ExpiresAt: ms(t.ExpiresMs), Revoked: t.Revoked, OnBehalf: t.OnBehalf}
+	return &agenv1.ApiToken{Id: t.ID, Name: t.Name, Scopes: t.Scopes, Namespaces: t.Namespaces, CreatedAt: ms(t.CreatedMs), ExpiresAt: ms(t.ExpiresMs), Revoked: t.Revoked, OnBehalf: t.OnBehalf, Trust: t.Trust}
 }
 
 func (h *Hub) ListApiTokens(ctx context.Context, _ *connect.Request[agenv1.ListApiTokensRequest]) (*connect.Response[agenv1.ListApiTokensResponse], error) {
