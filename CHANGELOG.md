@@ -1,5 +1,106 @@
 # Changelog
 
+## v0.1.4
+
+### Task control
+- `start_agent` without `detach: true` now joins: the child's result lands in
+  the parent run directly, and `finish` refuses to end `done` while a joined
+  child is still unfinished (suspends instead of asking the model again).
+  `detach: true` keeps the old always-replies behavior.
+- `call_agent`'s unified path starts a delegate as a child task and waits on
+  it inline, suspending instead of blocking once `limits.inlineWait` passes;
+  `via: "a2a"` opts a delegate out to keep the plain synchronous A2A call,
+  which is the only way delegation survives a full Hub outage today.
+- `PauseTask`/`ResumeTask` (`agen pause`/`resume`), with `tree: true` to hold
+  or release a whole task tree; a held task is skipped by leasing and a
+  running one suspends at its next turn.
+- `CancelTask(mode: "graceful", grace_period_seconds)` gives a run (or a
+  whole tree) a last turn to call `finish` before the existing hard cancel
+  reaches it; `CancelTask(tree: true)` cancels a whole tree in one call.
+- `on_parent_end`: a task's own unfinished joined children are cancelled
+  when it ends (Temporal-style parent-close), scoped to joined children
+  only — `start_agent`'s async children are never touched by it.
+- `report_progress`, `QueryTask` (progress, outcome, a simplified activity
+  cut) and `agen query`; `signal_agent`/`query_agent` for a caller's own
+  descendants, delivered into a running run via its task inbox before its
+  next model call.
+- `GetTaskTree`/`agen tree <task-id>`, `Task.root_task_id`, and a task tree
+  view in the console's task detail panel.
+- Live trust now propagates through `call_agent`'s `via: "a2a"` path too,
+  closing a gap where a tainting call could be bypassed that way.
+
+### Queue modes
+- `conversations.queueMode`: `followup` (default), `collect` (merges a new
+  submission into the conversation's still-queued task instead of queuing
+  separately, with idempotency-aware merging), `steer` (delivers into the
+  running task without starting a new one) and `interrupt` (stops the
+  running task after a grace period, then queues the new one).
+- `SubmitTask.delivery` and event coalescing close out the queue modes'
+  remaining documented gaps.
+
+### Budgets
+- A tree budget (`overrides.budget` on the root task) narrows every
+  descendant's effective budget to the tree's remaining spend, re-checked
+  live on every turn so a sibling's concurrent spend is never missed.
+- Per-deployment label budgets (`labelBudgets: {"key=value": maxUsdPerDay}`)
+  exclude only the candidates carrying an exhausted label from leasing;
+  everything else in the deployment's queue is unaffected.
+- `budget.threshold` events at 50/80/100%, `GetMetrics` budget rollups, a
+  model-visible status line past 50% of any limit, cached-input token
+  weighting, and a deployment-wide hold.
+
+### Memory, artifacts and locks
+- `block:` memory providers, `memory_update` (CAS), `SetMemoryBlock`/
+  `ListMemoryBlocks`, and live `url:` context sources.
+- `save_artifact`/`read_artifact` built-ins plus `GetArtifact`/
+  `ListArtifacts`, so a tool result doesn't have to crowd the context.
+- Declared locks (`SubmitTask.locks`, waited on all at once) and mid-run
+  `acquire_lock`/`release_lock` with fencing tokens.
+- Per-task overrides narrow a task's tools, skills, budget and prompt.
+- Task workspaces (a per-task directory) and permission rule conditions.
+
+### Trust, eval and feedback
+- Trust and taint (operator > trusted > untrusted): `trustBelow` rules and
+  live taint propagation from `start_agent`.
+- `agen replay` (opt-in interaction recording, re-run a recorded run
+  offline) and `agen eval` (run scenario files against a bundle with
+  mocked tools, pass@1/pass^k), plus `deploy --require-eval` and
+  `agen eval history`.
+- `RecordFeedback`/`ListFeedback`: judgements on tasks, with approvals
+  counted as feedback too.
+
+### Scheduling and triggers
+- Cron triggers: `jitter`, `catchUpWindow`, `overlap` (`skip`/`buffer_one`),
+  `minStartSpacing`. Random triggers (`count`, `window`, `minGap`, `days`).
+  Fallback providers for the model-routing side of the same slice.
+- `notBefore`/`schedule_key` (atomic replace) and task priority (lease
+  order within a deployment's queue); `scale.reserve` and stopping
+  background-priority work first under budget pressure.
+
+### Events, notifications and run outcomes
+- A resumable event log (`ListEvents`, `agen events`) and notifications
+  from it, including budget thresholds, as events.
+- Run guards: identical-error and stuck-run detection, cut answers, and
+  hidden denied tools; the `finish` tool, a result schema, and reporting
+  at a limit instead of failing outright.
+- Conversation rollover: a running summary replaces dropped history once
+  a run outgrows `contextTokens`, instead of just truncating it.
+
+### Protocol and tools
+- A2A 1.0 and MCP 2025-11-25 version bumps with negotiation.
+- `agen/trust` on every MCP tool call's `_meta`; an idempotent or
+  read-only MCP tool call is retried once after the server dies instead
+  of failing the whole run.
+
+### Fixed along the way
+- A data race between the scheduler's fire-and-forget background work
+  (notification delivery, task-end hooks) and the test clock seam, caught
+  by `go test -race` after the hold/join/tree-budget work added two more
+  per-turn Hub round trips alongside it.
+- The live tree-budget check's Hub round trip (and the other two sharing
+  its pattern) shortened from a 10s to a 3s timeout, so an unreachable Hub
+  costs a turn 3s per check instead of stacking three full 10s waits.
+
 ## v0.1.3
 
 ### Models and providers
