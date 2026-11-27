@@ -15,6 +15,6 @@ doctest = false
 
 [dependencies]
 agen-sdk-core = { path = "../../engine/crates/agen-sdk-core" }
-pyo3 = { version = "0.29", features = ["abi3-py39"] }
+pyo3 = { version = "0.30", features = ["abi3-py39"] }
 
 [workspace]
